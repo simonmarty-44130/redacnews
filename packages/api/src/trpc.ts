@@ -7,19 +7,35 @@ export interface Context {
   db: typeof prisma;
   userId: string | null;
   organizationId: string | null;
+  cognitoId: string | null;
 }
 
 export const createTRPCContext = async (opts: {
   headers: Headers;
 }): Promise<Context> => {
-  // Extract user info from headers (set by middleware/auth)
-  const userId = opts.headers.get('x-user-id');
-  const organizationId = opts.headers.get('x-organization-id');
+  // Extract cognitoId from headers (set by auth middleware on frontend)
+  const cognitoId = opts.headers.get('x-cognito-id');
+
+  let userId: string | null = null;
+  let organizationId: string | null = null;
+
+  // Lookup user in database by cognitoId
+  if (cognitoId) {
+    const user = await prisma.user.findUnique({
+      where: { cognitoId },
+      select: { id: true, organizationId: true },
+    });
+    if (user) {
+      userId = user.id;
+      organizationId = user.organizationId;
+    }
+  }
 
   return {
     db: prisma,
     userId,
     organizationId,
+    cognitoId,
   };
 };
 

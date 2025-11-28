@@ -1,7 +1,48 @@
 import { z } from 'zod';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { router, protectedProcedure } from '../trpc';
 
+const s3Client = new S3Client({
+  region: process.env.AWS_REGION || 'eu-west-3',
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+  },
+});
+
 export const mediaRouter = router({
+  // Get presigned URL for upload
+  getUploadUrl: protectedProcedure
+    .input(
+      z.object({
+        filename: z.string(),
+        contentType: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const key = `${ctx.organizationId}/media/${Date.now()}-${input.filename}`;
+
+      const command = new PutObjectCommand({
+        Bucket: process.env.AWS_S3_BUCKET || 'redacnews-media',
+        Key: key,
+        ContentType: input.contentType,
+      });
+
+      const uploadUrl = await getSignedUrl(s3Client, command, {
+        expiresIn: 3600,
+      });
+
+      const publicUrl = process.env.AWS_CLOUDFRONT_DOMAIN
+        ? `https://${process.env.AWS_CLOUDFRONT_DOMAIN}/${key}`
+        : `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+
+      return {
+        uploadUrl,
+        key,
+        publicUrl,
+      };
+    }),
   // List media items
   list: protectedProcedure
     .input(
