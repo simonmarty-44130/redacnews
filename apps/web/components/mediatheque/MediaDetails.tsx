@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import {
@@ -16,6 +16,12 @@ import {
   Image,
   Video,
   File,
+  FileText,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
+  FolderPlus,
+  Folder,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,7 +31,15 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { trpc } from '@/lib/trpc/client';
+import { AudioWaveform } from './AudioWaveform';
 
 interface MediaDetailsProps {
   mediaId: string;
@@ -52,14 +66,30 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// MIME types supportes pour la transcription
+const TRANSCRIBABLE_MIME_TYPES = [
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/ogg',
+  'audio/flac',
+  'audio/mp4',
+  'audio/webm',
+  'video/mp4',
+  'video/webm',
+  'video/ogg',
+];
+
 export function MediaDetails({ mediaId, onClose, onDelete }: MediaDetailsProps) {
-  const { data: media, isLoading } = trpc.media.get.useQuery({ id: mediaId });
+  const { data: media, isLoading, refetch } = trpc.media.get.useQuery({ id: mediaId });
   const utils = trpc.useUtils();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [tagsInput, setTagsInput] = useState('');
   const [hasChanges, setHasChanges] = useState(false);
+  const [isPolling, setIsPolling] = useState(false);
 
   const updateMedia = trpc.media.update.useMutation({
     onSuccess: () => {
@@ -76,6 +106,80 @@ export function MediaDetails({ mediaId, onClose, onDelete }: MediaDetailsProps) 
     },
   });
 
+  // Mutation pour lancer la transcription
+  const startTranscription = trpc.media.startTranscription.useMutation({
+    onSuccess: () => {
+      utils.media.get.invalidate({ id: mediaId });
+      setIsPolling(true);
+    },
+  });
+
+  // Collections
+  const { data: collections } = trpc.media.listCollections.useQuery();
+
+  const addToCollection = trpc.media.addToCollection.useMutation({
+    onSuccess: () => {
+      utils.media.get.invalidate({ id: mediaId });
+      utils.media.listCollections.invalidate();
+    },
+  });
+
+  const removeFromCollection = trpc.media.removeFromCollection.useMutation({
+    onSuccess: () => {
+      utils.media.get.invalidate({ id: mediaId });
+      utils.media.listCollections.invalidate();
+    },
+  });
+
+  // Collections du media actuel
+  const mediaCollectionIds = media?.collections?.map((c) => c.collectionId) || [];
+
+  const handleAddToCollection = (collectionId: string) => {
+    addToCollection.mutate({ mediaItemId: mediaId, collectionId });
+  };
+
+  const handleRemoveFromCollection = (collectionId: string) => {
+    removeFromCollection.mutate({ mediaItemId: mediaId, collectionId });
+  };
+
+  // Query pour verifier le statut de transcription
+  const { data: transcriptionStatus, refetch: refetchStatus } =
+    trpc.media.getTranscriptionStatus.useQuery(
+      { mediaItemId: mediaId },
+      {
+        enabled: isPolling,
+        refetchInterval: isPolling ? 5000 : false, // Poll toutes les 5 secondes
+      }
+    );
+
+  // Verifier si le fichier est transcriptible
+  const isTranscribable = media
+    ? TRANSCRIBABLE_MIME_TYPES.includes(media.mimeType.toLowerCase())
+    : false;
+
+  // Gerer la fin du polling
+  useEffect(() => {
+    if (transcriptionStatus) {
+      if (
+        transcriptionStatus.status === 'COMPLETED' ||
+        transcriptionStatus.status === 'FAILED'
+      ) {
+        setIsPolling(false);
+        refetch(); // Rafraichir les donnees du media
+      }
+    }
+  }, [transcriptionStatus, refetch]);
+
+  // Demarrer le polling si le statut est en cours
+  useEffect(() => {
+    if (media) {
+      const status = media.transcriptionStatus;
+      if (status === 'PENDING' || status === 'IN_PROGRESS') {
+        setIsPolling(true);
+      }
+    }
+  }, [media]);
+
   useEffect(() => {
     if (media) {
       setTitle(media.title);
@@ -84,6 +188,10 @@ export function MediaDetails({ mediaId, onClose, onDelete }: MediaDetailsProps) 
       setHasChanges(false);
     }
   }, [media]);
+
+  const handleStartTranscription = useCallback(() => {
+    startTranscription.mutate({ mediaItemId: mediaId });
+  }, [mediaId, startTranscription]);
 
   const handleSave = () => {
     const tags = tagsInput
@@ -147,25 +255,29 @@ export function MediaDetails({ mediaId, onClose, onDelete }: MediaDetailsProps) 
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-6">
           {/* Preview */}
-          <div className="aspect-video bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden">
-            {media.type === 'IMAGE' ? (
-              <img
-                src={media.s3Url}
-                alt={media.title}
-                className="w-full h-full object-contain"
-              />
-            ) : media.thumbnailUrl ? (
-              <img
-                src={media.thumbnailUrl}
-                alt={media.title}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="p-4 rounded-full bg-gray-200">
-                <Icon className="h-10 w-10 text-gray-500" />
-              </div>
-            )}
-          </div>
+          {media.type === 'AUDIO' ? (
+            <AudioWaveform url={media.s3Url} />
+          ) : (
+            <div className="aspect-video bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden">
+              {media.type === 'IMAGE' ? (
+                <img
+                  src={media.s3Url}
+                  alt={media.title}
+                  className="w-full h-full object-contain"
+                />
+              ) : media.thumbnailUrl ? (
+                <img
+                  src={media.thumbnailUrl}
+                  alt={media.title}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="p-4 rounded-full bg-gray-200">
+                  <Icon className="h-10 w-10 text-gray-500" />
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Metadata */}
           <div className="space-y-3 text-sm">
@@ -250,15 +362,150 @@ export function MediaDetails({ mediaId, onClose, onDelete }: MediaDetailsProps) 
             )}
           </div>
 
+          <Separator />
+
+          {/* Collections */}
+          <div className="space-y-3">
+            <Label>Collections</Label>
+
+            {/* Collections actuelles */}
+            {media.collections && media.collections.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {media.collections.map((item) => (
+                  <Badge
+                    key={item.collectionId}
+                    variant="outline"
+                    className="text-xs cursor-pointer hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition-colors"
+                    onClick={() => handleRemoveFromCollection(item.collectionId)}
+                    title="Cliquer pour retirer"
+                  >
+                    <Folder
+                      className="h-3 w-3 mr-1"
+                      style={{ color: item.collection.color }}
+                    />
+                    {item.collection.name}
+                    <X className="h-3 w-3 ml-1" />
+                  </Badge>
+                ))}
+              </div>
+            )}
+
+            {/* Ajouter a une collection */}
+            {collections && collections.length > 0 && (
+              <Select
+                onValueChange={handleAddToCollection}
+                disabled={addToCollection.isPending}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Ajouter a une collection..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {collections
+                    .filter((c) => !mediaCollectionIds.includes(c.id))
+                    .map((collection) => (
+                      <SelectItem key={collection.id} value={collection.id}>
+                        <div className="flex items-center gap-2">
+                          <Folder
+                            className="h-4 w-4"
+                            style={{ color: collection.color }}
+                          />
+                          {collection.name}
+                        </div>
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            {(!collections || collections.length === 0) && (
+              <p className="text-xs text-gray-400">
+                Aucune collection disponible. Creez-en une depuis la barre laterale.
+              </p>
+            )}
+          </div>
+
           {/* Transcription */}
-          {media.transcription && (
+          {isTranscribable && (
             <>
               <Separator />
-              <div className="space-y-2">
-                <Label>Transcription</Label>
-                <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-700 max-h-40 overflow-auto">
-                  {media.transcription}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label>Transcription</Label>
+                  {/* Indicateur de statut */}
+                  {media.transcriptionStatus === 'PENDING' && (
+                    <div className="flex items-center gap-1.5 text-xs text-amber-600">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      <span>En attente...</span>
+                    </div>
+                  )}
+                  {media.transcriptionStatus === 'IN_PROGRESS' && (
+                    <div className="flex items-center gap-1.5 text-xs text-blue-600">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      <span>En cours...</span>
+                    </div>
+                  )}
+                  {media.transcriptionStatus === 'COMPLETED' && (
+                    <div className="flex items-center gap-1.5 text-xs text-green-600">
+                      <CheckCircle2 className="h-3 w-3" />
+                      <span>Terminee</span>
+                    </div>
+                  )}
+                  {media.transcriptionStatus === 'FAILED' && (
+                    <div className="flex items-center gap-1.5 text-xs text-red-600">
+                      <AlertCircle className="h-3 w-3" />
+                      <span>Echec</span>
+                    </div>
+                  )}
                 </div>
+
+                {/* Bouton de transcription */}
+                {(!media.transcriptionStatus || media.transcriptionStatus === 'NONE' || media.transcriptionStatus === 'FAILED') && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleStartTranscription}
+                    disabled={startTranscription.isPending}
+                    className="w-full"
+                  >
+                    {startTranscription.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Lancement...
+                      </>
+                    ) : (
+                      <>
+                        <FileText className="h-4 w-4 mr-2" />
+                        {media.transcriptionStatus === 'FAILED' ? 'Reessayer la transcription' : 'Transcrire'}
+                      </>
+                    )}
+                  </Button>
+                )}
+
+                {/* Barre de progression visuelle */}
+                {(media.transcriptionStatus === 'PENDING' || media.transcriptionStatus === 'IN_PROGRESS') && (
+                  <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+                    <p className="text-xs text-blue-700">
+                      La transcription est en cours de traitement par AWS Transcribe.
+                      Cette operation peut prendre quelques minutes selon la duree du fichier.
+                    </p>
+                  </div>
+                )}
+
+                {/* Message d'erreur */}
+                {media.transcriptionStatus === 'FAILED' && (
+                  <div className="p-3 bg-red-50 rounded-lg border border-red-100">
+                    <p className="text-xs text-red-700">
+                      La transcription a echoue. Verifiez que le fichier est un format audio/video valide et reessayez.
+                    </p>
+                  </div>
+                )}
+
+                {/* Affichage de la transcription */}
+                {media.transcription && media.transcriptionStatus === 'COMPLETED' && (
+                  <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-700 max-h-40 overflow-auto">
+                    {media.transcription}
+                  </div>
+                )}
               </div>
             </>
           )}

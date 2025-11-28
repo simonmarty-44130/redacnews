@@ -9,6 +9,7 @@ import {
   MediaFilters,
   MediaDetails,
   UploadZone,
+  CollectionsSidebar,
 } from '@/components/mediatheque';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -17,6 +18,7 @@ import { cn } from '@/lib/utils';
 interface Filters {
   search: string;
   type: string;
+  collectionId: string | null;
 }
 
 interface PlayingMedia {
@@ -33,6 +35,7 @@ export default function MediathequePage() {
   const [filters, setFilters] = useState<Filters>({
     search: '',
     type: 'all',
+    collectionId: null,
   });
 
   const { data: mediaItems, isLoading } = trpc.media.list.useQuery({
@@ -41,6 +44,7 @@ export default function MediathequePage() {
         ? (filters.type as 'AUDIO' | 'VIDEO' | 'IMAGE' | 'DOCUMENT')
         : undefined,
     search: filters.search || undefined,
+    collectionId: filters.collectionId || undefined,
   });
 
   const handlePlay = (media: {
@@ -83,8 +87,8 @@ export default function MediathequePage() {
           <UploadZone />
         </div>
         <MediaFilters
-          filters={filters}
-          onFiltersChange={setFilters}
+          filters={{ search: filters.search, type: filters.type }}
+          onFiltersChange={(newFilters) => setFilters({ ...filters, ...newFilters })}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
         />
@@ -92,6 +96,16 @@ export default function MediathequePage() {
 
       {/* Main content */}
       <div className="flex-1 flex overflow-hidden">
+        {/* Collections sidebar */}
+        <CollectionsSidebar
+          selectedCollectionId={filters.collectionId}
+          onSelectCollection={(collectionId) =>
+            setFilters({ ...filters, collectionId })
+          }
+          selectedType={filters.type}
+          onSelectType={(type) => setFilters({ ...filters, type })}
+        />
+
         {/* Media grid/list */}
         <div className="flex-1 overflow-hidden">
           <ScrollArea className="h-full">
@@ -135,7 +149,7 @@ export default function MediathequePage() {
                   <Inbox className="h-16 w-16 mb-4 text-gray-300" />
                   <p className="font-medium">Aucun fichier</p>
                   <p className="text-sm mt-1">
-                    {filters.search || filters.type !== 'all'
+                    {filters.search || filters.type !== 'all' || filters.collectionId
                       ? 'Aucun fichier ne correspond aux filtres'
                       : 'Uploadez votre premier fichier pour commencer'}
                   </p>

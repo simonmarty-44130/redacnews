@@ -215,6 +215,49 @@ export const mediaRouter = router({
       });
     }),
 
+  // Add media to collection
+  addToCollection: protectedProcedure
+    .input(
+      z.object({
+        mediaItemId: z.string(),
+        collectionId: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Get the highest position in the collection
+      const lastItem = await ctx.db.collectionItem.findFirst({
+        where: { collectionId: input.collectionId },
+        orderBy: { position: 'desc' },
+      });
+
+      return ctx.db.collectionItem.create({
+        data: {
+          mediaItemId: input.mediaItemId,
+          collectionId: input.collectionId,
+          position: (lastItem?.position ?? 0) + 1,
+        },
+      });
+    }),
+
+  // Remove media from collection
+  removeFromCollection: protectedProcedure
+    .input(
+      z.object({
+        mediaItemId: z.string(),
+        collectionId: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.collectionItem.delete({
+        where: {
+          collectionId_mediaItemId: {
+            collectionId: input.collectionId,
+            mediaItemId: input.mediaItemId,
+          },
+        },
+      });
+    }),
+
   // Start transcription for a media item
   startTranscription: protectedProcedure
     .input(
