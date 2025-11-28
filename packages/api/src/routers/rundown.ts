@@ -147,4 +147,50 @@ export const rundownRouter = router({
         where: { id: input.id },
       });
     }),
+
+  // Update item
+  updateItem: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        title: z.string().optional(),
+        duration: z.number().optional(),
+        status: z.enum(['PENDING', 'IN_PROGRESS', 'READY', 'ON_AIR', 'DONE']).optional(),
+        notes: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+      return ctx.db.rundownItem.update({
+        where: { id },
+        data,
+      });
+    }),
+
+  // List shows
+  listShows: protectedProcedure.query(async ({ ctx }) => {
+    return ctx.db.show.findMany({
+      where: { organizationId: ctx.organizationId! },
+      orderBy: { name: 'asc' },
+    });
+  }),
+
+  // Create show
+  createShow: protectedProcedure
+    .input(
+      z.object({
+        name: z.string(),
+        description: z.string().optional(),
+        defaultDuration: z.number().optional(),
+        color: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return ctx.db.show.create({
+        data: {
+          ...input,
+          organizationId: ctx.organizationId!,
+        },
+      });
+    }),
 });
