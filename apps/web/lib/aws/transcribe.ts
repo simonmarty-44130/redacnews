@@ -4,6 +4,7 @@ import {
   GetTranscriptionJobCommand,
   DeleteTranscriptionJobCommand,
   TranscriptionJob,
+  LanguageCode,
 } from '@aws-sdk/client-transcribe';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 
@@ -36,7 +37,7 @@ export interface TranscriptionResult {
 export async function startTranscription(
   mediaItemId: string,
   s3Key: string,
-  languageCode: string = 'fr-FR'
+  languageCode: LanguageCode = LanguageCode.FR_FR
 ): Promise<string> {
   const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
   const jobName = `redacnews-${mediaItemId}-${Date.now()}`;

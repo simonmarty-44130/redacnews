@@ -30,7 +30,14 @@ interface RundownItemData {
   position: number;
   status: 'PENDING' | 'IN_PROGRESS' | 'READY' | 'ON_AIR' | 'DONE';
   notes?: string | null;
+  storyId?: string | null;
+  assigneeId?: string | null;
   story?: { title: string } | null;
+  assignee?: { id: string; firstName?: string | null; lastName?: string | null } | null;
+  rundownId?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+  media?: unknown[];
 }
 
 interface RundownItemProps {

@@ -5,6 +5,7 @@ import {
   TranscribeClient,
   StartTranscriptionJobCommand,
   GetTranscriptionJobCommand,
+  LanguageCode,
 } from '@aws-sdk/client-transcribe';
 import { router, protectedProcedure } from '../trpc';
 
@@ -241,7 +242,7 @@ export const mediaRouter = router({
       await transcribeClient.send(
         new StartTranscriptionJobCommand({
           TranscriptionJobName: jobName,
-          LanguageCode: input.languageCode || 'fr-FR',
+          LanguageCode: (input.languageCode as LanguageCode) || LanguageCode.FR_FR,
           Media: {
             MediaFileUri: `s3://${bucket}/${mediaItem.s3Key}`,
           },

@@ -11,6 +11,9 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import type { RouterOutputs } from '@redacnews/api';
+
+type Rundown = RouterOutputs['rundown']['list'][number];
 
 const statusColors = {
   DRAFT: 'bg-gray-100 text-gray-700',
@@ -66,7 +69,7 @@ export default function ConducteurPage() {
                   ))}
                 </>
               ) : rundowns && rundowns.length > 0 ? (
-                rundowns.map((rundown) => (
+                rundowns.map((rundown: Rundown) => (
                   <Card
                     key={rundown.id}
                     className={cn(
