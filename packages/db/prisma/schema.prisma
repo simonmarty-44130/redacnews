@@ -1,0 +1,278 @@
+// packages/db/prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============ ORGANISATION ============
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  logo      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users       User[]
+  shows       Show[]
+  stories     Story[]
+  mediaItems  MediaItem[]
+  collections Collection[]
+}
+
+model User {
+  id             String   @id @default(cuid())
+  cognitoId      String   @unique  // Amazon Cognito User Sub
+  email          String   @unique
+  firstName      String?
+  lastName       String?
+  avatarUrl      String?
+  role           UserRole @default(JOURNALIST)
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  stories         Story[]         @relation("StoryAuthor")
+  assignedStories Story[]         @relation("StoryAssignee")
+  rundownItems    RundownItem[]
+  mediaItems      MediaItem[]
+  comments        Comment[]
+}
+
+enum UserRole {
+  ADMIN
+  EDITOR_IN_CHIEF
+  JOURNALIST
+  TECHNICIAN
+  FREELANCER
+}
+
+// ============ EMISSIONS & CONDUCTEURS ============
+
+model Show {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  defaultDuration Int      @default(60) // minutes
+  color          String   @default("#3B82F6")
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  rundowns     Rundown[]
+}
+
+model Rundown {
+  id          String        @id @default(cuid())
+  showId      String
+  date        DateTime
+  status      RundownStatus @default(DRAFT)
+  notes       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  show  Show          @relation(fields: [showId], references: [id])
+  items RundownItem[]
+}
+
+enum RundownStatus {
+  DRAFT
+  READY
+  ON_AIR
+  ARCHIVED
+}
+
+model RundownItem {
+  id          String          @id @default(cuid())
+  rundownId   String
+  storyId     String?
+  type        RundownItemType
+  title       String
+  duration    Int             // secondes
+  position    Int
+  notes       String?
+  status      ItemStatus      @default(PENDING)
+  assigneeId  String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  rundown  Rundown  @relation(fields: [rundownId], references: [id], onDelete: Cascade)
+  story    Story?   @relation(fields: [storyId], references: [id])
+  assignee User?    @relation(fields: [assigneeId], references: [id])
+  media    RundownItemMedia[]
+}
+
+enum RundownItemType {
+  STORY       // Sujet redactionnel
+  INTERVIEW   // Interview/Son
+  JINGLE      // Virgule/Jingle
+  MUSIC       // Musique
+  LIVE        // Direct
+  BREAK       // Pause pub
+  OTHER       // Autre
+}
+
+enum ItemStatus {
+  PENDING
+  IN_PROGRESS
+  READY
+  ON_AIR
+  DONE
+}
+
+model RundownItemMedia {
+  id            String @id @default(cuid())
+  rundownItemId String
+  mediaItemId   String
+  position      Int
+
+  rundownItem RundownItem @relation(fields: [rundownItemId], references: [id], onDelete: Cascade)
+  mediaItem   MediaItem   @relation(fields: [mediaItemId], references: [id])
+}
+
+// ============ SUJETS ============
+
+model Story {
+  id             String      @id @default(cuid())
+  title          String
+  slug           String
+  googleDocId    String?     // ID du Google Doc lie
+  googleDocUrl   String?
+  content        String?     @db.Text // Backup du contenu
+  summary        String?
+  status         StoryStatus @default(DRAFT)
+  category       String?
+  tags           String[]
+  estimatedDuration Int?     // secondes
+  authorId       String
+  assigneeId     String?
+  organizationId String
+  publishedAt    DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  author       User          @relation("StoryAuthor", fields: [authorId], references: [id])
+  assignee     User?         @relation("StoryAssignee", fields: [assigneeId], references: [id])
+  organization Organization  @relation(fields: [organizationId], references: [id])
+
+  rundownItems RundownItem[]
+  media        StoryMedia[]
+  comments     Comment[]
+}
+
+enum StoryStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  PUBLISHED
+  ARCHIVED
+}
+
+model StoryMedia {
+  id          String @id @default(cuid())
+  storyId     String
+  mediaItemId String
+  position    Int
+  notes       String?
+
+  story     Story     @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  mediaItem MediaItem @relation(fields: [mediaItemId], references: [id])
+}
+
+// ============ MEDIATHEQUE ============
+
+model MediaItem {
+  id              String        @id @default(cuid())
+  title           String
+  description     String?
+  type            MediaType
+  mimeType        String
+  fileSize        Int           // bytes
+  duration        Int?          // secondes (pour audio/video)
+  s3Key           String
+  s3Url           String
+  thumbnailUrl    String?
+  waveformData    Json?         // Donnees waveform pour affichage
+  transcription   String?       @db.Text
+  transcriptionStatus TranscriptionStatus @default(NONE)
+  tags            String[]
+  uploadedById    String
+  organizationId  String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  uploadedBy   User         @relation(fields: [uploadedById], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  collections     CollectionItem[]
+  storyMedia      StoryMedia[]
+  rundownItemMedia RundownItemMedia[]
+}
+
+enum MediaType {
+  AUDIO
+  VIDEO
+  IMAGE
+  DOCUMENT
+}
+
+enum TranscriptionStatus {
+  NONE
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+model Collection {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  color          String   @default("#6366F1")
+  isPublic       Boolean  @default(true)
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  items        CollectionItem[]
+}
+
+model CollectionItem {
+  id           String @id @default(cuid())
+  collectionId String
+  mediaItemId  String
+  position     Int
+  addedAt      DateTime @default(now())
+
+  collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  mediaItem  MediaItem  @relation(fields: [mediaItemId], references: [id])
+
+  @@unique([collectionId, mediaItemId])
+}
+
+// ============ COMMENTAIRES ============
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String
+  storyId   String
+  authorId  String
+  parentId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  story    Story     @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  author   User      @relation(fields: [authorId], references: [id])
+  parent   Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies  Comment[] @relation("CommentReplies")
+}
