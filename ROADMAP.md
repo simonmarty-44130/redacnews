@@ -7,7 +7,7 @@
 
 ## ÉTAT ACTUEL
 
-### Fait (Setup + Features P1)
+### Fait (Setup + P1 + P2)
 
 | Module | Fonctionnalité | Statut |
 |--------|----------------|--------|
@@ -32,45 +32,14 @@
 | **Médiathèque** | Interface grille/liste | Done |
 | **Médiathèque** | Player audio inline | Done |
 | **Médiathèque** | AWS Transcribe (routes API) | Done |
+| **Médiathèque** | Bouton transcription + statut | Done |
+| **Médiathèque** | Waveform audio (wavesurfer.js) | Done |
+| **Médiathèque** | Collections (sidebar + gestion) | Done |
+| **Médiathèque** | Filtrage par collection | Done |
 
 ---
 
-## PROCHAINE SESSION - P2 : Finalisation Médiathèque
-
-### 1. Bouton de transcription dans MediaDetails
-**Priorité : Haute**
-
-```
-Fichier à modifier : apps/web/components/mediatheque/MediaDetails.tsx
-
-Ajouter :
-- Bouton "Transcrire" si le fichier est audio/vidéo
-- Indicateur de statut (PENDING, IN_PROGRESS, COMPLETED, FAILED)
-- Affichage de la transcription quand disponible
-- Polling du statut pendant le traitement
-```
-
-### 2. Waveform pour les fichiers audio
-**Priorité : Moyenne**
-
-```
-- Installer wavesurfer.js
-- Afficher la forme d'onde dans MediaDetails
-- Permettre la navigation dans l'audio via la waveform
-```
-
-### 3. Collections (dossiers partagés)
-**Priorité : Moyenne**
-
-```
-- Interface de création de collection
-- Drag & drop de médias dans les collections
-- Filtrage par collection dans la médiathèque
-```
-
----
-
-## SESSION SUIVANTE - P3 : Prompteur
+## PROCHAINE SESSION - P3 : Prompteur
 
 ### 1. Interface prompteur fullscreen
 ```
@@ -217,13 +186,13 @@ Copier ce message :
 Je continue le développement de RédacNews.
 
 Contexte :
-- Les features P1 sont terminées (Yjs, Google Docs, AWS Transcribe)
+- Setup + P1 + P2 terminés (Conducteur, Sujets, Médiathèque complète)
 - Le build passe sans erreur
-- Prochaine étape : P2 - Finalisation Médiathèque
+- Prochaine étape : P3 - Prompteur
 
 Tâche prioritaire :
-Ajouter le bouton de transcription et l'affichage du statut dans
-MediaDetails.tsx pour permettre de transcrire les fichiers audio/vidéo.
+Implémenter l'interface prompteur fullscreen avec synchronisation
+au conducteur actif.
 
 Consulte la doc :
 - /Users/directionradiofidelite/projects/RedacNews/CLAUDE.md
