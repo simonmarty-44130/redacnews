@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, FileText } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import { trpc } from '@/lib/trpc/client';
 
 const CATEGORIES = [
@@ -43,26 +44,50 @@ export function CreateStoryDialog({ onSuccess }: CreateStoryDialogProps) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState<string>('');
+  const [withGoogleDoc, setWithGoogleDoc] = useState(true);
 
   const utils = trpc.useUtils();
+
   const createStory = trpc.story.create.useMutation({
     onSuccess: (data) => {
       utils.story.list.invalidate();
       setOpen(false);
-      setTitle('');
-      setCategory('');
+      resetForm();
       onSuccess?.(data.id);
     },
   });
+
+  const createWithGoogleDoc = trpc.story.createWithGoogleDoc.useMutation({
+    onSuccess: (data) => {
+      utils.story.list.invalidate();
+      setOpen(false);
+      resetForm();
+      onSuccess?.(data.id);
+    },
+  });
+
+  const resetForm = () => {
+    setTitle('');
+    setCategory('');
+    setWithGoogleDoc(true);
+  };
+
+  const isPending = createStory.isPending || createWithGoogleDoc.isPending;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
 
-    createStory.mutate({
+    const payload = {
       title: title.trim(),
       category: category || undefined,
-    });
+    };
+
+    if (withGoogleDoc) {
+      createWithGoogleDoc.mutate(payload);
+    } else {
+      createStory.mutate(payload);
+    }
   };
 
   return (
@@ -107,6 +132,42 @@ export function CreateStoryDialog({ onSuccess }: CreateStoryDialogProps) {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Google Docs option */}
+            <div className="grid gap-2">
+              <Label>Mode d'edition</Label>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={withGoogleDoc ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setWithGoogleDoc(true)}
+                  className="flex-1"
+                >
+                  <FileText className="h-4 w-4 mr-2" />
+                  Google Docs
+                  {withGoogleDoc && (
+                    <Badge variant="secondary" className="ml-2 text-xs">
+                      Recommande
+                    </Badge>
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant={!withGoogleDoc ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setWithGoogleDoc(false)}
+                  className="flex-1"
+                >
+                  Texte local
+                </Button>
+              </div>
+              <p className="text-xs text-gray-500">
+                {withGoogleDoc
+                  ? 'Un document Google sera cree pour la collaboration en temps reel.'
+                  : 'Le texte sera stocke localement (pas de collaboration Google Docs).'}
+              </p>
+            </div>
           </div>
           <DialogFooter>
             <Button
@@ -116,11 +177,12 @@ export function CreateStoryDialog({ onSuccess }: CreateStoryDialogProps) {
             >
               Annuler
             </Button>
-            <Button
-              type="submit"
-              disabled={!title.trim() || createStory.isPending}
-            >
-              {createStory.isPending ? 'Creation...' : 'Creer'}
+            <Button type="submit" disabled={!title.trim() || isPending}>
+              {isPending
+                ? withGoogleDoc
+                  ? 'Creation du document...'
+                  : 'Creation...'
+                : 'Creer'}
             </Button>
           </DialogFooter>
         </form>

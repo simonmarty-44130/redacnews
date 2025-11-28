@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Save, Clock, Tag, User, FileText, Trash2 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Save, Clock, Tag, User, FileText, Trash2, RefreshCw, Link2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,6 +16,8 @@ import {
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { GoogleDocEmbed } from './GoogleDocEmbed';
 import { trpc } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
 
@@ -68,6 +70,12 @@ export function StoryEditor({ storyId, onClose, onDelete }: StoryEditorProps) {
     onSuccess: () => {
       utils.story.list.invalidate();
       onDelete?.();
+    },
+  });
+
+  const syncGoogleDoc = trpc.story.syncGoogleDoc.useMutation({
+    onSuccess: () => {
+      utils.story.get.invalidate({ id: storyId });
     },
   });
 
@@ -266,26 +274,94 @@ export function StoryEditor({ storyId, onClose, onDelete }: StoryEditorProps) {
 
           <Separator />
 
-          {/* Content editor */}
-          <div className="space-y-2">
-            <Label htmlFor="content">Contenu</Label>
-            <Textarea
-              id="content"
-              value={content}
-              onChange={(e) => handleContentChange(e.target.value)}
-              placeholder="Redigez votre sujet ici...
+          {/* Content editor - Google Docs or Local */}
+          {story.googleDocId ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Contenu</Label>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => syncGoogleDoc.mutate({ id: storyId })}
+                    disabled={syncGoogleDoc.isPending}
+                  >
+                    <RefreshCw
+                      className={cn(
+                        'h-4 w-4 mr-2',
+                        syncGoogleDoc.isPending && 'animate-spin'
+                      )}
+                    />
+                    {syncGoogleDoc.isPending ? 'Synchronisation...' : 'Synchroniser'}
+                  </Button>
+                </div>
+              </div>
+
+              <Tabs defaultValue="editor" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="editor">Editeur Google Docs</TabsTrigger>
+                  <TabsTrigger value="backup">Texte local (backup)</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="editor" className="mt-2">
+                  <GoogleDocEmbed
+                    docId={story.googleDocId}
+                    docUrl={story.googleDocUrl || undefined}
+                    className="min-h-[500px]"
+                    onContentChange={() => {
+                      // Auto-sync after a delay
+                      setTimeout(() => {
+                        syncGoogleDoc.mutate({ id: storyId });
+                      }, 5000);
+                    }}
+                  />
+                </TabsContent>
+
+                <TabsContent value="backup" className="mt-2">
+                  <Textarea
+                    id="content"
+                    value={content}
+                    onChange={(e) => handleContentChange(e.target.value)}
+                    placeholder="Ce texte est une copie de sauvegarde du Google Doc.
+Pour editer le contenu principal, utilisez l'onglet Google Docs."
+                    className="min-h-[400px] font-mono text-base leading-relaxed"
+                  />
+                  <p className="text-xs text-gray-500 mt-2">
+                    {content.trim().split(/\s+/).filter(Boolean).length} mots
+                    {estimatedDuration
+                      ? ` - environ ${formatDuration(estimatedDuration)} de lecture`
+                      : ''}
+                  </p>
+                </TabsContent>
+              </Tabs>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="content">Contenu</Label>
+                <Badge variant="outline" className="text-xs">
+                  <Link2 className="h-3 w-3 mr-1" />
+                  Pas de Google Doc lie
+                </Badge>
+              </div>
+              <Textarea
+                id="content"
+                value={content}
+                onChange={(e) => handleContentChange(e.target.value)}
+                placeholder="Redigez votre sujet ici...
 
 Utilisez des paragraphes courts pour faciliter la lecture a l'antenne.
 Chaque phrase devrait etre comprehensible independamment."
-              className="min-h-[400px] font-mono text-base leading-relaxed"
-            />
-            <p className="text-xs text-gray-500">
-              {content.trim().split(/\s+/).filter(Boolean).length} mots
-              {estimatedDuration
-                ? ` - environ ${formatDuration(estimatedDuration)} de lecture`
-                : ''}
-            </p>
-          </div>
+                className="min-h-[400px] font-mono text-base leading-relaxed"
+              />
+              <p className="text-xs text-gray-500">
+                {content.trim().split(/\s+/).filter(Boolean).length} mots
+                {estimatedDuration
+                  ? ` - environ ${formatDuration(estimatedDuration)} de lecture`
+                  : ''}
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>

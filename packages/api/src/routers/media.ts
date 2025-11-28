@@ -1,7 +1,15 @@
 import { z } from 'zod';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import {
+  TranscribeClient,
+  StartTranscriptionJobCommand,
+  GetTranscriptionJobCommand,
+} from '@aws-sdk/client-transcribe';
 import { router, protectedProcedure } from '../trpc';
+
+// Transcription job name storage (in production, store in DB)
+const transcriptionJobs = new Map<string, string>(); // mediaItemId -> jobName
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION || 'eu-west-3',
@@ -10,6 +18,29 @@ const s3Client = new S3Client({
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
   },
 });
+
+const transcribeClient = new TranscribeClient({
+  region: process.env.AWS_REGION || 'eu-west-3',
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+  },
+});
+
+// Supported audio/video formats for transcription
+const TRANSCRIBABLE_MIME_TYPES = [
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/ogg',
+  'audio/flac',
+  'audio/mp4',
+  'audio/webm',
+  'video/mp4',
+  'video/webm',
+  'video/ogg',
+];
 
 export const mediaRouter = router({
   // Get presigned URL for upload
@@ -181,5 +212,193 @@ export const mediaRouter = router({
           organizationId: ctx.organizationId!,
         },
       });
+    }),
+
+  // Start transcription for a media item
+  startTranscription: protectedProcedure
+    .input(
+      z.object({
+        mediaItemId: z.string(),
+        languageCode: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const mediaItem = await ctx.db.mediaItem.findUniqueOrThrow({
+        where: { id: input.mediaItemId },
+      });
+
+      // Check if mime type is supported
+      if (!TRANSCRIBABLE_MIME_TYPES.includes(mediaItem.mimeType.toLowerCase())) {
+        throw new Error(
+          `File type ${mediaItem.mimeType} is not supported for transcription`
+        );
+      }
+
+      const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
+      const jobName = `redacnews-${input.mediaItemId}-${Date.now()}`;
+
+      // Start transcription job
+      await transcribeClient.send(
+        new StartTranscriptionJobCommand({
+          TranscriptionJobName: jobName,
+          LanguageCode: input.languageCode || 'fr-FR',
+          Media: {
+            MediaFileUri: `s3://${bucket}/${mediaItem.s3Key}`,
+          },
+          OutputBucketName: bucket,
+          OutputKey: `transcriptions/${input.mediaItemId}.json`,
+          Settings: {
+            ShowSpeakerLabels: true,
+            MaxSpeakerLabels: 10,
+          },
+        })
+      );
+
+      // Store job name for later retrieval
+      transcriptionJobs.set(input.mediaItemId, jobName);
+
+      // Update media item status
+      await ctx.db.mediaItem.update({
+        where: { id: input.mediaItemId },
+        data: { transcriptionStatus: 'PENDING' },
+      });
+
+      return { jobName, status: 'PENDING' };
+    }),
+
+  // Get transcription status and result
+  getTranscriptionStatus: protectedProcedure
+    .input(z.object({ mediaItemId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const mediaItem = await ctx.db.mediaItem.findUniqueOrThrow({
+        where: { id: input.mediaItemId },
+      });
+
+      // If already completed, return the stored transcription
+      if (mediaItem.transcriptionStatus === 'COMPLETED' && mediaItem.transcription) {
+        return {
+          status: 'COMPLETED',
+          transcription: mediaItem.transcription,
+        };
+      }
+
+      // Get job name from memory or try to reconstruct it
+      let jobName = transcriptionJobs.get(input.mediaItemId);
+
+      if (!jobName && mediaItem.transcriptionStatus === 'IN_PROGRESS') {
+        // Job name not in memory, return current status from DB
+        return {
+          status: mediaItem.transcriptionStatus,
+          transcription: null,
+        };
+      }
+
+      if (!jobName) {
+        return {
+          status: mediaItem.transcriptionStatus || 'NONE',
+          transcription: null,
+        };
+      }
+
+      try {
+        const response = await transcribeClient.send(
+          new GetTranscriptionJobCommand({
+            TranscriptionJobName: jobName,
+          })
+        );
+
+        const job = response.TranscriptionJob;
+        const status = job?.TranscriptionJobStatus;
+
+        if (status === 'COMPLETED' && job?.Transcript?.TranscriptFileUri) {
+          // Fetch transcription from S3
+          const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
+          const outputKey = `transcriptions/${input.mediaItemId}.json`;
+
+          const { GetObjectCommand } = await import('@aws-sdk/client-s3');
+          const { S3Client } = await import('@aws-sdk/client-s3');
+
+          const s3 = new S3Client({
+            region: process.env.AWS_REGION || 'eu-west-3',
+            credentials: {
+              accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+              secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+            },
+          });
+
+          const s3Response = await s3.send(
+            new GetObjectCommand({
+              Bucket: bucket,
+              Key: outputKey,
+            })
+          );
+
+          const bodyString = await s3Response.Body?.transformToString();
+          let transcription = '';
+
+          if (bodyString) {
+            const data = JSON.parse(bodyString);
+            const transcripts = data.results?.transcripts;
+            if (transcripts && transcripts.length > 0) {
+              transcription = transcripts.map((t: any) => t.transcript).join('\n\n');
+            }
+          }
+
+          // Update media item with transcription
+          await ctx.db.mediaItem.update({
+            where: { id: input.mediaItemId },
+            data: {
+              transcription,
+              transcriptionStatus: 'COMPLETED',
+            },
+          });
+
+          // Clean up job name from memory
+          transcriptionJobs.delete(input.mediaItemId);
+
+          return { status: 'COMPLETED', transcription };
+        }
+
+        if (status === 'FAILED') {
+          await ctx.db.mediaItem.update({
+            where: { id: input.mediaItemId },
+            data: { transcriptionStatus: 'FAILED' },
+          });
+
+          transcriptionJobs.delete(input.mediaItemId);
+
+          return {
+            status: 'FAILED',
+            error: job?.FailureReason || 'Transcription failed',
+          };
+        }
+
+        // Update status in DB
+        if (status === 'IN_PROGRESS') {
+          await ctx.db.mediaItem.update({
+            where: { id: input.mediaItemId },
+            data: { transcriptionStatus: 'IN_PROGRESS' },
+          });
+        }
+
+        return { status: status || 'UNKNOWN', transcription: null };
+      } catch (error) {
+        console.error('Error getting transcription status:', error);
+        return {
+          status: mediaItem.transcriptionStatus || 'NONE',
+          transcription: null,
+        };
+      }
+    }),
+
+  // Check if a file is transcribable
+  isTranscribable: protectedProcedure
+    .input(z.object({ mimeType: z.string() }))
+    .query(({ input }) => {
+      return {
+        isTranscribable: TRANSCRIBABLE_MIME_TYPES.includes(
+          input.mimeType.toLowerCase()
+        ),
+      };
     }),
 });

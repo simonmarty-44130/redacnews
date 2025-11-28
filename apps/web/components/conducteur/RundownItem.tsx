@@ -38,6 +38,8 @@ interface RundownItemProps {
   startTime: string;
   onDelete?: () => void;
   onStatusChange?: (status: RundownItemData['status']) => void;
+  onFocus?: () => void; // For collaborative cursor tracking
+  onBlur?: () => void;
 }
 
 const typeConfig = {
@@ -69,6 +71,8 @@ export function RundownItem({
   startTime,
   onDelete,
   onStatusChange,
+  onFocus,
+  onBlur,
 }: RundownItemProps) {
   const {
     attributes,
@@ -97,6 +101,11 @@ export function RundownItem({
         isDragging && 'opacity-50 shadow-lg',
         item.status === 'ON_AIR' && 'ring-2 ring-red-500 bg-red-50'
       )}
+      onMouseEnter={onFocus}
+      onMouseLeave={onBlur}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      tabIndex={0}
     >
       {/* Drag handle */}
       <button

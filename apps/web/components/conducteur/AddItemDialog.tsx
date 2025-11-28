@@ -33,12 +33,20 @@ const ITEM_TYPES = [
   { value: 'OTHER', label: 'Autre' },
 ];
 
+interface AddItemInput {
+  type: 'STORY' | 'INTERVIEW' | 'JINGLE' | 'MUSIC' | 'LIVE' | 'BREAK' | 'OTHER';
+  title: string;
+  duration: number;
+  storyId?: string;
+}
+
 interface AddItemDialogProps {
   rundownId: string;
   onSuccess?: () => void;
+  onAddItem?: (item: AddItemInput) => void; // Collaborative mode callback
 }
 
-export function AddItemDialog({ rundownId, onSuccess }: AddItemDialogProps) {
+export function AddItemDialog({ rundownId, onSuccess, onAddItem }: AddItemDialogProps) {
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<string>('STORY');
   const [title, setTitle] = useState('');
@@ -69,12 +77,25 @@ export function AddItemDialog({ rundownId, onSuccess }: AddItemDialogProps) {
     const duration =
       parseInt(durationMins || '0') * 60 + parseInt(durationSecs || '0');
 
-    addItem.mutate({
-      rundownId,
-      type: type as 'STORY' | 'INTERVIEW' | 'JINGLE' | 'MUSIC' | 'LIVE' | 'BREAK' | 'OTHER',
+    const itemData: AddItemInput = {
+      type: type as AddItemInput['type'],
       title: title.trim(),
       duration,
-    });
+    };
+
+    // Use collaborative callback if provided
+    if (onAddItem) {
+      onAddItem(itemData);
+      setOpen(false);
+      resetForm();
+      onSuccess?.();
+    } else {
+      // Fallback to direct API call
+      addItem.mutate({
+        rundownId,
+        ...itemData,
+      });
+    }
   };
 
   return (
