@@ -41,7 +41,24 @@ export const rundownRouter = router({
           items: {
             orderBy: { position: 'asc' },
             include: {
-              story: true,
+              story: {
+                include: {
+                  media: {
+                    include: {
+                      mediaItem: {
+                        select: {
+                          id: true,
+                          title: true,
+                          type: true,
+                          duration: true,
+                          s3Url: true,
+                        },
+                      },
+                    },
+                    orderBy: { position: 'asc' },
+                  },
+                },
+              },
               assignee: true,
               media: { include: { mediaItem: true } },
             },

@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+import Link from 'next/link';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
@@ -11,6 +13,10 @@ import {
   Clock,
   MoreVertical,
   Trash2,
+  ExternalLink,
+  ChevronDown,
+  ChevronRight,
+  Volume2,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,6 +28,17 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 
+interface StoryMediaItem {
+  id: string;
+  mediaItem: {
+    id: string;
+    title: string;
+    type: string;
+    duration: number | null;
+    s3Url: string;
+  };
+}
+
 interface RundownItemData {
   id: string;
   type: 'STORY' | 'INTERVIEW' | 'JINGLE' | 'MUSIC' | 'LIVE' | 'BREAK' | 'OTHER';
@@ -32,7 +49,11 @@ interface RundownItemData {
   notes?: string | null;
   storyId?: string | null;
   assigneeId?: string | null;
-  story?: { title: string } | null;
+  story?: {
+    id: string;
+    title: string;
+    media?: StoryMediaItem[];
+  } | null;
   assignee?: { id: string; firstName?: string | null; lastName?: string | null } | null;
   rundownId?: string;
   createdAt?: Date;
@@ -81,6 +102,7 @@ export function RundownItem({
   onFocus,
   onBlur,
 }: RundownItemProps) {
+  const [mediaExpanded, setMediaExpanded] = useState(false);
   const {
     attributes,
     listeners,
@@ -98,13 +120,15 @@ export function RundownItem({
   const typeInfo = typeConfig[item.type];
   const statusInfo = statusConfig[item.status];
   const Icon = typeInfo.icon;
+  const storyMedia = item.story?.media || [];
+  const hasMedia = storyMedia.length > 0;
 
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={cn(
-        'flex items-center gap-3 p-3 bg-white border rounded-lg transition-all',
+        'flex flex-wrap items-center gap-3 p-3 bg-white border rounded-lg transition-all',
         isDragging && 'opacity-50 shadow-lg',
         item.status === 'ON_AIR' && 'ring-2 ring-red-500 bg-red-50'
       )}
@@ -134,15 +158,40 @@ export function RundownItem({
       {/* Content */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="font-medium truncate">{item.title}</span>
-          {item.story && (
-            <span className="text-xs text-gray-500 truncate">
-              - {item.story.title}
-            </span>
+          {item.storyId && item.story ? (
+            <Link
+              href={`/sujets?id=${item.story.id}`}
+              className="font-medium truncate text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {item.title}
+              <ExternalLink className="h-3 w-3" />
+            </Link>
+          ) : (
+            <span className="font-medium truncate">{item.title}</span>
           )}
         </div>
         {item.notes && (
           <p className="text-xs text-gray-500 truncate mt-0.5">{item.notes}</p>
+        )}
+        {/* Media toggle button */}
+        {hasMedia && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setMediaExpanded(!mediaExpanded);
+            }}
+            className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 mt-1"
+          >
+            {mediaExpanded ? (
+              <ChevronDown className="h-3 w-3" />
+            ) : (
+              <ChevronRight className="h-3 w-3" />
+            )}
+            <Volume2 className="h-3 w-3" />
+            {storyMedia.length} media{storyMedia.length > 1 ? 's' : ''} attache{storyMedia.length > 1 ? 's' : ''}
+          </button>
         )}
       </div>
 
@@ -185,6 +234,31 @@ export function RundownItem({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {/* Expanded media list */}
+      {hasMedia && mediaExpanded && (
+        <div className="col-span-full ml-14 mt-2 pl-4 border-l-2 border-gray-200">
+          <ul className="space-y-1">
+            {storyMedia.map((m) => (
+              <li
+                key={m.id}
+                className="flex items-center gap-2 text-xs text-gray-600 py-1"
+              >
+                <Volume2 className="h-3 w-3 text-purple-500" />
+                <span className="truncate flex-1">{m.mediaItem.title}</span>
+                <Badge variant="outline" className="text-[10px]">
+                  {m.mediaItem.type}
+                </Badge>
+                {m.mediaItem.duration && (
+                  <span className="text-gray-400">
+                    {formatDuration(m.mediaItem.duration)}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus } from 'lucide-react';
 import {
   Dialog,
@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { trpc } from '@/lib/trpc/client';
+import { StorySelector } from './StorySelector';
 
 const ITEM_TYPES = [
   { value: 'STORY', label: 'Sujet' },
@@ -32,6 +33,29 @@ const ITEM_TYPES = [
   { value: 'BREAK', label: 'Pause pub' },
   { value: 'OTHER', label: 'Autre' },
 ];
+
+interface SelectedStory {
+  id: string;
+  title: string;
+  estimatedDuration: number | null;
+  status: string;
+  category: string | null;
+  author: {
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+  };
+  media: Array<{
+    id: string;
+    mediaItem: {
+      id: string;
+      title: string;
+      type: string;
+      duration: number | null;
+      s3Url: string;
+    };
+  }>;
+}
 
 interface AddItemInput {
   type: 'STORY' | 'INTERVIEW' | 'JINGLE' | 'MUSIC' | 'LIVE' | 'BREAK' | 'OTHER';
@@ -52,6 +76,7 @@ export function AddItemDialog({ rundownId, onSuccess, onAddItem }: AddItemDialog
   const [title, setTitle] = useState('');
   const [durationMins, setDurationMins] = useState('2');
   const [durationSecs, setDurationSecs] = useState('0');
+  const [selectedStory, setSelectedStory] = useState<SelectedStory | null>(null);
 
   const utils = trpc.useUtils();
   const addItem = trpc.rundown.addItem.useMutation({
@@ -63,16 +88,42 @@ export function AddItemDialog({ rundownId, onSuccess, onAddItem }: AddItemDialog
     },
   });
 
+  // Update title and duration when story is selected
+  const handleStorySelect = (story: SelectedStory | null) => {
+    setSelectedStory(story);
+    if (story) {
+      setTitle(story.title);
+      const duration = story.estimatedDuration || 120;
+      setDurationMins(Math.floor(duration / 60).toString());
+      setDurationSecs((duration % 60).toString());
+    } else {
+      setTitle('');
+      setDurationMins('2');
+      setDurationSecs('0');
+    }
+  };
+
+  // Reset story selection when type changes from STORY
+  useEffect(() => {
+    if (type !== 'STORY') {
+      setSelectedStory(null);
+    }
+  }, [type]);
+
   const resetForm = () => {
     setType('STORY');
     setTitle('');
     setDurationMins('2');
     setDurationSecs('0');
+    setSelectedStory(null);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
+
+    // For STORY type, require a selected story
+    if (type === 'STORY' && !selectedStory) return;
+    if (type !== 'STORY' && !title.trim()) return;
 
     const duration =
       parseInt(durationMins || '0') * 60 + parseInt(durationSecs || '0');
@@ -81,6 +132,7 @@ export function AddItemDialog({ rundownId, onSuccess, onAddItem }: AddItemDialog
       type: type as AddItemInput['type'],
       title: title.trim(),
       duration,
+      ...(type === 'STORY' && selectedStory && { storyId: selectedStory.id }),
     };
 
     // Use collaborative callback if provided
@@ -97,6 +149,9 @@ export function AddItemDialog({ rundownId, onSuccess, onAddItem }: AddItemDialog
       });
     }
   };
+
+  // Determine if form is valid
+  const isFormValid = type === 'STORY' ? !!selectedStory : !!title.trim();
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -130,38 +185,78 @@ export function AddItemDialog({ rundownId, onSuccess, onAddItem }: AddItemDialog
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="title">Titre</Label>
-              <Input
-                id="title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Ex: Lancement - Sommaire"
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label>Duree</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  min="0"
-                  max="99"
-                  value={durationMins}
-                  onChange={(e) => setDurationMins(e.target.value)}
-                  className="w-20"
-                />
-                <span className="text-gray-500">min</span>
-                <Input
-                  type="number"
-                  min="0"
-                  max="59"
-                  value={durationSecs}
-                  onChange={(e) => setDurationSecs(e.target.value)}
-                  className="w-20"
-                />
-                <span className="text-gray-500">sec</span>
-              </div>
-            </div>
+
+            {/* For STORY type: show story selector */}
+            {type === 'STORY' ? (
+              <>
+                <div className="grid gap-2">
+                  <Label>Sujet</Label>
+                  <StorySelector
+                    value={selectedStory?.id}
+                    onSelect={handleStorySelect}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Duree (modifiable)</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min="0"
+                      max="99"
+                      value={durationMins}
+                      onChange={(e) => setDurationMins(e.target.value)}
+                      className="w-20"
+                    />
+                    <span className="text-gray-500">min</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="59"
+                      value={durationSecs}
+                      onChange={(e) => setDurationSecs(e.target.value)}
+                      className="w-20"
+                    />
+                    <span className="text-gray-500">sec</span>
+                  </div>
+                </div>
+              </>
+            ) : (
+              /* For other types: show manual fields */
+              <>
+                <div className="grid gap-2">
+                  <Label htmlFor="title">Titre</Label>
+                  <Input
+                    id="title"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="Ex: Lancement - Sommaire"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Duree</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min="0"
+                      max="99"
+                      value={durationMins}
+                      onChange={(e) => setDurationMins(e.target.value)}
+                      className="w-20"
+                    />
+                    <span className="text-gray-500">min</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="59"
+                      value={durationSecs}
+                      onChange={(e) => setDurationSecs(e.target.value)}
+                      className="w-20"
+                    />
+                    <span className="text-gray-500">sec</span>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
           <DialogFooter>
             <Button
@@ -171,7 +266,7 @@ export function AddItemDialog({ rundownId, onSuccess, onAddItem }: AddItemDialog
             >
               Annuler
             </Button>
-            <Button type="submit" disabled={!title.trim() || addItem.isPending}>
+            <Button type="submit" disabled={!isFormValid || addItem.isPending}>
               {addItem.isPending ? 'Ajout...' : 'Ajouter'}
             </Button>
           </DialogFooter>

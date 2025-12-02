@@ -221,4 +221,55 @@ export const storyRouter = router({
         },
       });
     }),
+
+  // List stories for rundown selection (APPROVED/PUBLISHED only)
+  listForRundown: protectedProcedure
+    .input(
+      z.object({
+        search: z.string().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      return ctx.db.story.findMany({
+        where: {
+          organizationId: ctx.organizationId!,
+          status: {
+            in: ['APPROVED', 'PUBLISHED'],
+          },
+          ...(input.search && {
+            title: { contains: input.search, mode: 'insensitive' },
+          }),
+        },
+        select: {
+          id: true,
+          title: true,
+          estimatedDuration: true,
+          status: true,
+          category: true,
+          author: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+          media: {
+            include: {
+              mediaItem: {
+                select: {
+                  id: true,
+                  title: true,
+                  type: true,
+                  duration: true,
+                  s3Url: true,
+                },
+              },
+            },
+            orderBy: { position: 'asc' },
+          },
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 50,
+      });
+    }),
 });
