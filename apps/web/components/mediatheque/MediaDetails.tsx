@@ -22,6 +22,7 @@ import {
   CheckCircle2,
   FolderPlus,
   Folder,
+  Wand2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,6 +41,9 @@ import {
 } from '@/components/ui/select';
 import { trpc } from '@/lib/trpc/client';
 import { AudioWaveform } from './AudioWaveform';
+import { MediaUsages } from './MediaUsages';
+import { AudioEditorModal } from '@/components/audio-editor';
+import { toast } from 'sonner';
 
 interface MediaDetailsProps {
   mediaId: string;
@@ -90,12 +94,19 @@ export function MediaDetails({ mediaId, onClose, onDelete }: MediaDetailsProps) 
   const [tagsInput, setTagsInput] = useState('');
   const [hasChanges, setHasChanges] = useState(false);
   const [isPolling, setIsPolling] = useState(false);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
 
   const updateMedia = trpc.media.update.useMutation({
     onSuccess: () => {
       utils.media.list.invalidate();
       utils.media.get.invalidate({ id: mediaId });
       setHasChanges(false);
+      toast.success('Modifications sauvegardees');
+    },
+    onError: (error) => {
+      toast.error('Erreur lors de la sauvegarde', {
+        description: error.message,
+      });
     },
   });
 
@@ -103,6 +114,27 @@ export function MediaDetails({ mediaId, onClose, onDelete }: MediaDetailsProps) 
     onSuccess: () => {
       utils.media.list.invalidate();
       onDelete?.();
+      toast.success('Fichier supprime');
+    },
+    onError: (error) => {
+      toast.error('Erreur lors de la suppression', {
+        description: error.message,
+      });
+    },
+  });
+
+  // Mutation pour sauvegarder l'audio edite
+  const saveEditedAudio = trpc.media.saveEditedAudio.useMutation({
+    onSuccess: () => {
+      utils.media.list.invalidate();
+      utils.media.get.invalidate({ id: mediaId });
+      refetch();
+      toast.success('Audio edite sauvegarde');
+    },
+    onError: (error) => {
+      toast.error('Erreur lors de la sauvegarde audio', {
+        description: error.message,
+      });
     },
   });
 
@@ -111,6 +143,14 @@ export function MediaDetails({ mediaId, onClose, onDelete }: MediaDetailsProps) 
     onSuccess: () => {
       utils.media.get.invalidate({ id: mediaId });
       setIsPolling(true);
+      toast.success('Transcription lancee', {
+        description: 'Le traitement peut prendre quelques minutes',
+      });
+    },
+    onError: (error) => {
+      toast.error('Erreur lors du lancement de la transcription', {
+        description: error.message,
+      });
     },
   });
 
@@ -121,6 +161,7 @@ export function MediaDetails({ mediaId, onClose, onDelete }: MediaDetailsProps) 
     onSuccess: () => {
       utils.media.get.invalidate({ id: mediaId });
       utils.media.listCollections.invalidate();
+      toast.success('Ajoute a la collection');
     },
   });
 
@@ -128,6 +169,7 @@ export function MediaDetails({ mediaId, onClose, onDelete }: MediaDetailsProps) 
     onSuccess: () => {
       utils.media.get.invalidate({ id: mediaId });
       utils.media.listCollections.invalidate();
+      toast.success('Retire de la collection');
     },
   });
 
@@ -213,6 +255,20 @@ export function MediaDetails({ mediaId, onClose, onDelete }: MediaDetailsProps) 
     }
   };
 
+  const handleSaveEditedAudio = useCallback(async (audioBlob: Blob, format: 'wav') => {
+    // Convertir le blob en base64
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = (reader.result as string).split(',')[1];
+      saveEditedAudio.mutate({
+        mediaItemId: mediaId,
+        audioData: base64,
+        format,
+      });
+    };
+    reader.readAsDataURL(audioBlob);
+  }, [mediaId, saveEditedAudio]);
+
   if (isLoading) {
     return (
       <div className="w-80 border-l bg-white flex flex-col">
@@ -256,12 +312,23 @@ export function MediaDetails({ mediaId, onClose, onDelete }: MediaDetailsProps) 
         <div className="p-4 space-y-6">
           {/* Preview */}
           {media.type === 'AUDIO' ? (
-            <AudioWaveform url={media.s3Url} />
+            <div className="space-y-3">
+              <AudioWaveform url={media.presignedUrl || media.s3Url} />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsEditorOpen(true)}
+                className="w-full"
+              >
+                <Wand2 className="h-4 w-4 mr-2" />
+                Ouvrir dans l'editeur
+              </Button>
+            </div>
           ) : (
             <div className="aspect-video bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden">
               {media.type === 'IMAGE' ? (
                 <img
-                  src={media.s3Url}
+                  src={media.presignedUrl || media.s3Url}
                   alt={media.title}
                   className="w-full h-full object-contain"
                 />
@@ -424,6 +491,14 @@ export function MediaDetails({ mediaId, onClose, onDelete }: MediaDetailsProps) 
             )}
           </div>
 
+          <Separator />
+
+          {/* Utilisations */}
+          <div className="space-y-3">
+            <Label>Utilisations</Label>
+            <MediaUsages mediaItemId={mediaId} />
+          </div>
+
           {/* Transcription */}
           {isTranscribable && (
             <>
@@ -524,7 +599,7 @@ export function MediaDetails({ mediaId, onClose, onDelete }: MediaDetailsProps) 
             {updateMedia.isPending ? 'Sauvegarde...' : 'Sauvegarder'}
           </Button>
           <Button variant="outline" asChild>
-            <a href={media.s3Url} download target="_blank" rel="noopener">
+            <a href={media.presignedUrl || media.s3Url} download target="_blank" rel="noopener">
               <Download className="h-4 w-4" />
             </a>
           </Button>
@@ -539,6 +614,17 @@ export function MediaDetails({ mediaId, onClose, onDelete }: MediaDetailsProps) 
           Supprimer
         </Button>
       </div>
+
+      {/* Audio Editor Modal */}
+      {media.type === 'AUDIO' && (
+        <AudioEditorModal
+          open={isEditorOpen}
+          onOpenChange={setIsEditorOpen}
+          url={media.presignedUrl || media.s3Url}
+          title={media.title}
+          onSave={handleSaveEditedAudio}
+        />
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import {
   TranscribeClient,
@@ -113,7 +113,7 @@ export const mediaRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      return ctx.db.mediaItem.findUniqueOrThrow({
+      const mediaItem = await ctx.db.mediaItem.findUniqueOrThrow({
         where: { id: input.id },
         include: {
           uploadedBy: true,
@@ -122,6 +122,43 @@ export const mediaRouter = router({
           },
         },
       });
+
+      // Generate presigned URL for accessing the file
+      const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
+      const presignedUrl = await getSignedUrl(
+        s3Client,
+        new GetObjectCommand({
+          Bucket: bucket,
+          Key: mediaItem.s3Key,
+        }),
+        { expiresIn: 3600 } // 1 hour
+      );
+
+      return {
+        ...mediaItem,
+        presignedUrl,
+      };
+    }),
+
+  // Get presigned URL for a media item (useful for refresh)
+  getPresignedUrl: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const mediaItem = await ctx.db.mediaItem.findUniqueOrThrow({
+        where: { id: input.id },
+      });
+
+      const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
+      const presignedUrl = await getSignedUrl(
+        s3Client,
+        new GetObjectCommand({
+          Bucket: bucket,
+          Key: mediaItem.s3Key,
+        }),
+        { expiresIn: 3600 } // 1 hour
+      );
+
+      return { presignedUrl };
     }),
 
   // Create media item
@@ -443,6 +480,67 @@ export const mediaRouter = router({
         isTranscribable: TRANSCRIBABLE_MIME_TYPES.includes(
           input.mimeType.toLowerCase()
         ),
+      };
+    }),
+
+  // Save edited audio file
+  saveEditedAudio: protectedProcedure
+    .input(
+      z.object({
+        mediaItemId: z.string(),
+        audioData: z.string(), // base64 encoded audio
+        format: z.enum(['wav', 'mp3']),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const mediaItem = await ctx.db.mediaItem.findUniqueOrThrow({
+        where: { id: input.mediaItemId },
+      });
+
+      // Decode base64 audio data
+      const audioBuffer = Buffer.from(input.audioData, 'base64');
+
+      // Generate new key for the edited file
+      const timestamp = Date.now();
+      const extension = input.format === 'wav' ? 'wav' : 'mp3';
+      const newKey = `${ctx.organizationId}/media/${timestamp}-edited-${mediaItem.title.replace(/[^a-zA-Z0-9]/g, '_')}.${extension}`;
+
+      const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
+      const contentType = input.format === 'wav' ? 'audio/wav' : 'audio/mpeg';
+
+      // Upload new file to S3
+      await s3Client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: newKey,
+          Body: audioBuffer,
+          ContentType: contentType,
+        })
+      );
+
+      // Generate public URL
+      const publicUrl = process.env.AWS_CLOUDFRONT_DOMAIN
+        ? `https://${process.env.AWS_CLOUDFRONT_DOMAIN}/${newKey}`
+        : `https://${bucket}.s3.${process.env.AWS_REGION}.amazonaws.com/${newKey}`;
+
+      // Update media item with new file
+      const updatedMedia = await ctx.db.mediaItem.update({
+        where: { id: input.mediaItemId },
+        data: {
+          s3Key: newKey,
+          s3Url: publicUrl,
+          fileSize: audioBuffer.length,
+          mimeType: contentType,
+          // Reset transcription since content changed
+          transcription: null,
+          transcriptionStatus: 'NONE',
+          updatedAt: new Date(),
+        },
+      });
+
+      return {
+        success: true,
+        mediaItem: updatedMedia,
       };
     }),
 });

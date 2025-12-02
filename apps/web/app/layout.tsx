@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import { AuthProvider } from '@/components/auth/AuthProvider';
 import { TRPCProvider } from '@/lib/trpc/provider';
+import { Toaster } from 'sonner';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -22,6 +23,11 @@ export default function RootLayout({
         <TRPCProvider>
           <AuthProvider>{children}</AuthProvider>
         </TRPCProvider>
+        <Toaster
+          position="bottom-right"
+          richColors
+          closeButton
+        />
       </body>
     </html>
   );

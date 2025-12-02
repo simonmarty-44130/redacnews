@@ -7,7 +7,7 @@
 
 ## ÉTAT ACTUEL
 
-### Fait (Setup + P1 + P2)
+### Fait (Setup + P1 + P2 + P4)
 
 | Module | Fonctionnalité | Statut |
 |--------|----------------|--------|
@@ -36,6 +36,13 @@
 | **Médiathèque** | Waveform audio (wavesurfer.js) | Done |
 | **Médiathèque** | Collections (sidebar + gestion) | Done |
 | **Médiathèque** | Filtrage par collection | Done |
+| **Éditeur Audio** | Composant AudioEditor (wavesurfer.js + régions) | Done |
+| **Éditeur Audio** | Cut/Copy/Paste audio | Done |
+| **Éditeur Audio** | Fade In/Out | Done |
+| **Éditeur Audio** | Normalisation audio | Done |
+| **Éditeur Audio** | Undo/Redo | Done |
+| **Éditeur Audio** | Export WAV + sauvegarde S3 | Done |
+| **Éditeur Audio** | Modal fullscreen dans médiathèque | Done |
 
 ---
 
@@ -69,20 +76,13 @@ Fichier : apps/web/app/(dashboard)/prompteur/page.tsx
 
 ## SESSIONS FUTURES
 
-### P4 : Éditeur Audio (AudioMass)
+### P5 : Recherche et Polish (FAIT)
 ```
-- Fork AudioMass dans packages/audio-editor
-- Wrapper React pour intégration
-- Ouvrir un média depuis la médiathèque
-- Export et sauvegarde vers médiathèque
-```
-
-### P5 : Recherche et Polish
-```
-- Recherche full-text (OpenSearch ou Prisma)
-- Recherche dans les transcriptions
-- Notifications toast
-- Tests E2E (Playwright)
+- Recherche full-text avec debounce (Prisma) ✓
+- Recherche dans les transcriptions ✓
+- Notifications toast (Sonner) ✓
+- Badge "Transcriptions incluses" ✓
+- Tests E2E (Playwright) - A faire
 ```
 
 ### P6 : Déploiement Production
@@ -156,7 +156,12 @@ apps/web/
 │   │   └── GoogleDocEmbed.tsx
 │   ├── mediatheque/
 │   │   ├── MediaGrid.tsx
-│   │   └── MediaDetails.tsx     # À modifier pour transcription
+│   │   ├── MediaDetails.tsx
+│   │   └── AudioWaveform.tsx
+│   ├── audio-editor/
+│   │   ├── AudioEditor.tsx       # Éditeur audio complet
+│   │   ├── AudioEditorModal.tsx  # Modal fullscreen
+│   │   └── index.ts
 │   └── collaboration/
 │       └── CollaborationAwareness.tsx
 ├── lib/

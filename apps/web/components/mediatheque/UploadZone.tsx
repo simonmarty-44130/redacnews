@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { trpc } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 interface UploadFile {
   file: File;
@@ -98,6 +99,7 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
             f.id === uploadFile.id ? { ...f, status: 'done', progress: 100 } : f
           )
         );
+        toast.success(`${uploadFile.file.name} uploade`);
       } catch (error) {
         setFiles((prev) =>
           prev.map((f) =>
@@ -106,6 +108,7 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
               : f
           )
         );
+        toast.error(`Erreur pour ${uploadFile.file.name}`);
       }
     },
     [getUploadUrl, createMedia]

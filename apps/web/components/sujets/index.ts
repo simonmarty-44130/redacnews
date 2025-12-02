@@ -3,3 +3,5 @@ export { StoryEditor } from './StoryEditor';
 export { StoryFilters } from './StoryFilters';
 export { CreateStoryDialog } from './CreateStoryDialog';
 export { GoogleDocEmbed } from './GoogleDocEmbed';
+export { MediaPicker } from './MediaPicker';
+export { LinkedMediaList } from './LinkedMediaList';

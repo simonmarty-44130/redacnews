@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Save, Clock, Tag, User, FileText, Trash2, RefreshCw, Link2 } from 'lucide-react';
+import { Save, Clock, Tag, User, FileText, Trash2, RefreshCw, Link2, Music } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,6 +18,8 @@ import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { GoogleDocEmbed } from './GoogleDocEmbed';
+import { MediaPicker } from './MediaPicker';
+import { LinkedMediaList } from './LinkedMediaList';
 import { trpc } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
 
@@ -362,6 +364,23 @@ Chaque phrase devrait etre comprehensible independamment."
               </p>
             </div>
           )}
+
+          <Separator />
+
+          {/* Section Medias attaches */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Music className="h-4 w-4 text-gray-500" />
+                <Label>Medias attaches</Label>
+              </div>
+              <MediaPicker
+                storyId={storyId}
+                excludeIds={story.media?.map((m) => m.mediaItemId) || []}
+              />
+            </div>
+            <LinkedMediaList storyId={storyId} />
+          </div>
         </div>
       </div>
     </div>

@@ -140,8 +140,8 @@ export const storyRouter = router({
       let googleDoc: GoogleDocResult | null = null;
 
       try {
-        // Dynamic import to avoid server-side issues
-        const { createStoryDoc } = await import('@/lib/google/docs');
+        // Import from local lib
+        const { createStoryDoc } = await import('../lib/google/docs');
         const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
         googleDoc = await createStoryDoc(input.title, folderId);
       } catch (error) {
@@ -180,8 +180,8 @@ export const storyRouter = router({
       }
 
       try {
-        const { getDocContent, getDocWordCount, estimateReadingDuration } =
-          await import('@/lib/google/docs');
+        const { getDocContent, estimateReadingDuration } =
+          await import('../lib/google/docs');
 
         const content = await getDocContent(story.googleDocId);
         const wordCount = content.trim().split(/\s+/).filter(Boolean).length;

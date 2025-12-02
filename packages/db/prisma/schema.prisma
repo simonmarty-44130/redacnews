@@ -178,14 +178,34 @@ enum StoryStatus {
 }
 
 model StoryMedia {
-  id          String @id @default(cuid())
+  id          String   @id @default(cuid())
   storyId     String
   mediaItemId String
   position    Int
   notes       String?
 
+  // Champs enrichis pour liaison bidirectionnelle
+  insertionType   MediaInsertionType @default(REFERENCE)
+  timecodeStart   Int?               // Position en secondes dans le sujet
+  timecodeEnd     Int?
+  textMarker      String?            // Texte de repère dans le script
+  cuePoint        String?            // Point de lancement ("après intro", etc.)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
   story     Story     @relation(fields: [storyId], references: [id], onDelete: Cascade)
   mediaItem MediaItem @relation(fields: [mediaItemId], references: [id])
+
+  @@unique([storyId, mediaItemId])
+  @@index([storyId])
+  @@index([mediaItemId])
+}
+
+enum MediaInsertionType {
+  INLINE      // Son intégré dans le flux (ITW, ambiance)
+  BACKGROUND  // Son en fond pendant la lecture
+  REFERENCE   // Simple référence / pièce jointe
 }
 
 // ============ MEDIATHEQUE ============
@@ -209,6 +229,9 @@ model MediaItem {
   organizationId  String
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
+
+  // Compteur d'utilisations (dénormalisé pour performance)
+  usageCount      Int           @default(0)
 
   uploadedBy   User         @relation(fields: [uploadedById], references: [id])
   organization Organization @relation(fields: [organizationId], references: [id])
