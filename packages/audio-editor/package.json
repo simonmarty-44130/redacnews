@@ -1,23 +1,27 @@
 {
-  "name": "@redacnews/multitrack-editor",
+  "name": "@redacnews/audio-editor",
   "version": "0.1.0",
   "private": true,
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "tone": "^14.8.49",
-    "wavesurfer.js": "^7.8.0",
-    "zustand": "^4.5.0",
+    "event-emitter": "^0.3.5",
     "immer": "^10.0.0",
-    "nanoid": "^5.0.0"
+    "lamejs": "^1.2.1",
+    "nanoid": "^5.0.0",
+    "tone": "^14.9.17",
+    "waveform-playlist": "^4.3.3",
+    "zustand": "^4.5.0"
   },
   "devDependencies": {
-    "typescript": "^5.3.0",
-    "@types/react": "^18.2.0"
+    "@types/react": "^18.2.0",
+    "@types/event-emitter": "^0.3.3",
+    "typescript": "^5.3.0"
   },
   "peerDependencies": {
     "react": "^18.0.0",
