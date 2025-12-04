@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ['@redacnews/db', '@redacnews/api', '@redacnews/types'],
+  transpilePackages: ['@redacnews/db', '@redacnews/api', '@redacnews/types', '@redacnews/audio-editor'],
   images: {
     domains: [
       process.env.AWS_CLOUDFRONT_DOMAIN,

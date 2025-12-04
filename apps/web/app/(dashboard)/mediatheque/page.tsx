@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import { FolderOpen, Inbox } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
+import { FolderOpen, Inbox, Layers, Plus, X, CheckSquare } from 'lucide-react';
 import { trpc } from '@/lib/trpc/client';
 import {
   MediaCard,
@@ -13,6 +14,7 @@ import {
 } from '@/components/mediatheque';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 interface Filters {
@@ -29,6 +31,7 @@ interface PlayingMedia {
 }
 
 export default function MediathequePage() {
+  const router = useRouter();
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
   const [playingMedia, setPlayingMedia] = useState<PlayingMedia | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -37,6 +40,10 @@ export default function MediathequePage() {
     type: 'all',
     collectionId: null,
   });
+
+  // Selection mode state
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const { data: mediaItems, isLoading } = trpc.media.list.useQuery({
     type:
@@ -70,6 +77,56 @@ export default function MediathequePage() {
     }
   };
 
+  // Selection handlers
+  const toggleSelection = (id: string, checked: boolean) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (checked) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+  };
+
+  const selectAllAudio = () => {
+    if (!mediaItems) return;
+    const audioIds = mediaItems.filter(m => m.type === 'AUDIO').map(m => m.id);
+    setSelectedIds(new Set(audioIds));
+  };
+
+  // Count selected audio files
+  const selectedAudioCount = useMemo(() => {
+    if (!mediaItems) return 0;
+    return Array.from(selectedIds).filter(id => {
+      const media = mediaItems.find(m => m.id === id);
+      return media?.type === 'AUDIO';
+    }).length;
+  }, [selectedIds, mediaItems]);
+
+  // Navigate to audio editor with selected files
+  const handleMontage = () => {
+    if (!mediaItems) return;
+    const audioIds = Array.from(selectedIds).filter(id => {
+      const media = mediaItems.find(m => m.id === id);
+      return media?.type === 'AUDIO';
+    });
+    if (audioIds.length > 0) {
+      router.push(`/audio-editor?media=${audioIds.join(',')}`);
+    }
+  };
+
+  // Navigate to audio editor for new montage
+  const handleNewMontage = () => {
+    router.push('/audio-editor');
+  };
+
   return (
     <div className="h-[calc(100vh-56px)] flex flex-col">
       {/* Header */}
@@ -84,8 +141,74 @@ export default function MediathequePage() {
               </span>
             )}
           </div>
-          <UploadZone />
+          <div className="flex items-center gap-2">
+            {/* Selection mode toggle */}
+            <Button
+              variant={selectionMode ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => {
+                setSelectionMode(!selectionMode);
+                if (selectionMode) {
+                  setSelectedIds(new Set());
+                }
+              }}
+            >
+              <CheckSquare className="h-4 w-4 mr-2" />
+              {selectionMode ? 'Annuler' : 'Selectionner'}
+            </Button>
+
+            {/* New montage button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleNewMontage}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Nouveau montage
+            </Button>
+
+            <UploadZone />
+          </div>
         </div>
+
+        {/* Selection toolbar */}
+        {selectionMode && (
+          <div className="flex items-center gap-3 mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <span className="text-sm text-blue-700">
+              {selectedIds.size} element{selectedIds.size !== 1 ? 's' : ''} selectionne{selectedIds.size !== 1 ? 's' : ''}
+              {selectedAudioCount > 0 && selectedAudioCount !== selectedIds.size && (
+                <span className="text-blue-500"> (dont {selectedAudioCount} audio)</span>
+              )}
+            </span>
+            <div className="flex-1" />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={selectAllAudio}
+              className="text-blue-700 hover:text-blue-900 hover:bg-blue-100"
+            >
+              Selectionner tous les audios
+            </Button>
+            {selectedAudioCount > 0 && (
+              <Button
+                size="sm"
+                onClick={handleMontage}
+              >
+                <Layers className="h-4 w-4 mr-2" />
+                Monter ({selectedAudioCount} fichier{selectedAudioCount > 1 ? 's' : ''})
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={clearSelection}
+              className="h-8 w-8 text-gray-500 hover:text-gray-700"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+
         <MediaFilters
           filters={{ search: filters.search, type: filters.type }}
           onFiltersChange={(newFilters) => setFilters({ ...filters, ...newFilters })}
@@ -138,9 +261,18 @@ export default function MediathequePage() {
                       key={media.id}
                       media={media}
                       isSelected={media.id === selectedMediaId}
-                      onClick={() => setSelectedMediaId(media.id)}
+                      onClick={() => {
+                        if (selectionMode) {
+                          toggleSelection(media.id, !selectedIds.has(media.id));
+                        } else {
+                          setSelectedMediaId(media.id);
+                        }
+                      }}
                       onPlay={() => handlePlay(media)}
                       viewMode={viewMode}
+                      isSelectable={selectionMode}
+                      isChecked={selectedIds.has(media.id)}
+                      onCheckChange={(checked) => toggleSelection(media.id, checked)}
                     />
                   ))}
                 </div>

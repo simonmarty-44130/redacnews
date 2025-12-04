@@ -92,6 +92,19 @@ export function StoryEditor({ storyId, onClose, onDelete }: StoryEditorProps) {
     }
   }, [story]);
 
+  // Auto-sync Google Doc content every 30 seconds
+  useEffect(() => {
+    if (!story?.googleDocId) return;
+
+    const interval = setInterval(() => {
+      if (!syncGoogleDoc.isPending) {
+        syncGoogleDoc.mutate({ id: storyId });
+      }
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, [story?.googleDocId, storyId, syncGoogleDoc]);
+
   const handleChange = () => {
     setHasChanges(true);
   };
@@ -309,13 +322,7 @@ export function StoryEditor({ storyId, onClose, onDelete }: StoryEditorProps) {
                   <GoogleDocEmbed
                     docId={story.googleDocId}
                     docUrl={story.googleDocUrl || undefined}
-                    className="min-h-[500px]"
-                    onContentChange={() => {
-                      // Auto-sync after a delay
-                      setTimeout(() => {
-                        syncGoogleDoc.mutate({ id: storyId });
-                      }, 5000);
-                    }}
+                    className="h-[calc(100vh-400px)] min-h-[400px]"
                   />
                 </TabsContent>
 

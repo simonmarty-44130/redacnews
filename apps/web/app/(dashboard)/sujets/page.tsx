@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { FileText, Inbox } from 'lucide-react';
 import { trpc } from '@/lib/trpc/client';
-import { StoryCard, StoryEditor, StoryFilters, CreateStoryDialog } from '@/components/sujets';
+import { StoryCard, StoryFilters, CreateStoryDialog } from '@/components/sujets';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -14,7 +15,7 @@ interface Filters {
 }
 
 export default function SujetsPage() {
-  const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
+  const router = useRouter();
   const [filters, setFilters] = useState<Filters>({
     search: '',
     status: 'all',
@@ -27,12 +28,8 @@ export default function SujetsPage() {
     search: filters.search || undefined,
   });
 
-  const handleStoryCreated = (storyId: string) => {
-    setSelectedStoryId(storyId);
-  };
-
-  const handleStoryDeleted = () => {
-    setSelectedStoryId(null);
+  const handleStoryClick = (storyId: string) => {
+    router.push(`/sujets/${storyId}`);
   };
 
   return (
@@ -49,66 +46,43 @@ export default function SujetsPage() {
               </span>
             )}
           </div>
-          <CreateStoryDialog onSuccess={handleStoryCreated} />
+          <CreateStoryDialog />
         </div>
         <StoryFilters filters={filters} onFiltersChange={setFilters} />
       </div>
 
-      {/* Main content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Stories list */}
-        <div className="w-96 border-r bg-gray-50 flex flex-col">
-          <ScrollArea className="flex-1">
-            <div className="p-4 space-y-3">
-              {isLoading ? (
-                <>
-                  {[...Array(5)].map((_, i) => (
-                    <Skeleton key={i} className="h-24 w-full" />
-                  ))}
-                </>
-              ) : stories && stories.length > 0 ? (
-                stories.map((story) => (
-                  <StoryCard
-                    key={story.id}
-                    story={story}
-                    isSelected={story.id === selectedStoryId}
-                    onClick={() => setSelectedStoryId(story.id)}
-                  />
-                ))
-              ) : (
-                <div className="flex flex-col items-center justify-center py-12 text-gray-500">
-                  <Inbox className="h-12 w-12 mb-4 text-gray-300" />
-                  <p className="font-medium">Aucun sujet</p>
-                  <p className="text-sm mt-1">
-                    {filters.search || filters.status !== 'all' || filters.category !== 'all'
-                      ? 'Aucun sujet ne correspond aux filtres'
-                      : 'Creez votre premier sujet pour commencer'}
-                  </p>
-                </div>
-              )}
+      {/* Liste des sujets - Grille responsive */}
+      <ScrollArea className="flex-1">
+        <div className="p-4">
+          {isLoading ? (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {[...Array(6)].map((_, i) => (
+                <Skeleton key={i} className="h-28 w-full" />
+              ))}
             </div>
-          </ScrollArea>
-        </div>
-
-        {/* Story editor */}
-        <div className="flex-1 bg-white">
-          {selectedStoryId ? (
-            <StoryEditor
-              storyId={selectedStoryId}
-              onClose={() => setSelectedStoryId(null)}
-              onDelete={handleStoryDeleted}
-            />
+          ) : stories && stories.length > 0 ? (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {stories.map((story) => (
+                <StoryCard
+                  key={story.id}
+                  story={story}
+                  onClick={() => handleStoryClick(story.id)}
+                />
+              ))}
+            </div>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-gray-500">
-              <FileText className="h-16 w-16 mb-4 text-gray-300" />
-              <p className="font-medium">Selectionnez un sujet</p>
+            <div className="flex flex-col items-center justify-center py-24 text-gray-500">
+              <Inbox className="h-16 w-16 mb-4 text-gray-300" />
+              <p className="font-medium text-lg">Aucun sujet</p>
               <p className="text-sm mt-1">
-                Cliquez sur un sujet dans la liste pour le modifier
+                {filters.search || filters.status !== 'all' || filters.category !== 'all'
+                  ? 'Aucun sujet ne correspond aux filtres'
+                  : 'Creez votre premier sujet pour commencer'}
               </p>
             </div>
           )}
         </div>
-      </div>
+      </ScrollArea>
     </div>
   );
 }

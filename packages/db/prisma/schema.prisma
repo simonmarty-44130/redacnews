@@ -77,6 +77,12 @@ model Rundown {
   date        DateTime
   status      RundownStatus @default(DRAFT)
   notes       String?
+
+  // Script de conduite genere
+  scriptDocId       String?   // ID du Google Doc script
+  scriptDocUrl      String?   // URL du script
+  scriptGeneratedAt DateTime? // Date de derniere generation
+
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 

@@ -2,7 +2,7 @@
  * Presets d'equalisation pour la voix radio
  */
 
-import * as Tone from 'tone';
+import { Filter, Gain, Gate } from 'tone';
 import type { EQPreset, EQBand } from '../types/editor.types';
 
 /**
@@ -64,26 +64,26 @@ export const EQ_PRESETS: Record<string, EQPreset> = {
  * Cree un EQ 3 bandes avec Tone.js
  */
 export function createEQ3(preset: EQPreset = EQ_PRESETS.flat): {
-  low: Tone.Filter;
-  mid: Tone.Filter;
-  high: Tone.Filter;
-  input: Tone.Gain;
-  output: Tone.Gain;
+  low: Filter;
+  mid: Filter;
+  high: Filter;
+  input: Gain;
+  output: Gain;
   dispose: () => void;
   setPreset: (preset: EQPreset) => void;
 } {
-  const input = new Tone.Gain(1);
-  const output = new Tone.Gain(1);
+  const input = new Gain(1);
+  const output = new Gain(1);
 
   // Low shelf filter
-  const low = new Tone.Filter({
+  const low = new Filter({
     frequency: preset.low.frequency,
     type: 'lowshelf',
     gain: preset.low.gain,
   });
 
   // Mid peaking filter
-  const mid = new Tone.Filter({
+  const mid = new Filter({
     frequency: preset.mid.frequency,
     type: 'peaking',
     gain: preset.mid.gain,
@@ -91,7 +91,7 @@ export function createEQ3(preset: EQPreset = EQ_PRESETS.flat): {
   });
 
   // High shelf filter
-  const high = new Tone.Filter({
+  const high = new Filter({
     frequency: preset.high.frequency,
     type: 'highshelf',
     gain: preset.high.gain,
@@ -180,9 +180,9 @@ export function createNoiseGate(
   threshold: number = -50, // dB
   _attack: number = 0.01,
   _release: number = 0.1
-): Tone.Gate {
+): Gate {
   // Tone.Gate only accepts threshold and smoothing
-  return new Tone.Gate(threshold);
+  return new Gate(threshold);
 }
 
 /**

@@ -211,6 +211,107 @@ export const rundownRouter = router({
       });
     }),
 
+  // Generate script Google Doc
+  generateScript: protectedProcedure
+    .input(
+      z.object({
+        rundownId: z.string(),
+        regenerate: z.boolean().optional().default(false),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // 1. Recuperer le conducteur complet avec tous les details
+      const rundown = await ctx.db.rundown.findUniqueOrThrow({
+        where: { id: input.rundownId },
+        include: {
+          show: true,
+          items: {
+            orderBy: { position: 'asc' },
+            include: {
+              story: {
+                select: {
+                  id: true,
+                  title: true,
+                  content: true,
+                  estimatedDuration: true,
+                },
+              },
+              media: {
+                include: {
+                  mediaItem: {
+                    select: {
+                      id: true,
+                      title: true,
+                      type: true,
+                      duration: true,
+                      transcription: true,
+                    },
+                  },
+                },
+                orderBy: { position: 'asc' },
+              },
+            },
+          },
+        },
+      });
+
+      // 2. Si un script existe deja et qu'on ne force pas la regeneration, retourner l'existant
+      if (rundown.scriptDocId && !input.regenerate) {
+        return {
+          id: rundown.id,
+          scriptDocId: rundown.scriptDocId,
+          scriptDocUrl: rundown.scriptDocUrl,
+          scriptGeneratedAt: rundown.scriptGeneratedAt,
+          isNew: false,
+        };
+      }
+
+      // 3. Generer le nouveau script
+      try {
+        const { createRundownScript } = await import('../lib/google/rundown-script');
+
+        const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+        const doc = await createRundownScript(rundown, folderId);
+
+        // 4. Sauvegarder la reference
+        const updated = await ctx.db.rundown.update({
+          where: { id: input.rundownId },
+          data: {
+            scriptDocId: doc.id,
+            scriptDocUrl: doc.url,
+            scriptGeneratedAt: new Date(),
+          },
+        });
+
+        return {
+          id: updated.id,
+          scriptDocId: updated.scriptDocId,
+          scriptDocUrl: updated.scriptDocUrl,
+          scriptGeneratedAt: updated.scriptGeneratedAt,
+          isNew: true,
+        };
+      } catch (error) {
+        console.error('Failed to generate script:', error);
+        throw new Error('Impossible de generer le script. Verifiez la configuration Google.');
+      }
+    }),
+
+  // Get script info for a rundown
+  getScript: protectedProcedure
+    .input(z.object({ rundownId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const rundown = await ctx.db.rundown.findUniqueOrThrow({
+        where: { id: input.rundownId },
+        select: {
+          scriptDocId: true,
+          scriptDocUrl: true,
+          scriptGeneratedAt: true,
+        },
+      });
+
+      return rundown;
+    }),
+
   // Batch update for collaborative editing
   batchUpdate: protectedProcedure
     .input(

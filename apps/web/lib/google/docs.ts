@@ -1,14 +1,34 @@
 import { google } from 'googleapis';
+import { JWT } from 'google-auth-library';
 
-// Initialize Google Auth with Service Account
+// Initialize Google Auth with Service Account + Domain-Wide Delegation
 const getGoogleAuth = () => {
   const credentials = process.env.GOOGLE_SERVICE_ACCOUNT_KEY;
   if (!credentials) {
     throw new Error('GOOGLE_SERVICE_ACCOUNT_KEY environment variable is not set');
   }
 
+  const parsed = JSON.parse(credentials);
+
+  // Use JWT with subject (impersonation) for domain-wide delegation
+  const impersonateEmail = process.env.GOOGLE_IMPERSONATE_EMAIL;
+
+  if (impersonateEmail) {
+    // Domain-wide delegation mode: impersonate a user
+    return new JWT({
+      email: parsed.client_email,
+      key: parsed.private_key,
+      scopes: [
+        'https://www.googleapis.com/auth/drive',
+        'https://www.googleapis.com/auth/documents',
+      ],
+      subject: impersonateEmail, // Impersonate this user
+    });
+  }
+
+  // Fallback: standard service account auth (for personal Google accounts)
   return new google.auth.GoogleAuth({
-    credentials: JSON.parse(credentials),
+    credentials: parsed,
     scopes: [
       'https://www.googleapis.com/auth/drive',
       'https://www.googleapis.com/auth/documents',

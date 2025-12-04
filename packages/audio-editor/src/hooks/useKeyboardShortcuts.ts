@@ -1,5 +1,6 @@
 /**
- * Hook pour la gestion des raccourcis clavier
+ * Hook pour la gestion des raccourcis clavier de l'éditeur audio
+ * Optimisé pour le workflow radio avec I/O pour sélection, X pour CUT
  */
 
 import { useEffect, useCallback, useRef } from 'react';
@@ -7,50 +8,65 @@ import { KEYBOARD_SHORTCUTS } from '../constants/shortcuts';
 
 type ShortcutHandler = () => void;
 
-interface ShortcutHandlers {
+export interface ShortcutHandlers {
   // Transport
   onPlayPause?: ShortcutHandler;
   onStop?: ShortcutHandler;
   onRewind?: ShortcutHandler;
   onFastForward?: ShortcutHandler;
 
-  // Shuttle
+  // Shuttle J/K/L
   onShuttleBack?: ShortcutHandler;
   onShuttleStop?: ShortcutHandler;
   onShuttleForward?: ShortcutHandler;
 
-  // Edition
-  onCut?: ShortcutHandler;
-  onCopy?: ShortcutHandler;
-  onPaste?: ShortcutHandler;
-  onDelete?: ShortcutHandler;
+  // Navigation fine
+  onFrameBack?: ShortcutHandler;
+  onFrameForward?: ShortcutHandler;
+  onJumpBack5s?: ShortcutHandler;
+  onJumpForward5s?: ShortcutHandler;
+
+  // Sélection I/O (workflow radio)
+  onSetCueIn?: ShortcutHandler;    // I = point IN
+  onSetCueOut?: ShortcutHandler;   // O = point OUT
+  onGoToCueIn?: ShortcutHandler;   // Shift+I
+  onGoToCueOut?: ShortcutHandler;  // Shift+O
+  onClearSelection?: ShortcutHandler;
   onSelectAll?: ShortcutHandler;
   onDeselect?: ShortcutHandler;
 
-  // Actions
+  // Édition
+  onCut?: ShortcutHandler;         // X/Delete/Backspace = CUT (supprimer sélection)
+  onCopy?: ShortcutHandler;
+  onPaste?: ShortcutHandler;
+  onDelete?: ShortcutHandler;      // Alias pour onCut
+  onSplit?: ShortcutHandler;       // S = diviser à la position
+  onTrimToSelection?: ShortcutHandler; // T = garder uniquement la sélection
+
+  // Historique
   onUndo?: ShortcutHandler;
   onRedo?: ShortcutHandler;
-  onSplit?: ShortcutHandler;
-  onTrimToSelection?: ShortcutHandler;
-
-  // Cue points
-  onSetCueIn?: ShortcutHandler;
-  onSetCueOut?: ShortcutHandler;
-  onGoToCueIn?: ShortcutHandler;
-  onGoToCueOut?: ShortcutHandler;
 
   // Zoom
   onZoomIn?: ShortcutHandler;
   onZoomOut?: ShortcutHandler;
   onZoomFit?: ShortcutHandler;
 
-  // Tracks
+  // Pistes
   onMuteTrack?: ShortcutHandler;
   onSoloTrack?: ShortcutHandler;
 
-  // Save/Export
+  // Marqueurs
+  onAddMarker?: ShortcutHandler;
+  onNextMarker?: ShortcutHandler;
+  onPrevMarker?: ShortcutHandler;
+
+  // Fichier
   onSave?: ShortcutHandler;
   onExport?: ShortcutHandler;
+
+  // UI
+  onShowShortcuts?: ShortcutHandler;
 }
 
 interface UseKeyboardShortcutsOptions {
@@ -59,7 +75,7 @@ interface UseKeyboardShortcutsOptions {
 }
 
 /**
- * Parse a shortcut string into key parts
+ * Parse un raccourci pour extraire les modifiers et la touche
  */
 function parseShortcut(shortcut: string): {
   key: string;
@@ -81,26 +97,36 @@ function parseShortcut(shortcut: string): {
 }
 
 /**
- * Check if a keyboard event matches a shortcut
+ * Vérifie si un événement clavier correspond à un raccourci
  */
-function matchesShortcut(event: KeyboardEvent, shortcut: string | readonly string[]): boolean {
+function matchesShortcut(
+  event: KeyboardEvent,
+  shortcut: string | readonly string[]
+): boolean {
   const shortcuts = Array.isArray(shortcut) ? shortcut : [shortcut];
 
   return shortcuts.some((s) => {
     const parsed = parseShortcut(s);
 
-    // Handle "mod" which is Cmd on Mac, Ctrl on Windows/Linux
+    // "mod" = Cmd sur Mac, Ctrl sur Windows/Linux
     const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
     const modKey = isMac ? event.metaKey : event.ctrlKey;
 
+    // Comparer la touche
     const keyMatch =
       event.key.toLowerCase() === parsed.key ||
       event.code.toLowerCase() === parsed.key ||
-      event.code.toLowerCase() === `key${parsed.key}`;
+      event.code.toLowerCase() === `key${parsed.key}` ||
+      (parsed.key === 'delete' && event.code === 'Delete') ||
+      (parsed.key === 'backspace' && event.code === 'Backspace') ||
+      (parsed.key === 'escape' && event.code === 'Escape') ||
+      (parsed.key === 'arrowleft' && event.code === 'ArrowLeft') ||
+      (parsed.key === 'arrowright' && event.code === 'ArrowRight');
 
+    // Comparer les modifiers
     const modMatch = parsed.meta ? modKey : !modKey || !parsed.ctrl;
     const ctrlMatch = parsed.ctrl ? event.ctrlKey : true;
-    const shiftMatch = parsed.shift ? event.shiftKey : !event.shiftKey;
+    const shiftMatch = parsed.shift === event.shiftKey;
     const altMatch = parsed.alt ? event.altKey : !event.altKey;
 
     return keyMatch && modMatch && ctrlMatch && shiftMatch && altMatch;
@@ -111,7 +137,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
   const { enabled = true, handlers } = options;
   const handlersRef = useRef(handlers);
 
-  // Update handlers ref when they change
+  // Mettre à jour la ref quand les handlers changent
   useEffect(() => {
     handlersRef.current = handlers;
   }, [handlers]);
@@ -120,7 +146,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
     (event: KeyboardEvent) => {
       if (!enabled) return;
 
-      // Don't trigger shortcuts when typing in inputs
+      // Ignorer si on est dans un input/textarea
       const target = event.target as HTMLElement;
       if (
         target.tagName === 'INPUT' ||
@@ -132,112 +158,231 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
 
       const h = handlersRef.current;
 
-      // Transport
+      // === TRANSPORT ===
       if (matchesShortcut(event, KEYBOARD_SHORTCUTS.PLAY_PAUSE)) {
         event.preventDefault();
         h.onPlayPause?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.STOP)) {
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.STOP)) {
         event.preventDefault();
         h.onStop?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.REWIND)) {
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.REWIND)) {
         event.preventDefault();
         h.onRewind?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.FAST_FORWARD)) {
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.FAST_FORWARD)) {
         event.preventDefault();
         h.onFastForward?.();
+        return;
       }
 
-      // Shuttle (J/K/L)
-      else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SHUTTLE_BACK)) {
+      // === SHUTTLE J/K/L ===
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SHUTTLE_BACK)) {
         event.preventDefault();
         h.onShuttleBack?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SHUTTLE_STOP)) {
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SHUTTLE_STOP)) {
         event.preventDefault();
         h.onShuttleStop?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SHUTTLE_FORWARD)) {
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SHUTTLE_FORWARD)) {
         event.preventDefault();
         h.onShuttleForward?.();
+        return;
       }
 
-      // Edition
-      else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.CUT)) {
+      // === NAVIGATION FINE ===
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.FRAME_BACK)) {
         event.preventDefault();
-        h.onCut?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.COPY)) {
-        event.preventDefault();
-        h.onCopy?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.PASTE)) {
-        event.preventDefault();
-        h.onPaste?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.DELETE)) {
-        event.preventDefault();
-        h.onDelete?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SELECT_ALL)) {
-        event.preventDefault();
-        h.onSelectAll?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.DESELECT)) {
-        event.preventDefault();
-        h.onDeselect?.();
+        h.onFrameBack?.();
+        return;
       }
 
-      // Actions
-      else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.UNDO)) {
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.FRAME_FORWARD)) {
         event.preventDefault();
-        h.onUndo?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.REDO)) {
-        event.preventDefault();
-        h.onRedo?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SPLIT)) {
-        event.preventDefault();
-        h.onSplit?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.TRIM_TO_SELECTION)) {
-        event.preventDefault();
-        h.onTrimToSelection?.();
+        h.onFrameForward?.();
+        return;
       }
 
-      // Cue points
-      else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SET_CUE_IN)) {
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.JUMP_BACK_5S)) {
+        event.preventDefault();
+        h.onJumpBack5s?.();
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.JUMP_FORWARD_5S)) {
+        event.preventDefault();
+        h.onJumpForward5s?.();
+        return;
+      }
+
+      // === SÉLECTION I/O ===
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SET_IN_POINT)) {
         event.preventDefault();
         h.onSetCueIn?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SET_CUE_OUT)) {
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SET_OUT_POINT)) {
         event.preventDefault();
         h.onSetCueOut?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.GO_TO_CUE_IN)) {
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.GO_TO_IN_POINT)) {
         event.preventDefault();
         h.onGoToCueIn?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.GO_TO_CUE_OUT)) {
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.GO_TO_OUT_POINT)) {
         event.preventDefault();
         h.onGoToCueOut?.();
+        return;
       }
 
-      // Zoom
-      else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.ZOOM_IN)) {
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.CLEAR_SELECTION)) {
+        // Ne pas intercepter Escape ici, c'est aussi STOP
+        // Géré par onStop
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SELECT_ALL)) {
+        event.preventDefault();
+        h.onSelectAll?.();
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.DESELECT)) {
+        event.preventDefault();
+        h.onDeselect?.();
+        return;
+      }
+
+      // === ÉDITION ===
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.CUT_SELECTION)) {
+        event.preventDefault();
+        h.onCut?.();
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SPLIT)) {
+        event.preventDefault();
+        h.onSplit?.();
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.TRIM_TO_SELECTION)) {
+        event.preventDefault();
+        h.onTrimToSelection?.();
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.COPY)) {
+        event.preventDefault();
+        h.onCopy?.();
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.PASTE)) {
+        event.preventDefault();
+        h.onPaste?.();
+        return;
+      }
+
+      // === HISTORIQUE ===
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.UNDO)) {
+        event.preventDefault();
+        h.onUndo?.();
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.REDO)) {
+        event.preventDefault();
+        h.onRedo?.();
+        return;
+      }
+
+      // === ZOOM ===
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.ZOOM_IN)) {
         event.preventDefault();
         h.onZoomIn?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.ZOOM_OUT)) {
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.ZOOM_OUT)) {
         event.preventDefault();
         h.onZoomOut?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.ZOOM_FIT)) {
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.ZOOM_FIT)) {
         event.preventDefault();
         h.onZoomFit?.();
+        return;
       }
 
-      // Tracks
-      else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.MUTE_TRACK)) {
+      // === PISTES ===
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.MUTE_TRACK)) {
         event.preventDefault();
         h.onMuteTrack?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SOLO_TRACK)) {
-        event.preventDefault();
-        h.onSoloTrack?.();
+        return;
       }
 
-      // Save/Export
-      else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SAVE)) {
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SOLO_TRACK)) {
+        event.preventDefault();
+        h.onSoloTrack?.();
+        return;
+      }
+
+      // === MARQUEURS ===
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.ADD_MARKER)) {
+        event.preventDefault();
+        h.onAddMarker?.();
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.NEXT_MARKER)) {
+        event.preventDefault();
+        h.onNextMarker?.();
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.PREV_MARKER)) {
+        event.preventDefault();
+        h.onPrevMarker?.();
+        return;
+      }
+
+      // === FICHIER ===
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SAVE)) {
         event.preventDefault();
         h.onSave?.();
-      } else if (matchesShortcut(event, KEYBOARD_SHORTCUTS.EXPORT)) {
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.EXPORT)) {
         event.preventDefault();
         h.onExport?.();
+        return;
+      }
+
+      // === UI ===
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SHOW_SHORTCUTS)) {
+        event.preventDefault();
+        h.onShowShortcuts?.();
+        return;
       }
     },
     [enabled]
@@ -253,3 +398,5 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
     };
   }, [enabled, handleKeyDown]);
 }
+
+export type { ShortcutHandlers as KeyboardShortcutHandlers };

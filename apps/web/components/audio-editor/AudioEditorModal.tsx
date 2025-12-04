@@ -1,5 +1,6 @@
 'use client';
 
+import { useCallback } from 'react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 import { AudioEditor } from './AudioEditor';
@@ -19,28 +20,33 @@ export function AudioEditorModal({
   title,
   onSave,
 }: AudioEditorModalProps) {
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     onOpenChange(false);
-  };
+  }, [onOpenChange]);
 
-  const handleSave = (audioBlob: Blob, format: 'wav') => {
+  const handleSave = useCallback((audioBlob: Blob, format: 'wav') => {
     onSave?.(audioBlob, format);
     onOpenChange(false);
-  };
+  }, [onSave, onOpenChange]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl w-[95vw] h-[85vh] p-0 overflow-hidden">
+      <DialogContent
+        className="max-w-6xl w-[95vw] h-[85vh] p-0 overflow-hidden"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <VisuallyHidden>
           <DialogTitle>Editeur audio - {title}</DialogTitle>
         </VisuallyHidden>
-        <AudioEditor
-          url={url}
-          title={title}
-          onSave={handleSave}
-          onClose={handleClose}
-          className="h-full"
-        />
+        {open && (
+          <AudioEditor
+            url={url}
+            title={title}
+            onSave={handleSave}
+            onClose={handleClose}
+            className="h-full"
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

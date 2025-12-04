@@ -137,7 +137,9 @@ export async function exportAudioBuffer(
   let blob: Blob;
 
   if (options.format === 'wav') {
-    blob = audioBufferToWav(audioBuffer, options.bitDepth || 16);
+    // 32-bit float requires a different format, fall back to 24-bit
+    const bitDepth = options.bitDepth === 32 ? 24 : (options.bitDepth || 16);
+    blob = audioBufferToWav(audioBuffer, bitDepth as 16 | 24);
   } else {
     blob = await audioBufferToMp3(audioBuffer, options.bitrate || 320);
   }

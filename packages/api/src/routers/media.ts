@@ -109,6 +109,42 @@ export const mediaRouter = router({
       });
     }),
 
+  // Get multiple media items by IDs
+  getMany: protectedProcedure
+    .input(z.object({ ids: z.array(z.string()) }))
+    .query(async ({ ctx, input }) => {
+      const mediaItems = await ctx.db.mediaItem.findMany({
+        where: {
+          id: { in: input.ids },
+          organizationId: ctx.organizationId!,
+        },
+        include: {
+          uploadedBy: true,
+        },
+      });
+
+      // Generate presigned URLs for each item
+      const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
+      const itemsWithUrls = await Promise.all(
+        mediaItems.map(async (item) => {
+          const presignedUrl = await getSignedUrl(
+            s3Client,
+            new GetObjectCommand({
+              Bucket: bucket,
+              Key: item.s3Key,
+            }),
+            { expiresIn: 3600 }
+          );
+          return {
+            ...item,
+            presignedUrl,
+          };
+        })
+      );
+
+      return itemsWithUrls;
+    }),
+
   // Get single media item
   get: protectedProcedure
     .input(z.object({ id: z.string() }))

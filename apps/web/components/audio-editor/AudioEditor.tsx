@@ -64,6 +64,8 @@ export function AudioEditor({
   const regionsRef = useRef<RegionsPlugin | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const currentBufferRef = useRef<AudioBuffer | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
+  const isMountedRef = useRef(true);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isReady, setIsReady] = useState(false);
@@ -79,8 +81,18 @@ export function AudioEditor({
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [hasChanges, setHasChanges] = useState(false);
 
+  // Cleanup blob URLs
+  const cleanupBlobUrl = useCallback(() => {
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
+    }
+  }, []);
+
   // Initialize WaveSurfer
   useEffect(() => {
+    isMountedRef.current = true;
+    
     if (!containerRef.current) return;
 
     const regions = RegionsPlugin.create();
@@ -103,6 +115,8 @@ export function AudioEditor({
     wavesurfer.load(url);
 
     wavesurfer.on('ready', () => {
+      if (!isMountedRef.current) return;
+      
       setIsReady(true);
       setIsLoading(false);
       setDuration(wavesurfer.getDuration());
@@ -118,19 +132,37 @@ export function AudioEditor({
     });
 
     wavesurfer.on('audioprocess', () => {
-      setCurrentTime(wavesurfer.getCurrentTime());
+      if (isMountedRef.current) {
+        setCurrentTime(wavesurfer.getCurrentTime());
+      }
     });
 
     wavesurfer.on('seeking', () => {
-      setCurrentTime(wavesurfer.getCurrentTime());
+      if (isMountedRef.current) {
+        setCurrentTime(wavesurfer.getCurrentTime());
+      }
     });
 
-    wavesurfer.on('play', () => setIsPlaying(true));
-    wavesurfer.on('pause', () => setIsPlaying(false));
-    wavesurfer.on('finish', () => setIsPlaying(false));
+    wavesurfer.on('play', () => {
+      if (isMountedRef.current) setIsPlaying(true);
+    });
+    wavesurfer.on('pause', () => {
+      if (isMountedRef.current) setIsPlaying(false);
+    });
+    wavesurfer.on('finish', () => {
+      if (isMountedRef.current) setIsPlaying(false);
+    });
+
+    // Handle errors silently
+    wavesurfer.on('error', (error) => {
+      if (isMountedRef.current && !String(error).includes('AbortError')) {
+        console.warn('WaveSurfer error:', error);
+      }
+    });
 
     // Region events
     regions.on('region-created', (region) => {
+      if (!isMountedRef.current) return;
       // Remove any other regions (only one selection at a time)
       regions.getRegions().forEach((r) => {
         if (r.id !== region.id) {
@@ -141,12 +173,16 @@ export function AudioEditor({
     });
 
     regions.on('region-updated', (region) => {
-      setSelectedRegion(region);
+      if (isMountedRef.current) {
+        setSelectedRegion(region);
+      }
     });
 
     regions.on('region-clicked', (region, e) => {
       e.stopPropagation();
-      setSelectedRegion(region);
+      if (isMountedRef.current) {
+        setSelectedRegion(region);
+      }
     });
 
     // Enable drag selection
@@ -158,24 +194,53 @@ export function AudioEditor({
     audioContextRef.current = new AudioContext();
 
     return () => {
-      wavesurfer.destroy();
-      audioContextRef.current?.close();
+      isMountedRef.current = false;
+      cleanupBlobUrl();
+      
+      // Unsubscribe all events first
+      try {
+        wavesurfer.unAll();
+      } catch {
+        // Ignore
+      }
+
+      // Safely destroy wavesurfer
+      try {
+        if (wavesurfer.isPlaying()) {
+          wavesurfer.pause();
+        }
+        wavesurfer.destroy();
+      } catch {
+        // Silently ignore AbortError and cleanup errors
+      }
+
+      try {
+        audioContextRef.current?.close();
+      } catch {
+        // Ignore
+      }
+      
+      wavesurferRef.current = null;
     };
-  }, [url]);
+  }, [url, cleanupBlobUrl]);
 
-  // Update zoom
-  useEffect(() => {
+  // Handle zoom changes
+  const handleZoomChange = useCallback((values: number[]) => {
+    const newZoom = values[0];
+    setZoom(newZoom);
     if (wavesurferRef.current && isReady) {
-      wavesurferRef.current.zoom(zoom);
+      wavesurferRef.current.zoom(newZoom);
     }
-  }, [zoom, isReady]);
+  }, [isReady]);
 
-  // Update volume
-  useEffect(() => {
+  // Handle volume changes
+  const handleVolumeChange = useCallback((values: number[]) => {
+    const newVolume = values[0];
+    setVolume(newVolume);
     if (wavesurferRef.current) {
-      wavesurferRef.current.setVolume(volume);
+      wavesurferRef.current.setVolume(newVolume);
     }
-  }, [volume]);
+  }, []);
 
   const pushToHistory = useCallback((buffer: AudioBuffer) => {
     setHistory((prev) => {
@@ -189,21 +254,30 @@ export function AudioEditor({
   }, [historyIndex]);
 
   const applyBuffer = useCallback(async (buffer: AudioBuffer) => {
-    if (!wavesurferRef.current) return;
+    if (!wavesurferRef.current || !isMountedRef.current) return;
 
     currentBufferRef.current = buffer;
 
-    // Convert buffer to blob and reload
-    const blob = await audioBufferToWav(buffer);
+    // Cleanup previous blob URL
+    cleanupBlobUrl();
+
+    // Convert buffer to 32-bit float WAV (lossless for editing)
+    const blob = audioBufferToWav32Float(buffer);
     const blobUrl = URL.createObjectURL(blob);
+    blobUrlRef.current = blobUrl;
+
+    // Store current playback position
+    const currentPos = wavesurferRef.current.getCurrentTime();
 
     wavesurferRef.current.load(blobUrl);
-    setDuration(buffer.duration);
-
-    // Clear selection
-    regionsRef.current?.clearRegions();
-    setSelectedRegion(null);
-  }, []);
+    
+    if (isMountedRef.current) {
+      setDuration(buffer.duration);
+      // Clear selection
+      regionsRef.current?.clearRegions();
+      setSelectedRegion(null);
+    }
+  }, [cleanupBlobUrl]);
 
   const togglePlay = useCallback(() => {
     if (wavesurferRef.current) {
@@ -256,6 +330,8 @@ export function AudioEditor({
 
     // Create new buffer without the selected region
     const newLength = buffer.length - (endSample - startSample);
+    if (newLength <= 0) return; // Don't allow empty audio
+    
     const newBuffer = audioContextRef.current.createBuffer(
       buffer.numberOfChannels,
       newLength,
@@ -267,9 +343,13 @@ export function AudioEditor({
       const newChannelData = newBuffer.getChannelData(channel);
 
       // Copy before selection
-      newChannelData.set(channelData.slice(0, startSample), 0);
+      for (let i = 0; i < startSample; i++) {
+        newChannelData[i] = channelData[i];
+      }
       // Copy after selection
-      newChannelData.set(channelData.slice(endSample), startSample);
+      for (let i = endSample; i < buffer.length; i++) {
+        newChannelData[startSample + (i - endSample)] = channelData[i];
+      }
     }
 
     pushToHistory(newBuffer);
@@ -317,11 +397,17 @@ export function AudioEditor({
       const newChannelData = newBuffer.getChannelData(channel);
 
       // Copy before cursor
-      newChannelData.set(channelData.slice(0, currentPosition), 0);
+      for (let i = 0; i < currentPosition; i++) {
+        newChannelData[i] = channelData[i];
+      }
       // Insert clipboard
-      newChannelData.set(clipboardData, currentPosition);
+      for (let i = 0; i < clipboard.length; i++) {
+        newChannelData[currentPosition + i] = clipboardData[i];
+      }
       // Copy after cursor
-      newChannelData.set(channelData.slice(currentPosition), currentPosition + clipboard.length);
+      for (let i = currentPosition; i < buffer.length; i++) {
+        newChannelData[clipboard.length + i] = channelData[i];
+      }
     }
 
     pushToHistory(newBuffer);
@@ -337,6 +423,8 @@ export function AudioEditor({
     const endSample = Math.floor(selectedRegion.end * sampleRate);
 
     const newLength = buffer.length - (endSample - startSample);
+    if (newLength <= 0) return; // Don't allow empty audio
+    
     const newBuffer = audioContextRef.current.createBuffer(
       buffer.numberOfChannels,
       newLength,
@@ -347,8 +435,12 @@ export function AudioEditor({
       const channelData = buffer.getChannelData(channel);
       const newChannelData = newBuffer.getChannelData(channel);
 
-      newChannelData.set(channelData.slice(0, startSample), 0);
-      newChannelData.set(channelData.slice(endSample), startSample);
+      for (let i = 0; i < startSample; i++) {
+        newChannelData[i] = channelData[i];
+      }
+      for (let i = endSample; i < buffer.length; i++) {
+        newChannelData[startSample + (i - endSample)] = channelData[i];
+      }
     }
 
     pushToHistory(newBuffer);
@@ -371,14 +463,19 @@ export function AudioEditor({
     );
 
     for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-      const channelData = buffer.getChannelData(channel).slice();
-
-      for (let i = 0; i < fadeLength; i++) {
-        const gain = i / fadeLength;
-        channelData[startSample + i] *= gain;
+      const channelData = buffer.getChannelData(channel);
+      const newChannelData = newBuffer.getChannelData(channel);
+      
+      // Copy all data first
+      for (let i = 0; i < buffer.length; i++) {
+        newChannelData[i] = channelData[i];
       }
 
-      newBuffer.copyToChannel(channelData, channel);
+      // Apply fade in
+      for (let i = 0; i < fadeLength; i++) {
+        const gain = i / fadeLength;
+        newChannelData[startSample + i] *= gain;
+      }
     }
 
     pushToHistory(newBuffer);
@@ -401,14 +498,19 @@ export function AudioEditor({
     );
 
     for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-      const channelData = buffer.getChannelData(channel).slice();
-
-      for (let i = 0; i < fadeLength; i++) {
-        const gain = 1 - (i / fadeLength);
-        channelData[startSample + i] *= gain;
+      const channelData = buffer.getChannelData(channel);
+      const newChannelData = newBuffer.getChannelData(channel);
+      
+      // Copy all data first
+      for (let i = 0; i < buffer.length; i++) {
+        newChannelData[i] = channelData[i];
       }
 
-      newBuffer.copyToChannel(channelData, channel);
+      // Apply fade out
+      for (let i = 0; i < fadeLength; i++) {
+        const gain = 1 - (i / fadeLength);
+        newChannelData[startSample + i] *= gain;
+      }
     }
 
     pushToHistory(newBuffer);
@@ -430,9 +532,9 @@ export function AudioEditor({
       }
     }
 
-    if (maxAmplitude === 0) return;
+    if (maxAmplitude === 0 || maxAmplitude >= 0.99) return; // Already normalized or silent
 
-    const gain = 1 / maxAmplitude;
+    const gain = 0.99 / maxAmplitude; // Target 99% to avoid clipping
 
     const newBuffer = audioContextRef.current.createBuffer(
       buffer.numberOfChannels,
@@ -441,13 +543,12 @@ export function AudioEditor({
     );
 
     for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-      const channelData = buffer.getChannelData(channel).slice();
+      const channelData = buffer.getChannelData(channel);
+      const newChannelData = newBuffer.getChannelData(channel);
 
       for (let i = 0; i < channelData.length; i++) {
-        channelData[i] *= gain;
+        newChannelData[i] = channelData[i] * gain;
       }
-
-      newBuffer.copyToChannel(channelData, channel);
     }
 
     pushToHistory(newBuffer);
@@ -459,7 +560,8 @@ export function AudioEditor({
 
     setIsSaving(true);
     try {
-      const blob = await audioBufferToWav(currentBufferRef.current);
+      // Export as 16-bit WAV for final file (smaller size, standard format)
+      const blob = audioBufferToWav16Bit(currentBufferRef.current);
       onSave(blob, 'wav');
       setHasChanges(false);
     } finally {
@@ -677,7 +779,7 @@ export function AudioEditor({
               min={10}
               max={200}
               step={10}
-              onValueChange={(v) => setZoom(v[0])}
+              onValueChange={handleZoomChange}
               className="w-24"
             />
             <ZoomIn className="h-4 w-4 text-slate-400" />
@@ -763,7 +865,7 @@ export function AudioEditor({
                 min={0}
                 max={1}
                 step={0.01}
-                onValueChange={(v) => setVolume(v[0])}
+                onValueChange={handleVolumeChange}
                 className="w-24"
               />
             </div>
@@ -774,8 +876,63 @@ export function AudioEditor({
   );
 }
 
-// Helper function to convert AudioBuffer to WAV Blob
-async function audioBufferToWav(buffer: AudioBuffer): Promise<Blob> {
+/**
+ * Convert AudioBuffer to 32-bit float WAV (lossless, for internal editing)
+ * This preserves full quality during edit operations
+ */
+function audioBufferToWav32Float(buffer: AudioBuffer): Blob {
+  const numChannels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const format = 3; // IEEE float
+  const bitDepth = 32;
+
+  const bytesPerSample = bitDepth / 8;
+  const blockAlign = numChannels * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = buffer.length * blockAlign;
+  const headerSize = 44;
+  const totalSize = headerSize + dataSize;
+
+  const arrayBuffer = new ArrayBuffer(totalSize);
+  const view = new DataView(arrayBuffer);
+
+  // Write WAV header
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, totalSize - 8, true);
+  writeString(view, 8, 'WAVE');
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true); // fmt chunk size
+  view.setUint16(20, format, true); // IEEE float
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitDepth, true);
+  writeString(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  // Write audio data (interleaved 32-bit float)
+  const channels: Float32Array[] = [];
+  for (let i = 0; i < numChannels; i++) {
+    channels.push(buffer.getChannelData(i));
+  }
+
+  let offset = headerSize;
+  for (let i = 0; i < buffer.length; i++) {
+    for (let channel = 0; channel < numChannels; channel++) {
+      view.setFloat32(offset, channels[channel][i], true);
+      offset += 4;
+    }
+  }
+
+  return new Blob([arrayBuffer], { type: 'audio/wav' });
+}
+
+/**
+ * Convert AudioBuffer to 16-bit PCM WAV (for final export/download)
+ * Standard format, smaller file size
+ */
+function audioBufferToWav16Bit(buffer: AudioBuffer): Blob {
   const numChannels = buffer.numberOfChannels;
   const sampleRate = buffer.sampleRate;
   const format = 1; // PCM
@@ -806,7 +963,7 @@ async function audioBufferToWav(buffer: AudioBuffer): Promise<Blob> {
   writeString(view, 36, 'data');
   view.setUint32(40, dataSize, true);
 
-  // Write audio data (interleaved)
+  // Write audio data (interleaved 16-bit PCM with proper dithering)
   const channels: Float32Array[] = [];
   for (let i = 0; i < numChannels; i++) {
     channels.push(buffer.getChannelData(i));
@@ -815,8 +972,12 @@ async function audioBufferToWav(buffer: AudioBuffer): Promise<Blob> {
   let offset = headerSize;
   for (let i = 0; i < buffer.length; i++) {
     for (let channel = 0; channel < numChannels; channel++) {
+      // Clamp and convert with proper scaling
       const sample = Math.max(-1, Math.min(1, channels[channel][i]));
-      const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+      // Use proper conversion: multiply by 32767 for positive, 32768 for negative
+      const intSample = sample < 0 
+        ? Math.round(sample * 32768) 
+        : Math.round(sample * 32767);
       view.setInt16(offset, intSample, true);
       offset += 2;
     }

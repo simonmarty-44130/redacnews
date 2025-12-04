@@ -25,6 +25,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { RundownItem } from './RundownItem';
 import { AddItemDialog } from './AddItemDialog';
+import { GenerateScriptButton } from './GenerateScriptButton';
 import { trpc } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
 
@@ -168,12 +169,20 @@ export function RundownEditor({ rundownId }: RundownEditorProps) {
               {format(new Date(rundown.date), 'EEEE d MMMM yyyy', { locale: fr })}
             </p>
           </div>
-          <Badge className={statusColors[rundown.status]}>
-            {rundown.status === 'DRAFT' && 'Brouillon'}
-            {rundown.status === 'READY' && 'Pret'}
-            {rundown.status === 'ON_AIR' && 'A l\'antenne'}
-            {rundown.status === 'ARCHIVED' && 'Archive'}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <GenerateScriptButton
+              rundownId={rundownId}
+              rundownTitle={`${rundown.show.name} - ${format(new Date(rundown.date), 'd MMMM yyyy', { locale: fr })}`}
+              existingScriptUrl={rundown.scriptDocUrl}
+              existingScriptGeneratedAt={rundown.scriptGeneratedAt}
+            />
+            <Badge className={statusColors[rundown.status]}>
+              {rundown.status === 'DRAFT' && 'Brouillon'}
+              {rundown.status === 'READY' && 'Pret'}
+              {rundown.status === 'ON_AIR' && 'A l\'antenne'}
+              {rundown.status === 'ARCHIVED' && 'Archive'}
+            </Badge>
+          </div>
         </div>
 
         {/* Timing bar */}

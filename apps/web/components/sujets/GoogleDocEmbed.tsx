@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { ExternalLink, RefreshCw, Maximize2, Minimize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -10,21 +10,19 @@ interface GoogleDocEmbedProps {
   docId: string;
   docUrl?: string;
   className?: string;
-  onContentChange?: () => void;
 }
 
 export function GoogleDocEmbed({
   docId,
   docUrl,
   className,
-  onContentChange,
 }: GoogleDocEmbedProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [key, setKey] = useState(0); // For forcing iframe refresh
 
-  // Embed URL with minimal UI
-  const embedUrl = `https://docs.google.com/document/d/${docId}/edit?embedded=true&rm=minimal`;
+  // URL d'édition (sans embedded=true qui bloque parfois la saisie)
+  const embedUrl = `https://docs.google.com/document/d/${docId}/edit?rm=minimal`;
 
   // External edit URL
   const editUrl = docUrl || `https://docs.google.com/document/d/${docId}/edit`;
@@ -36,30 +34,16 @@ export function GoogleDocEmbed({
   const handleRefresh = useCallback(() => {
     setIsLoading(true);
     setKey((k) => k + 1);
-    onContentChange?.();
-  }, [onContentChange]);
+  }, []);
 
   const toggleFullscreen = useCallback(() => {
     setIsFullscreen((f) => !f);
   }, []);
 
-  // Listen for window messages from Google Docs (for sync)
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      // Google Docs sends messages when content changes
-      if (event.origin.includes('docs.google.com')) {
-        onContentChange?.();
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [onContentChange]);
-
   return (
     <div
       className={cn(
-        'flex flex-col bg-white rounded-lg border overflow-hidden',
+        'flex flex-col bg-white rounded-lg border overflow-hidden h-full',
         isFullscreen && 'fixed inset-4 z-50 shadow-2xl',
         className
       )}
@@ -102,7 +86,7 @@ export function GoogleDocEmbed({
       </div>
 
       {/* Document iframe */}
-      <div className={cn('relative flex-1', isFullscreen ? 'h-full' : 'min-h-[500px]')}>
+      <div className="relative flex-1 min-h-0">
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
             <div className="text-center space-y-3">
@@ -120,8 +104,7 @@ export function GoogleDocEmbed({
           src={embedUrl}
           className="w-full h-full border-0"
           onLoad={handleLoad}
-          allow="clipboard-write"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
+          allow="clipboard-write; clipboard-read"
           title="Google Doc Editor"
         />
       </div>

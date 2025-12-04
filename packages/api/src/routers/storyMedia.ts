@@ -1,5 +1,15 @@
 import { z } from 'zod';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { router, protectedProcedure } from '../trpc';
+
+const s3Client = new S3Client({
+  region: process.env.AWS_REGION || 'eu-west-3',
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+  },
+});
 
 export const storyMediaRouter = router({
   // Lier un media a un sujet
@@ -127,11 +137,11 @@ export const storyMediaRouter = router({
       return { success: true };
     }),
 
-  // Lister les medias d'un sujet
+  // Lister les medias d'un sujet (avec URLs presignees)
   listByStory: protectedProcedure
     .input(z.object({ storyId: z.string() }))
     .query(async ({ ctx, input }) => {
-      return ctx.db.storyMedia.findMany({
+      const storyMediaItems = await ctx.db.storyMedia.findMany({
         where: { storyId: input.storyId },
         include: {
           mediaItem: {
@@ -140,6 +150,30 @@ export const storyMediaRouter = router({
         },
         orderBy: { position: 'asc' },
       });
+
+      // Generer des URLs presignees pour chaque media
+      const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
+      const itemsWithUrls = await Promise.all(
+        storyMediaItems.map(async (item) => {
+          const presignedUrl = await getSignedUrl(
+            s3Client,
+            new GetObjectCommand({
+              Bucket: bucket,
+              Key: item.mediaItem.s3Key,
+            }),
+            { expiresIn: 3600 }
+          );
+          return {
+            ...item,
+            mediaItem: {
+              ...item.mediaItem,
+              presignedUrl,
+            },
+          };
+        })
+      );
+
+      return itemsWithUrls;
     }),
 
   // Lister les utilisations d'un media (vue "Utilisations")

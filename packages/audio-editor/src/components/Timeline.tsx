@@ -11,6 +11,7 @@ interface TimelineProps {
   scrollLeft: number;
   selection?: { start: number; end: number } | null;
   markers?: { id: string; time: number; label: string; color?: string }[];
+  cuePoints?: { cueIn?: number; cueOut?: number };
   onSeek: (time: number) => void;
   onSelectionChange?: (start: number, end: number) => void;
   theme?: 'light' | 'dark';
@@ -24,6 +25,7 @@ export function Timeline({
   scrollLeft,
   selection,
   markers = [],
+  cuePoints = {},
   onSeek,
   onSelectionChange,
   theme = 'dark',
@@ -167,6 +169,60 @@ export function Timeline({
             title={marker.label}
           />
         ))}
+
+        {/* Cue In marker */}
+        {cuePoints.cueIn !== undefined && (
+          <div
+            className="absolute top-0 h-full w-1"
+            style={{
+              left: timeToPixels(cuePoints.cueIn, zoom),
+              backgroundColor: '#22c55e', // green-500
+              boxShadow: '0 0 4px #22c55e',
+            }}
+            title={`In: ${cuePoints.cueIn.toFixed(2)}s`}
+          >
+            <div
+              className="absolute -top-1 left-0 px-1 text-[8px] font-bold text-white rounded"
+              style={{ backgroundColor: '#22c55e' }}
+            >
+              IN
+            </div>
+          </div>
+        )}
+
+        {/* Cue Out marker */}
+        {cuePoints.cueOut !== undefined && (
+          <div
+            className="absolute top-0 h-full w-1"
+            style={{
+              left: timeToPixels(cuePoints.cueOut, zoom),
+              backgroundColor: '#ef4444', // red-500
+              boxShadow: '0 0 4px #ef4444',
+            }}
+            title={`Out: ${cuePoints.cueOut.toFixed(2)}s`}
+          >
+            <div
+              className="absolute -top-1 left-0 px-1 text-[8px] font-bold text-white rounded"
+              style={{ backgroundColor: '#ef4444' }}
+            >
+              OUT
+            </div>
+          </div>
+        )}
+
+        {/* Cue region highlight (between In and Out) */}
+        {cuePoints.cueIn !== undefined && cuePoints.cueOut !== undefined && (
+          <div
+            className="absolute top-0 h-full pointer-events-none"
+            style={{
+              left: timeToPixels(Math.min(cuePoints.cueIn, cuePoints.cueOut), zoom),
+              width: timeToPixels(Math.abs(cuePoints.cueOut - cuePoints.cueIn), zoom),
+              backgroundColor: 'rgba(34, 197, 94, 0.2)', // green with transparency
+              borderTop: '2px solid #22c55e',
+              borderBottom: '2px solid #22c55e',
+            }}
+          />
+        )}
 
         {/* Playhead / Current time cursor */}
         <div

@@ -14,13 +14,13 @@
     "immer": "^10.0.0",
     "lamejs": "^1.2.1",
     "nanoid": "^5.0.0",
+    "peaks.js": "^4.0.0",
     "tone": "^14.9.17",
-    "waveform-playlist": "^4.3.3",
     "zustand": "^4.5.0"
   },
   "devDependencies": {
-    "@types/react": "^18.2.0",
     "@types/event-emitter": "^0.3.3",
+    "@types/react": "^18.2.0",
     "typescript": "^5.3.0"
   },
   "peerDependencies": {

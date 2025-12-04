@@ -6,6 +6,21 @@ import { Play, Pause } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
+// Global AbortError suppressor for WaveSurfer cleanup
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', (event) => {
+    if (event.reason?.name === 'AbortError') {
+      event.preventDefault();
+    }
+  });
+  window.addEventListener('error', (event) => {
+    if (event.message?.includes('AbortError') || event.error?.name === 'AbortError') {
+      event.preventDefault();
+      return true;
+    }
+  });
+}
+
 interface AudioWaveformProps {
   url: string;
   className?: string;
@@ -29,12 +44,16 @@ export function AudioWaveform({
 }: AudioWaveformProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
+  const isMountedRef = useRef(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
   useEffect(() => {
+    // Reset mounted flag
+    isMountedRef.current = true;
+
     if (!containerRef.current) return;
 
     const wavesurfer = WaveSurfer.create({
@@ -53,34 +72,68 @@ export function AudioWaveform({
     wavesurfer.load(url);
 
     wavesurfer.on('ready', () => {
-      setIsReady(true);
-      setDuration(wavesurfer.getDuration());
+      if (isMountedRef.current) {
+        setIsReady(true);
+        setDuration(wavesurfer.getDuration());
+      }
     });
 
     wavesurfer.on('audioprocess', () => {
-      setCurrentTime(wavesurfer.getCurrentTime());
+      if (isMountedRef.current) {
+        setCurrentTime(wavesurfer.getCurrentTime());
+      }
     });
 
     wavesurfer.on('seeking', () => {
-      setCurrentTime(wavesurfer.getCurrentTime());
+      if (isMountedRef.current) {
+        setCurrentTime(wavesurfer.getCurrentTime());
+      }
     });
 
-    wavesurfer.on('play', () => setIsPlaying(true));
-    wavesurfer.on('pause', () => setIsPlaying(false));
-    wavesurfer.on('finish', () => setIsPlaying(false));
+    wavesurfer.on('play', () => {
+      if (isMountedRef.current) setIsPlaying(true);
+    });
+    wavesurfer.on('pause', () => {
+      if (isMountedRef.current) setIsPlaying(false);
+    });
+    wavesurfer.on('finish', () => {
+      if (isMountedRef.current) setIsPlaying(false);
+    });
+
+    // Handle errors silently (especially AbortError during unmount)
+    wavesurfer.on('error', (error) => {
+      // Only log if it's not an abort error during unmount
+      if (isMountedRef.current && !String(error).includes('AbortError')) {
+        console.warn('WaveSurfer error:', error);
+      }
+    });
 
     wavesurferRef.current = wavesurfer;
 
     return () => {
-      wavesurfer.destroy();
+      // Mark as unmounted first
+      isMountedRef.current = false;
+
+      // Unsubscribe all events first
+      wavesurfer.unAll();
+
+      // Destroy wavesurfer (AbortError is handled globally)
+      try {
+        wavesurfer.pause();
+        wavesurfer.destroy();
+      } catch {
+        // Ignore errors
+      }
+
+      wavesurferRef.current = null;
     };
   }, [url, height, waveColor, progressColor]);
 
   const togglePlay = useCallback(() => {
-    if (wavesurferRef.current) {
+    if (wavesurferRef.current && isReady) {
       wavesurferRef.current.playPause();
     }
-  }, []);
+  }, [isReady]);
 
   return (
     <div className={cn('space-y-2', className)}>

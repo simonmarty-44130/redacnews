@@ -5,3 +5,6 @@ export { CreateStoryDialog } from './CreateStoryDialog';
 export { GoogleDocEmbed } from './GoogleDocEmbed';
 export { MediaPicker } from './MediaPicker';
 export { LinkedMediaList } from './LinkedMediaList';
+export { StoryEditorFullscreen } from './StoryEditorFullscreen';
+export { ReadingTimer } from './ReadingTimer';
+export { StoryBottomBar } from './StoryBottomBar';

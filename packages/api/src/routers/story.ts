@@ -168,6 +168,7 @@ export const storyRouter = router({
     }),
 
   // Sync content from Google Doc
+  // Retourne le contenu et la duree estimee pour le timer de lecture
   syncGoogleDoc: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
@@ -187,13 +188,21 @@ export const storyRouter = router({
         const wordCount = content.trim().split(/\s+/).filter(Boolean).length;
         const estimatedDuration = estimateReadingDuration(wordCount);
 
-        return ctx.db.story.update({
+        const updated = await ctx.db.story.update({
           where: { id: input.id },
           data: {
             content,
             estimatedDuration,
           },
         });
+
+        // Retourner les donnees pour le timer de lecture
+        return {
+          id: updated.id,
+          content: updated.content,
+          estimatedDuration: updated.estimatedDuration,
+          wordCount,
+        };
       } catch (error) {
         console.error('Failed to sync Google Doc:', error);
         throw new Error('Failed to sync content from Google Doc');

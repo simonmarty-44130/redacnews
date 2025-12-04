@@ -2,7 +2,7 @@
  * Compresseur audio pour le broadcast radio
  */
 
-import * as Tone from 'tone';
+import { Compressor, Limiter, type ToneAudioNode } from 'tone';
 import type { CompressorSettings } from '../types/editor.types';
 
 /**
@@ -48,8 +48,8 @@ export const COMPRESSOR_PRESETS: Record<string, CompressorSettings> = {
  */
 export function createCompressor(
   settings: CompressorSettings = COMPRESSOR_PRESETS.broadcast
-): Tone.Compressor {
-  return new Tone.Compressor({
+): Compressor {
+  return new Compressor({
     threshold: settings.threshold,
     ratio: settings.ratio,
     attack: settings.attack,
@@ -61,7 +61,7 @@ export function createCompressor(
 /**
  * Cree un compresseur broadcast pre-configure
  */
-export function createBroadcastCompressor(): Tone.Compressor {
+export function createBroadcastCompressor(): Compressor {
   return createCompressor(COMPRESSOR_PRESETS.broadcast);
 }
 
@@ -105,20 +105,20 @@ export async function compressBuffer(
  * (compresseur + limiter)
  */
 export function createBroadcastChain(): {
-  compressor: Tone.Compressor;
-  limiter: Tone.Limiter;
-  connect: (input: Tone.ToneAudioNode, output: Tone.ToneAudioNode) => void;
+  compressor: Compressor;
+  limiter: Limiter;
+  connect: (input: ToneAudioNode, output: ToneAudioNode) => void;
   dispose: () => void;
 } {
   const compressor = createCompressor(COMPRESSOR_PRESETS.broadcast);
-  const limiter = new Tone.Limiter(-3);
+  const limiter = new Limiter(-3);
 
   compressor.connect(limiter);
 
   return {
     compressor,
     limiter,
-    connect: (input: Tone.ToneAudioNode, output: Tone.ToneAudioNode) => {
+    connect: (input: ToneAudioNode, output: ToneAudioNode) => {
       input.connect(compressor);
       limiter.connect(output);
     },

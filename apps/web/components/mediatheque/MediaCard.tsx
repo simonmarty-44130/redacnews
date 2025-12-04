@@ -1,9 +1,12 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { Music, Image, Video, File, Clock, Play } from 'lucide-react';
+import { Music, Image, Video, File, Clock, Play, Scissors, Check } from 'lucide-react';
 import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 
 interface MediaItem {
@@ -29,6 +32,9 @@ interface MediaCardProps {
   onClick?: () => void;
   onPlay?: () => void;
   viewMode?: 'grid' | 'list';
+  isSelectable?: boolean;
+  isChecked?: boolean;
+  onCheckChange?: (checked: boolean) => void;
 }
 
 const typeIcons = {
@@ -63,22 +69,43 @@ export function MediaCard({
   onClick,
   onPlay,
   viewMode = 'grid',
+  isSelectable = false,
+  isChecked = false,
+  onCheckChange,
 }: MediaCardProps) {
+  const router = useRouter();
   const Icon = typeIcons[media.type];
   const uploaderName =
     media.uploadedBy.firstName && media.uploadedBy.lastName
       ? `${media.uploadedBy.firstName} ${media.uploadedBy.lastName}`
       : media.uploadedBy.email.split('@')[0];
 
+  const handleEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    router.push(`/audio-editor?media=${media.id}`);
+  };
+
+  const handleCheckChange = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onCheckChange?.(!isChecked);
+  };
+
   if (viewMode === 'list') {
     return (
       <Card
         className={cn(
           'p-3 cursor-pointer transition-all hover:shadow-md flex items-center gap-4',
-          isSelected && 'ring-2 ring-blue-500 bg-blue-50/50'
+          isSelected && 'ring-2 ring-blue-500 bg-blue-50/50',
+          isChecked && 'bg-blue-50 border-blue-200'
         )}
         onClick={onClick}
       >
+        {/* Checkbox for selection mode */}
+        {isSelectable && (
+          <div onClick={handleCheckChange}>
+            <Checkbox checked={isChecked} className="pointer-events-none" />
+          </div>
+        )}
         <div className={cn('p-2 rounded-lg', typeColors[media.type])}>
           <Icon className="h-5 w-5" />
         </div>
@@ -95,6 +122,18 @@ export function MediaCard({
         <span className="text-sm text-gray-400">
           {formatFileSize(media.fileSize)}
         </span>
+        {/* Edit button for audio files */}
+        {media.type === 'AUDIO' && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleEdit}
+            title="Editer dans l'editeur audio"
+            className="h-8 w-8"
+          >
+            <Scissors className="h-4 w-4" />
+          </Button>
+        )}
         {(media.type === 'AUDIO' || media.type === 'VIDEO') && onPlay && (
           <button
             onClick={(e) => {
@@ -114,7 +153,8 @@ export function MediaCard({
     <Card
       className={cn(
         'overflow-hidden cursor-pointer transition-all hover:shadow-md group',
-        isSelected && 'ring-2 ring-blue-500'
+        isSelected && 'ring-2 ring-blue-500',
+        isChecked && 'ring-2 ring-blue-500 bg-blue-50'
       )}
       onClick={onClick}
     >
@@ -130,6 +170,34 @@ export function MediaCard({
           <div className={cn('p-4 rounded-full', typeColors[media.type])}>
             <Icon className="h-8 w-8" />
           </div>
+        )}
+
+        {/* Checkbox for selection mode */}
+        {isSelectable && (
+          <div
+            className="absolute top-2 left-2 z-10"
+            onClick={handleCheckChange}
+          >
+            <div className={cn(
+              'h-5 w-5 rounded border-2 flex items-center justify-center transition-colors',
+              isChecked
+                ? 'bg-blue-500 border-blue-500'
+                : 'bg-white/90 border-gray-300 hover:border-blue-400'
+            )}>
+              {isChecked && <Check className="h-3 w-3 text-white" />}
+            </div>
+          </div>
+        )}
+
+        {/* Edit button for audio (top right) */}
+        {media.type === 'AUDIO' && (
+          <button
+            onClick={handleEdit}
+            className="absolute top-2 right-2 z-10 p-1.5 rounded-md bg-white/90 text-gray-700 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white hover:text-blue-600"
+            title="Editer dans l'editeur audio"
+          >
+            <Scissors className="h-4 w-4" />
+          </button>
         )}
 
         {/* Play button overlay */}

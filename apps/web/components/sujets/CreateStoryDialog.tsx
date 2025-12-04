@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Plus, FileText } from 'lucide-react';
 import {
   Dialog,
@@ -41,6 +42,7 @@ interface CreateStoryDialogProps {
 }
 
 export function CreateStoryDialog({ onSuccess }: CreateStoryDialogProps) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState<string>('');
@@ -54,6 +56,8 @@ export function CreateStoryDialog({ onSuccess }: CreateStoryDialogProps) {
       setOpen(false);
       resetForm();
       onSuccess?.(data.id);
+      // Rediriger vers la page d'edition plein ecran
+      router.push(`/sujets/${data.id}`);
     },
   });
 
@@ -63,6 +67,8 @@ export function CreateStoryDialog({ onSuccess }: CreateStoryDialogProps) {
       setOpen(false);
       resetForm();
       onSuccess?.(data.id);
+      // Rediriger vers la page d'edition plein ecran
+      router.push(`/sujets/${data.id}`);
     },
   });
 
