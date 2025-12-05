@@ -67,6 +67,7 @@ export interface ShortcutHandlers {
 
   // UI
   onShowShortcuts?: ShortcutHandler;
+  onFullscreen?: ShortcutHandler;
 }
 
 interface UseKeyboardShortcutsOptions {
@@ -271,7 +272,9 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
       }
 
       // === ÉDITION ===
+      console.log('Key pressed:', event.key, 'Code:', event.code, 'CUT_SELECTION shortcuts:', KEYBOARD_SHORTCUTS.CUT_SELECTION);
       if (matchesShortcut(event, KEYBOARD_SHORTCUTS.CUT_SELECTION)) {
+        console.log('CUT_SELECTION matched! Calling onCut...');
         event.preventDefault();
         h.onCut?.();
         return;
@@ -382,6 +385,12 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions): void
       if (matchesShortcut(event, KEYBOARD_SHORTCUTS.SHOW_SHORTCUTS)) {
         event.preventDefault();
         h.onShowShortcuts?.();
+        return;
+      }
+
+      if (matchesShortcut(event, KEYBOARD_SHORTCUTS.FULLSCREEN)) {
+        event.preventDefault();
+        h.onFullscreen?.();
         return;
       }
     },

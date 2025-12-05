@@ -1,27 +1,14 @@
 // ============================================
-// TYPES PRINCIPAUX - ARCHITECTURE NON-DESTRUCTIVE
+// TYPES PRINCIPAUX - ARCHITECTURE DESTRUCTIVE
 // ============================================
 
 /**
- * Une région représente un segment audio à GARDER
- * C'est la brique de base de l'édition non-destructive
+ * NOUVELLE ARCHITECTURE DESTRUCTIVE
  *
- * L'audio original n'est JAMAIS modifié.
- * Les régions définissent quelles parties de l'original sont conservées.
+ * Le CUT modifie directement l'AudioBuffer en mémoire.
+ * Ce qu'on voit = ce qu'on entend.
+ * Pas de régions/métadonnées complexes.
  */
-export interface AudioRegion {
-  id: string;
-  startTime: number;        // Début dans le fichier ORIGINAL (secondes)
-  endTime: number;          // Fin dans le fichier ORIGINAL (secondes)
-  // Calculé
-  duration: number;         // endTime - startTime
-  // Optionnel
-  label?: string;
-  color?: string;
-  // Fades
-  fadeIn?: FadeConfig;
-  fadeOut?: FadeConfig;
-}
 
 export type FadeShape = 'linear' | 'logarithmic' | 'sCurve' | 'exponential';
 
@@ -36,27 +23,29 @@ export interface FadeConfig {
  */
 export interface Marker {
   id: string;
-  time: number;             // Position dans le fichier ORIGINAL
+  time: number;             // Position dans le buffer actuel
   label: string;
   color?: string;
 }
 
 /**
- * Une piste audio avec ses régions et métadonnées
- * Architecture NON-DESTRUCTIVE : l'audio original reste intact
+ * Une piste audio - Architecture DESTRUCTIVE
+ * L'AudioBuffer est modifié directement en mémoire
  */
 export interface Track {
   id: string;
   name: string;
-  src: string;                    // URL du fichier original (S3/CloudFront)
+  src: string;                    // URL source originale (pour reload)
 
-  // New region-based architecture
-  originalDuration: number;       // Durée totale du fichier original (defaults to 0)
-  regions: AudioRegion[];         // Régions = parties à garder (defaults to [])
-  markers: Marker[];              // Marqueurs (defaults to [])
-  color: string;                  // Couleur de la piste (defaults from theme)
+  // Architecture destructive
+  audioBuffer: AudioBuffer | null; // Buffer MODIFIABLE en mémoire
+  duration: number;               // Durée actuelle du buffer
 
-  // Mix (with defaults in store)
+  // Marqueurs (optionnel)
+  markers: Marker[];
+  color: string;
+
+  // Mix
   gain: number;                   // 0 à 2 (1 = normal)
   pan: number;                    // -1 (gauche) à 1 (droite)
   muted: boolean;
@@ -65,35 +54,47 @@ export interface Track {
   // Données waveform (pré-calculées)
   peaks?: number[][];
 
-  // Legacy properties for backwards compatibility with waveform-playlist
-  start?: number;                 // Position de début sur la timeline
-  duration?: number;              // Durée de la piste
+  // Fades globaux de la piste
   fadeIn?: FadeConfig;
   fadeOut?: FadeConfig;
 }
 
 /**
- * Sélection en cours (zone à potentiellement supprimer)
+ * Historique pour undo/redo - stocke des copies du buffer
  */
-export interface Selection {
-  trackId?: string;
-  // New naming convention
-  startTime?: number;             // Dans la timeline MONTÉE
-  endTime?: number;               // Dans la timeline MONTÉE
-  // Correspondance dans l'original (optional for backwards compat)
-  originalStartTime?: number;
-  originalEndTime?: number;
-  // Legacy naming for backwards compatibility
-  start: number;                  // Required - legacy alias
-  end: number;                    // Required - legacy alias
+export interface HistoryEntry {
+  timestamp: number;
+  action: string;
+  audioBuffer: AudioBuffer;
+  duration: number;
+}
+
+// ============================================
+// TYPES LEGACY - Conservés pour compatibilité transitoire
+// ============================================
+
+/**
+ * @deprecated - Utilisé uniquement pendant la migration
+ * Sera supprimé après migration complète
+ */
+export interface AudioRegion {
+  id: string;
+  startTime: number;
+  endTime: number;
+  duration: number;
+  label?: string;
+  color?: string;
+  fadeIn?: FadeConfig;
+  fadeOut?: FadeConfig;
 }
 
 /**
- * Points In/Out pour la sélection rapide
+ * Sélection en cours (zone à couper)
+ * Architecture simplifiée - pas de distinction monté/original
  */
-export interface CuePoints {
-  cueIn?: number;   // Point IN dans le temps MONTÉ
-  cueOut?: number;  // Point OUT dans le temps MONTÉ
+export interface Selection {
+  startTime: number;
+  endTime: number;
 }
 
 /**
@@ -102,12 +103,7 @@ export interface CuePoints {
 export type PlayState = 'stopped' | 'playing' | 'paused';
 
 /**
- * Mode de sélection
- */
-export type SelectionMode = 'none' | 'selecting' | 'selected';
-
-/**
- * État global de l'éditeur
+ * État global de l'éditeur - Architecture DESTRUCTIVE
  */
 export interface EditorState {
   // Pistes
@@ -115,50 +111,38 @@ export interface EditorState {
   activeTrackId: string | null;
 
   // Transport
-  playState: PlayState;
-  currentTime: number;            // Position dans la timeline MONTÉE
+  isPlaying: boolean;
+  currentTime: number;            // Position dans le buffer actuel
+  duration: number;               // Durée du buffer actuel
 
   // Sélection
   selection: Selection | null;
-  selectionMode: SelectionMode;
-
-  // Points In/Out temporaires
   inPoint: number | null;
   outPoint: number | null;
-  cuePoints: CuePoints;
 
   // Zoom
   zoom: number;                   // Pixels par seconde
-  scrollLeft: number;
-
-  // UI
-  showWaveformOverview: boolean;
-  snapToGrid: boolean;
-  gridSize: number;               // En secondes (0.5, 1, 5, etc.)
-
-  // Durées
-  montedDuration?: number;        // Durée du montage (somme des régions) - new
-  duration: number;               // Total duration (backwards compatibility)
-  sampleRate: number;
 
   // Historique
-  canUndo: boolean;
-  canRedo: boolean;
+  history: HistoryEntry[];
+  historyIndex: number;
 
-  // Sélection de pistes multiples (pour batch operations)
-  selectedTrackIds: string[];
-
-  // Marqueurs globaux
-  markers: Marker[];
+  // AudioContext partagé
+  audioContext: AudioContext | null;
 }
 
+// ============================================
+// TYPES LEGACY - Pour compatibilité transitoire
+// ============================================
+
 /**
- * Historique pour undo/redo
+ * @deprecated - Types legacy pendant migration
  */
-export interface HistoryEntry {
-  timestamp: number;
-  action: string;                 // Description de l'action
-  tracks: Track[];                // Snapshot des pistes
+export type SelectionMode = 'none' | 'selecting' | 'selected';
+
+export interface CuePoints {
+  cueIn?: number;
+  cueOut?: number;
 }
 
 // ============================================

@@ -30,8 +30,8 @@ export function AudioEditorPage() {
   const mediaParam = searchParams.get('media');
   const storyParam = searchParams.get('story');
 
-  // State
-  const [initialTracks, setInitialTracks] = useState<Track[]>([]);
+  // State - initialTracks uses simplified type for loading
+  const [initialTracks, setInitialTracks] = useState<Array<{ id?: string; src: string; name: string }>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [sourceContext, setSourceContext] = useState<SourceContext>({ type: 'new' });
@@ -95,7 +95,7 @@ export function AudioEditorPage() {
       if (!mediaItems || mediaIds.length === 0) return;
 
       setIsLoading(true);
-      const tracks: Track[] = [];
+      const tracks: Array<{ id?: string; src: string; name: string }> = [];
 
       // mediaItems from getMany already has presignedUrl
       for (let i = 0; i < mediaItems.length; i++) {
@@ -105,14 +105,13 @@ export function AudioEditorPage() {
             id: media.id,
             src: media.presignedUrl, // Use presigned URL instead of s3Url
             name: media.title,
-            start: 0, // All tracks start at 0
           });
         }
         setLoadingProgress(((i + 1) / mediaItems.length) * 100);
       }
 
       setInitialTracks(tracks);
-      setTracksInEditor(tracks.map(t => t.id));
+      setTracksInEditor(tracks.map(t => t.id!));
       setSourceContext({ type: 'media', ids: mediaIds });
       setIsLoading(false);
     }
@@ -128,7 +127,7 @@ export function AudioEditorPage() {
       if (!storyMedia) return;
 
       setIsLoading(true);
-      const tracks: Track[] = [];
+      const tracks: Array<{ id?: string; src: string; name: string }> = [];
 
       const audioMedia = storyMedia.filter(m => m.mediaItem.type === 'AUDIO');
 
@@ -138,13 +137,12 @@ export function AudioEditorPage() {
           id: sm.mediaItem.id,
           src: sm.mediaItem.presignedUrl, // Use presigned URL instead of s3Url
           name: sm.mediaItem.title,
-          start: 0, // All tracks start at 0
         });
         setLoadingProgress(((i + 1) / audioMedia.length) * 100);
       }
 
       setInitialTracks(tracks);
-      setTracksInEditor(tracks.map(t => t.id));
+      setTracksInEditor(tracks.map(t => t.id!));
       setSourceContext({ type: 'story', storyId: storyParam! });
       setIsLoading(false);
     }
@@ -248,22 +246,12 @@ export function AudioEditorPage() {
     s3Url: string;
     duration?: number | null;
   }>) => {
-    const currentTracks = editorRef.current?.getState()?.tracks || [];
-    const lastEnd = currentTracks.reduce((max, t) => Math.max(max, (t.start || 0) + (t.duration || 0)), 0);
-
-    let startOffset = lastEnd;
-
     for (const media of mediaItems) {
-      const track: Track = {
-        id: media.id,
+      editorRef.current?.addTrack({
         src: media.s3Url,
         name: media.title,
-        start: startOffset,
-      };
-
-      editorRef.current?.addTrack(track);
+      });
       setTracksInEditor(prev => [...prev, media.id]);
-      startOffset += (media.duration || 30) + 1; // Add 1 second gap
     }
 
     setHasUnsavedChanges(true);
@@ -411,7 +399,7 @@ export function AudioEditorPage() {
 
 function generateExportName(
   sourceContext: SourceContext,
-  tracks: Track[],
+  tracks: Array<{ id?: string; src: string; name: string }>,
   date: string
 ): string {
   if (sourceContext.type === 'story') {

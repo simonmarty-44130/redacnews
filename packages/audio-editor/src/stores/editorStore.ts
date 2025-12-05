@@ -3,111 +3,80 @@ import { immer } from 'zustand/middleware/immer';
 import { nanoid } from 'nanoid';
 import type {
   Track,
-  AudioRegion,
   Selection,
-  CuePoints,
   Marker,
-  PlayState,
-  SelectionMode,
   EditorState,
   HistoryEntry,
   FadeConfig,
 } from '../types/editor.types';
-import { cutSelection } from '../operations/cut';
-import { splitAtPosition } from '../operations/split';
-import { deleteRegion } from '../operations/delete-region';
-import { trimToSelection } from '../operations/trim';
 import {
-  getMontedDuration,
-  montedTimeToOriginal,
-} from '../utils/region-utils';
+  cutAudioBuffer,
+  cloneAudioBuffer,
+  trimAudioBuffer,
+  audioBufferToWav,
+  applyFadeIn,
+  applyFadeOut,
+  normalizeAudioBuffer,
+} from '../operations/cut';
 import { DEFAULTS, EDITOR_THEME, ZOOM_LEVELS } from '../constants/shortcuts';
 
 // Nombre maximum d'entrées dans l'historique
-const MAX_HISTORY = 50;
+const MAX_HISTORY = 20;
 
 // ============ STORE INTERFACE ============
 
 interface EditorActions {
+  // Init
+  initAudioContext: () => void;
+
   // Track management
-  addTrack: (
-    track: Partial<Track> & { src: string; name: string; id?: string }
-  ) => string;
+  loadTrack: (src: string, name: string) => Promise<string>;
+  addTrackFromBuffer: (buffer: AudioBuffer, name: string) => string;
   removeTrack: (trackId: string) => void;
-  updateTrack: (trackId: string, updates: Partial<Track>) => void;
   setActiveTrack: (trackId: string | null) => void;
-  reorderTracks: (fromIndex: number, toIndex: number) => void;
-
-  // Region operations (non-destructive editing)
-  cutSelectionAction: () => void;
-  splitAtCursor: () => void;
-  deleteRegionAction: (trackId: string, regionId: string) => void;
-  trimToSelectionAction: () => void;
-
-  // Selection
-  setInPoint: () => void;
-  setOutPoint: () => void;
-  clearSelection: () => void;
-  setSelection: (selection: Selection | null) => void;
-  setCuePoints: (cuePoints: Partial<CuePoints>) => void;
-  selectTrack: (trackId: string, addToSelection?: boolean) => void;
-  deselectTrack: (trackId: string) => void;
-  clearTrackSelection: () => void;
 
   // Transport
-  setPlayState: (state: PlayState) => void;
+  setPlaying: (playing: boolean) => void;
   setCurrentTime: (time: number) => void;
-  seek: (time: number) => void;
 
-  // Markers
-  addMarker: (trackId: string, time: number, label: string) => void;
-  removeMarker: (trackId: string, markerId: string) => void;
-  updateMarker: (
-    trackId: string,
-    markerId: string,
-    updates: Partial<Marker>
-  ) => void;
+  // Selection
+  setInPoint: (time?: number) => void;
+  setOutPoint: (time?: number) => void;
+  clearSelection: () => void;
+
+  // Edit operations (DESTRUCTIVE)
+  cutSelection: () => void;
+  trimToSelection: () => void;
+  applyFadeIn: (duration: number) => void;
+  applyFadeOut: (duration: number) => void;
+  normalize: () => void;
 
   // History
   undo: () => void;
   redo: () => void;
   pushHistory: (action: string) => void;
-  clearHistory: () => void;
 
-  // Zoom & View
+  // Zoom
   setZoom: (zoom: number) => void;
   zoomIn: () => void;
   zoomOut: () => void;
-  zoomToFit: () => void;
-  setScrollLeft: (scrollLeft: number) => void;
 
   // Mix
   setTrackGain: (trackId: string, gain: number) => void;
   setTrackPan: (trackId: string, pan: number) => void;
   toggleMute: (trackId: string) => void;
   toggleSolo: (trackId: string) => void;
-  muteAll: () => void;
-  unmuteAll: () => void;
 
-  // Fades
-  setTrackFadeIn: (trackId: string, fade: FadeConfig | undefined) => void;
-  setTrackFadeOut: (trackId: string, fade: FadeConfig | undefined) => void;
-
-  // Project
-  loadTracks: (
-    tracks: Array<{
-      id?: string;
-      src: string;
-      name: string;
-      originalDuration?: number;
-    }>
-  ) => void;
-  reset: () => void;
-  recalculateMontedDuration: () => void;
-  setDuration: (duration: number) => void;
+  // Markers
+  addMarker: (time: number, label: string) => void;
+  removeMarker: (markerId: string) => void;
 
   // Getters
   getActiveTrack: () => Track | null;
+  getAudioContext: () => AudioContext | null;
+
+  // Export helpers
+  getBufferForExport: () => AudioBuffer | null;
 }
 
 // ============ INITIAL STATE ============
@@ -115,37 +84,16 @@ interface EditorActions {
 const initialState: EditorState = {
   tracks: [],
   activeTrackId: null,
-  playState: 'stopped',
+  isPlaying: false,
   currentTime: 0,
+  duration: 0,
   selection: null,
-  selectionMode: 'none',
   inPoint: null,
   outPoint: null,
-  cuePoints: {},
   zoom: DEFAULTS.zoom,
-  scrollLeft: 0,
-  showWaveformOverview: true,
-  snapToGrid: false,
-  gridSize: 1,
-  montedDuration: 0,
-  duration: 0,                   // Backwards compatibility alias
-  sampleRate: DEFAULTS.sampleRate,
-  canUndo: false,
-  canRedo: false,
-  selectedTrackIds: [],
-  markers: [],
-};
-
-// ============ HISTORY STATE ============
-
-interface HistoryState {
-  past: HistoryEntry[];
-  future: HistoryEntry[];
-}
-
-let history: HistoryState = {
-  past: [],
-  future: [],
+  history: [],
+  historyIndex: -1,
+  audioContext: null,
 };
 
 // ============ STORE ============
@@ -154,454 +102,438 @@ export const useEditorStore = create<EditorState & EditorActions>()(
   immer((set, get) => ({
     ...initialState,
 
+    // ============ INIT ============
+
+    initAudioContext: () => {
+      if (!get().audioContext) {
+        const ctx = new (window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext })
+            .webkitAudioContext)();
+        set({ audioContext: ctx });
+      }
+    },
+
     // ============ TRACK MANAGEMENT ============
 
-    addTrack: (trackData) => {
-      const id = trackData.id || nanoid();
+    loadTrack: async (src: string, name: string) => {
+      const { initAudioContext } = get();
+
+      // Ensure audio context exists
+      initAudioContext();
+      const ctx = get().audioContext!;
+
+      try {
+        // Fetch and decode audio file
+        const response = await fetch(src);
+        const arrayBuffer = await response.arrayBuffer();
+        const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+
+        const id = nanoid();
+        const trackIndex = get().tracks.length;
+        const color =
+          EDITOR_THEME.dark.trackColors[
+            trackIndex % EDITOR_THEME.dark.trackColors.length
+          ];
+
+        const track: Track = {
+          id,
+          name,
+          src,
+          audioBuffer,
+          duration: audioBuffer.duration,
+          markers: [],
+          color,
+          gain: 1,
+          pan: 0,
+          muted: false,
+          soloed: false,
+        };
+
+        set((state) => {
+          state.tracks.push(track);
+          state.activeTrackId = track.id;
+          state.duration = audioBuffer.duration;
+          // Reset history for new track
+          state.history = [];
+          state.historyIndex = -1;
+        });
+
+        // Save initial state to history
+        get().pushHistory('Chargement');
+
+        return id;
+      } catch (error) {
+        console.error('Error loading audio:', error);
+        throw error;
+      }
+    },
+
+    addTrackFromBuffer: (buffer: AudioBuffer, name: string) => {
+      const id = nanoid();
       const trackIndex = get().tracks.length;
       const color =
-        trackData.color ||
         EDITOR_THEME.dark.trackColors[
           trackIndex % EDITOR_THEME.dark.trackColors.length
         ];
 
-      // Par défaut, créer une région qui couvre tout le fichier original
-      const originalDuration = trackData.originalDuration || 0;
-      const initialRegion: AudioRegion = {
-        id: nanoid(),
-        startTime: 0,
-        endTime: originalDuration,
-        duration: originalDuration,
-      };
-
-      const newTrack: Track = {
+      const track: Track = {
         id,
-        src: trackData.src,
-        name: trackData.name,
-        originalDuration,
-        regions: originalDuration > 0 ? [initialRegion] : [],
-        markers: trackData.markers || [],
-        gain: trackData.gain ?? 1,
-        pan: trackData.pan ?? 0,
-        muted: trackData.muted ?? false,
-        soloed: trackData.soloed ?? false,
+        name,
+        src: '',
+        audioBuffer: buffer,
+        duration: buffer.duration,
+        markers: [],
         color,
-        peaks: trackData.peaks,
+        gain: 1,
+        pan: 0,
+        muted: false,
+        soloed: false,
       };
 
       set((state) => {
-        state.tracks.push(newTrack);
-        if (!state.activeTrackId) {
-          state.activeTrackId = newTrack.id;
-        }
+        state.tracks.push(track);
+        state.activeTrackId = track.id;
+        state.duration = buffer.duration;
       });
 
-      get().pushHistory(`Ajout piste: ${newTrack.name}`);
-      get().recalculateMontedDuration();
+      get().pushHistory('Import');
 
       return id;
     },
 
-    removeTrack: (trackId) => {
-      const track = get().tracks.find((t) => t.id === trackId);
-      if (!track) return;
-
+    removeTrack: (trackId: string) => {
       set((state) => {
         state.tracks = state.tracks.filter((t) => t.id !== trackId);
-        state.selectedTrackIds = state.selectedTrackIds.filter(
-          (id) => id !== trackId
-        );
         if (state.activeTrackId === trackId) {
           state.activeTrackId = state.tracks[0]?.id ?? null;
         }
-      });
-
-      get().pushHistory(`Suppression piste: ${track.name}`);
-      get().recalculateMontedDuration();
-    },
-
-    updateTrack: (trackId, updates) => {
-      set((state) => {
-        const track = state.tracks.find((t) => t.id === trackId);
-        if (track) {
-          Object.assign(track, updates);
+        if (state.tracks.length === 0) {
+          state.duration = 0;
+          state.history = [];
+          state.historyIndex = -1;
         }
       });
-      get().recalculateMontedDuration();
     },
 
     setActiveTrack: (trackId) => {
       set((state) => {
         state.activeTrackId = trackId;
-      });
-    },
-
-    reorderTracks: (fromIndex, toIndex) => {
-      set((state) => {
-        const [removed] = state.tracks.splice(fromIndex, 1);
-        state.tracks.splice(toIndex, 0, removed);
-      });
-      get().pushHistory('Réorganisation pistes');
-    },
-
-    // ============ REGION OPERATIONS (NON-DESTRUCTIVE) ============
-
-    cutSelectionAction: () => {
-      const { activeTrackId, inPoint, outPoint, tracks } = get();
-
-      if (!activeTrackId || inPoint === null || outPoint === null) {
-        console.warn('Cut: pas de sélection valide');
-        return;
-      }
-
-      const track = tracks.find((t) => t.id === activeTrackId);
-      if (!track) return;
-
-      // Convertir les points montés vers l'original
-      const origStart = montedTimeToOriginal(track, Math.min(inPoint, outPoint));
-      const origEnd = montedTimeToOriginal(track, Math.max(inPoint, outPoint));
-
-      set((state) => {
-        const trackIndex = state.tracks.findIndex((t) => t.id === activeTrackId);
-        if (trackIndex !== -1) {
-          state.tracks[trackIndex] = cutSelection(
-            state.tracks[trackIndex],
-            origStart.originalTime,
-            origEnd.originalTime
-          );
+        const track = state.tracks.find((t) => t.id === trackId);
+        if (track) {
+          state.duration = track.duration;
         }
-        // Réinitialiser la sélection
-        state.inPoint = null;
-        state.outPoint = null;
-        state.selection = null;
-        state.selectionMode = 'none';
-      });
-
-      get().recalculateMontedDuration();
-      get().pushHistory('Cut sélection');
-    },
-
-    splitAtCursor: () => {
-      const { activeTrackId, currentTime, tracks } = get();
-
-      if (!activeTrackId) return;
-
-      const track = tracks.find((t) => t.id === activeTrackId);
-      if (!track) return;
-
-      // Convertir le temps monté en temps original
-      const { originalTime } = montedTimeToOriginal(track, currentTime);
-
-      set((state) => {
-        const trackIndex = state.tracks.findIndex((t) => t.id === activeTrackId);
-        if (trackIndex !== -1) {
-          state.tracks[trackIndex] = splitAtPosition(
-            state.tracks[trackIndex],
-            originalTime
-          );
-        }
-      });
-
-      get().pushHistory('Split à la position');
-    },
-
-    deleteRegionAction: (trackId, regionId) => {
-      set((state) => {
-        const trackIndex = state.tracks.findIndex((t) => t.id === trackId);
-        if (trackIndex !== -1) {
-          state.tracks[trackIndex] = deleteRegion(
-            state.tracks[trackIndex],
-            regionId
-          );
-        }
-      });
-      get().recalculateMontedDuration();
-      get().pushHistory('Suppression région');
-    },
-
-    trimToSelectionAction: () => {
-      const { activeTrackId, inPoint, outPoint, tracks } = get();
-
-      if (!activeTrackId || inPoint === null || outPoint === null) {
-        console.warn('Trim: pas de sélection valide');
-        return;
-      }
-
-      const track = tracks.find((t) => t.id === activeTrackId);
-      if (!track) return;
-
-      const start = Math.min(inPoint, outPoint);
-      const end = Math.max(inPoint, outPoint);
-
-      // Convertir vers temps original
-      const origStart = montedTimeToOriginal(track, start);
-      const origEnd = montedTimeToOriginal(track, end);
-
-      set((state) => {
-        const trackIndex = state.tracks.findIndex((t) => t.id === activeTrackId);
-        if (trackIndex !== -1) {
-          state.tracks[trackIndex] = trimToSelection(
-            state.tracks[trackIndex],
-            origStart.originalTime,
-            origEnd.originalTime
-          );
-        }
-        state.inPoint = null;
-        state.outPoint = null;
-        state.selection = null;
-        state.selectionMode = 'none';
-      });
-
-      get().recalculateMontedDuration();
-      get().pushHistory('Trim vers sélection');
-    },
-
-    // ============ SELECTION ============
-
-    setInPoint: () => {
-      const { currentTime } = get();
-      set((state) => {
-        state.inPoint = currentTime;
-        state.selectionMode = 'selecting';
-        // Mettre à jour cuePoints aussi
-        state.cuePoints.cueIn = currentTime;
-      });
-    },
-
-    setOutPoint: () => {
-      const { currentTime, inPoint, activeTrackId, tracks } = get();
-
-      set((state) => {
-        state.outPoint = currentTime;
-        state.selectionMode = 'selected';
-        state.cuePoints.cueOut = currentTime;
-
-        // Créer l'objet sélection
-        if (inPoint !== null && activeTrackId) {
-          const start = Math.min(inPoint, currentTime);
-          const end = Math.max(inPoint, currentTime);
-
-          const track = tracks.find((t) => t.id === activeTrackId);
-          if (track) {
-            const origStart = montedTimeToOriginal(track, start);
-            const origEnd = montedTimeToOriginal(track, end);
-
-            state.selection = {
-              trackId: activeTrackId,
-              startTime: start,
-              endTime: end,
-              originalStartTime: origStart.originalTime,
-              originalEndTime: origEnd.originalTime,
-              // Legacy aliases for backwards compatibility
-              start,
-              end,
-            };
-          }
-        }
-      });
-    },
-
-    clearSelection: () => {
-      set((state) => {
-        state.inPoint = null;
-        state.outPoint = null;
-        state.selection = null;
-        state.selectionMode = 'none';
-      });
-    },
-
-    setSelection: (selection) => {
-      set((state) => {
-        state.selection = selection;
-        state.selectionMode = selection ? 'selected' : 'none';
-        if (selection) {
-          // Use start/end (legacy) properties for backwards compatibility
-          state.inPoint = selection.start;
-          state.outPoint = selection.end;
-        }
-      });
-    },
-
-    setCuePoints: (cuePoints) => {
-      set((state) => {
-        state.cuePoints = { ...state.cuePoints, ...cuePoints };
-      });
-    },
-
-    selectTrack: (trackId, addToSelection = false) => {
-      set((state) => {
-        if (addToSelection) {
-          if (!state.selectedTrackIds.includes(trackId)) {
-            state.selectedTrackIds.push(trackId);
-          }
-        } else {
-          state.selectedTrackIds = [trackId];
-        }
-        state.activeTrackId = trackId;
-      });
-    },
-
-    deselectTrack: (trackId) => {
-      set((state) => {
-        state.selectedTrackIds = state.selectedTrackIds.filter(
-          (id) => id !== trackId
-        );
-      });
-    },
-
-    clearTrackSelection: () => {
-      set((state) => {
-        state.selectedTrackIds = [];
       });
     },
 
     // ============ TRANSPORT ============
 
-    setPlayState: (playState) => {
-      set((state) => {
-        state.playState = playState;
-      });
+    setPlaying: (playing) => {
+      set({ isPlaying: playing });
     },
 
     setCurrentTime: (time) => {
       set((state) => {
-        const maxTime = state.montedDuration ?? state.duration ?? 0;
-        state.currentTime = Math.max(0, Math.min(time, maxTime));
+        state.currentTime = Math.max(0, Math.min(time, state.duration));
       });
     },
 
-    seek: (time) => {
+    // ============ SELECTION ============
+
+    setInPoint: (time?: number) => {
+      const timeToUse = time ?? get().currentTime;
+      console.log('setInPoint:', timeToUse.toFixed(3));
       set((state) => {
-        const maxTime = state.montedDuration ?? state.duration ?? 0;
-        state.currentTime = Math.max(0, Math.min(time, maxTime));
-      });
-    },
-
-    // ============ MARKERS ============
-
-    addMarker: (trackId, time, label) => {
-      const marker: Marker = {
-        id: nanoid(),
-        time,
-        label,
-        color: EDITOR_THEME.dark.cursor,
-      };
-
-      set((state) => {
-        const track = state.tracks.find((t) => t.id === trackId);
-        if (track) {
-          track.markers.push(marker);
-          track.markers.sort((a, b) => a.time - b.time);
+        state.inPoint = timeToUse;
+        if (state.outPoint !== null && state.outPoint > timeToUse) {
+          state.selection = { startTime: timeToUse, endTime: state.outPoint };
         }
       });
-      get().pushHistory(`Marqueur ajouté: ${label}`);
     },
 
-    removeMarker: (trackId, markerId) => {
+    setOutPoint: (time?: number) => {
+      const timeToUse = time ?? get().currentTime;
+      console.log('setOutPoint:', timeToUse.toFixed(3));
       set((state) => {
-        const track = state.tracks.find((t) => t.id === trackId);
-        if (track) {
-          track.markers = track.markers.filter((m) => m.id !== markerId);
+        state.outPoint = timeToUse;
+        if (state.inPoint !== null && state.inPoint < timeToUse) {
+          state.selection = { startTime: state.inPoint, endTime: timeToUse };
         }
       });
-      get().pushHistory('Marqueur supprimé');
     },
 
-    updateMarker: (trackId, markerId, updates) => {
+    clearSelection: () => {
+      console.log('clearSelection');
       set((state) => {
-        const track = state.tracks.find((t) => t.id === trackId);
-        if (track) {
-          const marker = track.markers.find((m) => m.id === markerId);
-          if (marker) {
-            Object.assign(marker, updates);
+        state.inPoint = null;
+        state.outPoint = null;
+        state.selection = null;
+      });
+    },
+
+    // ============ EDIT OPERATIONS (DESTRUCTIVE) ============
+
+    cutSelection: () => {
+      const { activeTrackId, inPoint, outPoint, tracks, audioContext } = get();
+
+      if (!activeTrackId || inPoint === null || outPoint === null || !audioContext) {
+        console.warn('Cut: missing data', { activeTrackId, inPoint, outPoint });
+        return;
+      }
+
+      const track = tracks.find((t) => t.id === activeTrackId);
+      if (!track || !track.audioBuffer) {
+        console.warn('Cut: no track or buffer');
+        return;
+      }
+
+      const startTime = Math.min(inPoint, outPoint);
+      const endTime = Math.max(inPoint, outPoint);
+
+      console.log('=== CUT (DESTRUCTIVE) ===');
+      console.log('Cutting from', startTime.toFixed(3), 'to', endTime.toFixed(3));
+      console.log('Buffer duration before:', track.audioBuffer.duration.toFixed(3));
+
+      try {
+        // Save for undo BEFORE the cut
+        get().pushHistory('Cut');
+
+        // Perform the cut
+        const newBuffer = cutAudioBuffer(
+          audioContext,
+          track.audioBuffer,
+          startTime,
+          endTime
+        );
+
+        console.log('Buffer duration after:', newBuffer.duration.toFixed(3));
+
+        // Update the store
+        set((state) => {
+          const trackIndex = state.tracks.findIndex((t) => t.id === activeTrackId);
+          if (trackIndex !== -1) {
+            state.tracks[trackIndex].audioBuffer = newBuffer;
+            state.tracks[trackIndex].duration = newBuffer.duration;
           }
-        }
-      });
+          state.duration = newBuffer.duration;
+          state.inPoint = null;
+          state.outPoint = null;
+          state.selection = null;
+          // Adjust currentTime if beyond new duration
+          if (state.currentTime > newBuffer.duration) {
+            state.currentTime = newBuffer.duration;
+          }
+        });
+
+        console.log('=== CUT DONE ===');
+      } catch (error) {
+        console.error('Cut failed:', error);
+      }
+    },
+
+    trimToSelection: () => {
+      const { activeTrackId, inPoint, outPoint, tracks, audioContext } = get();
+
+      if (!activeTrackId || inPoint === null || outPoint === null || !audioContext) {
+        console.warn('Trim: missing data');
+        return;
+      }
+
+      const track = tracks.find((t) => t.id === activeTrackId);
+      if (!track || !track.audioBuffer) {
+        return;
+      }
+
+      const startTime = Math.min(inPoint, outPoint);
+      const endTime = Math.max(inPoint, outPoint);
+
+      try {
+        get().pushHistory('Trim');
+
+        const newBuffer = trimAudioBuffer(
+          audioContext,
+          track.audioBuffer,
+          startTime,
+          endTime
+        );
+
+        set((state) => {
+          const trackIndex = state.tracks.findIndex((t) => t.id === activeTrackId);
+          if (trackIndex !== -1) {
+            state.tracks[trackIndex].audioBuffer = newBuffer;
+            state.tracks[trackIndex].duration = newBuffer.duration;
+          }
+          state.duration = newBuffer.duration;
+          state.inPoint = null;
+          state.outPoint = null;
+          state.selection = null;
+          state.currentTime = 0;
+        });
+      } catch (error) {
+        console.error('Trim failed:', error);
+      }
+    },
+
+    applyFadeIn: (duration: number) => {
+      const { activeTrackId, tracks, audioContext } = get();
+
+      if (!activeTrackId || !audioContext) return;
+
+      const track = tracks.find((t) => t.id === activeTrackId);
+      if (!track || !track.audioBuffer) return;
+
+      try {
+        get().pushHistory('Fade In');
+
+        const newBuffer = applyFadeIn(audioContext, track.audioBuffer, duration);
+
+        set((state) => {
+          const trackIndex = state.tracks.findIndex((t) => t.id === activeTrackId);
+          if (trackIndex !== -1) {
+            state.tracks[trackIndex].audioBuffer = newBuffer;
+          }
+        });
+      } catch (error) {
+        console.error('Fade in failed:', error);
+      }
+    },
+
+    applyFadeOut: (duration: number) => {
+      const { activeTrackId, tracks, audioContext } = get();
+
+      if (!activeTrackId || !audioContext) return;
+
+      const track = tracks.find((t) => t.id === activeTrackId);
+      if (!track || !track.audioBuffer) return;
+
+      try {
+        get().pushHistory('Fade Out');
+
+        const newBuffer = applyFadeOut(audioContext, track.audioBuffer, duration);
+
+        set((state) => {
+          const trackIndex = state.tracks.findIndex((t) => t.id === activeTrackId);
+          if (trackIndex !== -1) {
+            state.tracks[trackIndex].audioBuffer = newBuffer;
+          }
+        });
+      } catch (error) {
+        console.error('Fade out failed:', error);
+      }
+    },
+
+    normalize: () => {
+      const { activeTrackId, tracks, audioContext } = get();
+
+      if (!activeTrackId || !audioContext) return;
+
+      const track = tracks.find((t) => t.id === activeTrackId);
+      if (!track || !track.audioBuffer) return;
+
+      try {
+        get().pushHistory('Normalisation');
+
+        const newBuffer = normalizeAudioBuffer(audioContext, track.audioBuffer);
+
+        set((state) => {
+          const trackIndex = state.tracks.findIndex((t) => t.id === activeTrackId);
+          if (trackIndex !== -1) {
+            state.tracks[trackIndex].audioBuffer = newBuffer;
+          }
+        });
+      } catch (error) {
+        console.error('Normalize failed:', error);
+      }
     },
 
     // ============ HISTORY ============
 
-    pushHistory: (action) => {
-      const currentTracks = JSON.parse(JSON.stringify(get().tracks));
+    pushHistory: (action: string) => {
+      const { activeTrackId, tracks, audioContext } = get();
 
-      history.past.push({
-        tracks: currentTracks,
+      if (!audioContext) return;
+
+      const track = tracks.find((t) => t.id === activeTrackId);
+      if (!track || !track.audioBuffer) return;
+
+      // Clone the current buffer
+      const bufferClone = cloneAudioBuffer(audioContext, track.audioBuffer);
+
+      const entry: HistoryEntry = {
         timestamp: Date.now(),
         action,
-      });
-
-      // Limit history size
-      if (history.past.length > MAX_HISTORY) {
-        history.past.shift();
-      }
-
-      // Clear future when new action is performed
-      history.future = [];
+        audioBuffer: bufferClone,
+        duration: track.duration,
+      };
 
       set((state) => {
-        state.canUndo = history.past.length > 0;
-        state.canRedo = false;
+        // Remove entries after current index (if we did undo)
+        state.history = state.history.slice(0, state.historyIndex + 1);
+        state.history.push(entry);
+
+        // Limit size
+        if (state.history.length > MAX_HISTORY) {
+          state.history = state.history.slice(-MAX_HISTORY);
+        }
+
+        state.historyIndex = state.history.length - 1;
       });
     },
 
     undo: () => {
-      if (history.past.length === 0) return;
+      const { historyIndex, history, activeTrackId } = get();
 
-      const currentTracks = JSON.parse(JSON.stringify(get().tracks));
-      const previousEntry = history.past.pop()!;
+      if (historyIndex <= 0) {
+        console.log('Nothing to undo');
+        return;
+      }
 
-      history.future.push({
-        tracks: currentTracks,
-        timestamp: Date.now(),
-        action: 'undo',
-      });
+      const previousEntry = history[historyIndex - 1];
+
+      console.log('Undo to:', previousEntry.action);
 
       set((state) => {
-        state.tracks = previousEntry.tracks;
-        state.canUndo = history.past.length > 0;
-        state.canRedo = true;
+        const trackIndex = state.tracks.findIndex((t) => t.id === activeTrackId);
+        if (trackIndex !== -1) {
+          state.tracks[trackIndex].audioBuffer = previousEntry.audioBuffer;
+          state.tracks[trackIndex].duration = previousEntry.duration;
+        }
+        state.duration = previousEntry.duration;
+        state.historyIndex = historyIndex - 1;
+        // Clear selection
+        state.inPoint = null;
+        state.outPoint = null;
+        state.selection = null;
       });
-
-      get().recalculateMontedDuration();
     },
 
     redo: () => {
-      if (history.future.length === 0) return;
+      const { historyIndex, history, activeTrackId } = get();
 
-      const currentTracks = JSON.parse(JSON.stringify(get().tracks));
-      const nextEntry = history.future.pop()!;
+      if (historyIndex >= history.length - 1) {
+        console.log('Nothing to redo');
+        return;
+      }
 
-      history.past.push({
-        tracks: currentTracks,
-        timestamp: Date.now(),
-        action: 'redo',
-      });
+      const nextEntry = history[historyIndex + 1];
+
+      console.log('Redo to:', nextEntry.action);
 
       set((state) => {
-        state.tracks = nextEntry.tracks;
-        state.canUndo = true;
-        state.canRedo = history.future.length > 0;
-      });
-
-      get().recalculateMontedDuration();
-    },
-
-    clearHistory: () => {
-      history = { past: [], future: [] };
-      set((state) => {
-        state.canUndo = false;
-        state.canRedo = false;
+        const trackIndex = state.tracks.findIndex((t) => t.id === activeTrackId);
+        if (trackIndex !== -1) {
+          state.tracks[trackIndex].audioBuffer = nextEntry.audioBuffer;
+          state.tracks[trackIndex].duration = nextEntry.duration;
+        }
+        state.duration = nextEntry.duration;
+        state.historyIndex = historyIndex + 1;
       });
     },
 
-    // ============ ZOOM & VIEW ============
+    // ============ ZOOM ============
 
     setZoom: (zoom) => {
       set((state) => {
-        state.zoom = Math.max(
-          ZOOM_LEVELS[0],
-          Math.min(zoom, ZOOM_LEVELS[ZOOM_LEVELS.length - 1])
-        );
+        state.zoom = Math.max(ZOOM_LEVELS[0], Math.min(zoom, ZOOM_LEVELS[ZOOM_LEVELS.length - 1]));
       });
     },
 
@@ -609,9 +541,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       const currentZoom = get().zoom;
       const nextZoom = ZOOM_LEVELS.find((z) => z > currentZoom);
       if (nextZoom) {
-        set((state) => {
-          state.zoom = nextZoom;
-        });
+        set({ zoom: nextZoom });
       }
     },
 
@@ -619,23 +549,8 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       const currentZoom = get().zoom;
       const prevZoom = [...ZOOM_LEVELS].reverse().find((z) => z < currentZoom);
       if (prevZoom) {
-        set((state) => {
-          state.zoom = prevZoom;
-        });
+        set({ zoom: prevZoom });
       }
-    },
-
-    zoomToFit: () => {
-      set((state) => {
-        state.zoom = DEFAULTS.zoom;
-        state.scrollLeft = 0;
-      });
-    },
-
-    setScrollLeft: (scrollLeft) => {
-      set((state) => {
-        state.scrollLeft = Math.max(0, scrollLeft);
-      });
     },
 
     // ============ MIX ============
@@ -676,119 +591,37 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       });
     },
 
-    muteAll: () => {
-      set((state) => {
-        state.tracks.forEach((track) => {
-          track.muted = true;
-        });
-      });
-    },
+    // ============ MARKERS ============
 
-    unmuteAll: () => {
-      set((state) => {
-        state.tracks.forEach((track) => {
-          track.muted = false;
-          track.soloed = false;
-        });
-      });
-    },
+    addMarker: (time, label) => {
+      const { activeTrackId } = get();
+      if (!activeTrackId) return;
 
-    // ============ FADES ============
+      const marker: Marker = {
+        id: nanoid(),
+        time,
+        label,
+        color: EDITOR_THEME.dark.cursor,
+      };
 
-    setTrackFadeIn: (trackId, fade) => {
       set((state) => {
-        const track = state.tracks.find((t) => t.id === trackId);
-        if (track && track.regions.length > 0) {
-          // Apply fade to first region
-          track.regions[0].fadeIn = fade;
+        const track = state.tracks.find((t) => t.id === activeTrackId);
+        if (track) {
+          track.markers.push(marker);
+          track.markers.sort((a, b) => a.time - b.time);
         }
       });
-      get().pushHistory('Fade in');
     },
 
-    setTrackFadeOut: (trackId, fade) => {
+    removeMarker: (markerId) => {
+      const { activeTrackId } = get();
+      if (!activeTrackId) return;
+
       set((state) => {
-        const track = state.tracks.find((t) => t.id === trackId);
-        if (track && track.regions.length > 0) {
-          // Apply fade to last region
-          track.regions[track.regions.length - 1].fadeOut = fade;
+        const track = state.tracks.find((t) => t.id === activeTrackId);
+        if (track) {
+          track.markers = track.markers.filter((m) => m.id !== markerId);
         }
-      });
-      get().pushHistory('Fade out');
-    },
-
-    // ============ PROJECT ============
-
-    loadTracks: (tracksData) => {
-      set((state) => {
-        state.tracks = tracksData.map((trackData, index) => {
-          const id = trackData.id || nanoid();
-          const originalDuration = trackData.originalDuration || 0;
-          const color =
-            EDITOR_THEME.dark.trackColors[
-              index % EDITOR_THEME.dark.trackColors.length
-            ];
-
-          // Créer une région initiale qui couvre tout le fichier
-          const initialRegion: AudioRegion = {
-            id: nanoid(),
-            startTime: 0,
-            endTime: originalDuration,
-            duration: originalDuration,
-          };
-
-          return {
-            id,
-            name: trackData.name,
-            src: trackData.src,
-            originalDuration,
-            regions: originalDuration > 0 ? [initialRegion] : [],
-            markers: [],
-            gain: 1,
-            pan: 0,
-            muted: false,
-            soloed: false,
-            color,
-          };
-        });
-
-        state.currentTime = 0;
-        state.selection = null;
-        state.selectionMode = 'none';
-        state.inPoint = null;
-        state.outPoint = null;
-        state.selectedTrackIds = [];
-        state.activeTrackId = state.tracks[0]?.id ?? null;
-      });
-
-      get().clearHistory();
-      get().recalculateMontedDuration();
-    },
-
-    reset: () => {
-      set(() => ({ ...initialState }));
-      history = { past: [], future: [] };
-    },
-
-    recalculateMontedDuration: () => {
-      const tracks = get().tracks;
-      let maxDuration = 0;
-
-      tracks.forEach((track) => {
-        const trackDuration = getMontedDuration(track);
-        if (trackDuration > maxDuration) {
-          maxDuration = trackDuration;
-        }
-      });
-
-      set((state) => {
-        state.montedDuration = Math.max(maxDuration, 1);
-      });
-    },
-
-    setDuration: (duration: number) => {
-      set((state) => {
-        state.montedDuration = duration;
       });
     },
 
@@ -798,6 +631,15 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       const { tracks, activeTrackId } = get();
       return tracks.find((t) => t.id === activeTrackId) ?? null;
     },
+
+    getAudioContext: () => {
+      return get().audioContext;
+    },
+
+    getBufferForExport: () => {
+      const track = get().getActiveTrack();
+      return track?.audioBuffer ?? null;
+    },
   }))
 );
 
@@ -805,32 +647,18 @@ export const useEditorStore = create<EditorState & EditorActions>()(
 
 export const selectTracks = (state: EditorState) => state.tracks;
 export const selectCurrentTime = (state: EditorState) => state.currentTime;
-export const selectPlayState = (state: EditorState) => state.playState;
+export const selectIsPlaying = (state: EditorState) => state.isPlaying;
 export const selectZoom = (state: EditorState) => state.zoom;
 export const selectSelection = (state: EditorState) => state.selection;
-export const selectSelectedTrackIds = (state: EditorState) =>
-  state.selectedTrackIds;
-export const selectMarkers = (state: EditorState) => state.markers;
-export const selectCanUndo = (state: EditorState) => state.canUndo;
-export const selectCanRedo = (state: EditorState) => state.canRedo;
 export const selectActiveTrackId = (state: EditorState) => state.activeTrackId;
-export const selectMontedDuration = (state: EditorState) => state.montedDuration;
+export const selectDuration = (state: EditorState) => state.duration;
 export const selectInPoint = (state: EditorState) => state.inPoint;
 export const selectOutPoint = (state: EditorState) => state.outPoint;
-export const selectSelectionMode = (state: EditorState) => state.selectionMode;
 
-// Computed selectors
-export const selectActiveTracks = (state: EditorState) => {
-  const hasSoloedTrack = state.tracks.some((t) => t.soloed);
-  return state.tracks.filter((track) => {
-    if (track.muted) return false;
-    if (hasSoloedTrack && !track.soloed) return false;
-    return true;
-  });
-};
-
-export const selectTrackById = (state: EditorState, trackId: string) =>
-  state.tracks.find((t) => t.id === trackId);
+export const selectCanUndo = (state: EditorState & EditorActions) =>
+  state.historyIndex > 0;
+export const selectCanRedo = (state: EditorState & EditorActions) =>
+  state.historyIndex < state.history.length - 1;
 
 export const selectActiveTrack = (state: EditorState) =>
   state.tracks.find((t) => t.id === state.activeTrackId) ?? null;

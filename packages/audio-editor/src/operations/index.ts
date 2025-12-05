@@ -1,5 +1,15 @@
-export { cutSelection } from './cut';
-export { splitAtPosition } from './split';
-export { deleteRegion } from './delete-region';
-export { mergeRegions } from './merge-regions';
-export { trimToSelection } from './trim';
+/**
+ * Operations - Architecture DESTRUCTIVE
+ *
+ * Toutes les opérations modifient directement l'AudioBuffer en mémoire.
+ */
+
+export {
+  cutAudioBuffer,
+  cloneAudioBuffer,
+  trimAudioBuffer,
+  audioBufferToWav,
+  applyFadeIn,
+  applyFadeOut,
+  normalizeAudioBuffer,
+} from './cut';

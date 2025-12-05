@@ -62,6 +62,7 @@ export const KEYBOARD_SHORTCUTS = {
 
   // ============ UI ============
   SHOW_SHORTCUTS: '?',
+  FULLSCREEN: 'f',
 } as const;
 
 // Descriptions des raccourcis pour l'UI
@@ -119,6 +120,7 @@ export const SHORTCUT_DESCRIPTIONS: Record<string, string> = {
 
   // UI
   SHOW_SHORTCUTS: 'Afficher les raccourcis',
+  FULLSCREEN: 'Plein écran',
 };
 
 // Theme couleurs pour l'éditeur (dark mode adapté à la régie)

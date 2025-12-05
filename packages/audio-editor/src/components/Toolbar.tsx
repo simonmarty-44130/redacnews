@@ -7,6 +7,7 @@ interface ToolbarProps {
   canUndo: boolean;
   canRedo: boolean;
   hasSelection: boolean;
+  isFullscreen?: boolean;
 
   // Callbacks
   onUndo: () => void;
@@ -20,6 +21,7 @@ interface ToolbarProps {
   onZoomOut: () => void;
   onZoomFit: () => void;
   onExport: () => void;
+  onFullscreen?: () => void;
 
   className?: string;
 }
@@ -28,6 +30,7 @@ export function Toolbar({
   canUndo,
   canRedo,
   hasSelection,
+  isFullscreen = false,
   onUndo,
   onRedo,
   onCut,
@@ -39,6 +42,7 @@ export function Toolbar({
   onZoomOut,
   onZoomFit,
   onExport,
+  onFullscreen,
   className = '',
 }: ToolbarProps) {
   return (
@@ -118,6 +122,15 @@ export function Toolbar({
 
       {/* Spacer */}
       <div className="flex-1" />
+
+      {/* Fullscreen button */}
+      {onFullscreen && (
+        <ToolbarButton
+          icon={isFullscreen ? <ExitFullscreenIcon /> : <FullscreenIcon />}
+          onClick={onFullscreen}
+          title={isFullscreen ? "Quitter plein écran (Echap)" : "Plein écran (F)"}
+        />
+      )}
 
       {/* Export button */}
       <ToolbarButton
@@ -249,6 +262,22 @@ function ExportIcon() {
   return (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+    </svg>
+  );
+}
+
+function FullscreenIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
+    </svg>
+  );
+}
+
+function ExitFullscreenIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9V4m0 5H4m5 0L4 4m11 5h5m-5 0V4m0 5l5-5M4 15l5 5m0-5v5H4m16-5l-5 5m5-5v5h-5" />
     </svg>
   );
 }

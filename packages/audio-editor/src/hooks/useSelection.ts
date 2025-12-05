@@ -1,71 +1,64 @@
 /**
  * Hook pour la gestion des selections audio
+ * Architecture DESTRUCTIVE - utilise inPoint/outPoint
  */
 
 import { useCallback } from 'react';
 import { useEditorStore } from '../stores/editorStore';
-import type { Selection, CuePoints } from '../types/editor.types';
+import type { Selection } from '../types/editor.types';
 
 export interface UseSelectionReturn {
   // State
   selection: Selection | null;
-  cuePoints: CuePoints;
+  inPoint: number | null;
+  outPoint: number | null;
   hasSelection: boolean;
   selectionDuration: number;
 
   // Actions
-  setSelection: (selection: Selection | null) => void;
   selectAll: () => void;
   selectNone: () => void;
   selectRegion: (start: number, end: number) => void;
-  extendSelectionTo: (time: number) => void;
-  nudgeSelectionLeft: (amount?: number) => void;
-  nudgeSelectionRight: (amount?: number) => void;
 
-  // Cue points
+  // Cue points (IN/OUT)
   setCueIn: (time?: number) => void;
   setCueOut: (time?: number) => void;
   clearCuePoints: () => void;
   goToCueIn: () => void;
   goToCueOut: () => void;
-  selectBetweenCuePoints: () => void;
 
   // Playback from selection
   playSelection: () => void;
-  loopSelection: () => void;
 }
 
 export function useSelection(): UseSelectionReturn {
   const selection = useEditorStore((state) => state.selection);
-  const cuePoints = useEditorStore((state) => state.cuePoints);
+  const inPoint = useEditorStore((state) => state.inPoint);
+  const outPoint = useEditorStore((state) => state.outPoint);
   const duration = useEditorStore((state) => state.duration);
   const currentTime = useEditorStore((state) => state.currentTime);
-  const setSelectionStore = useEditorStore((state) => state.setSelection);
-  const setCuePointsStore = useEditorStore((state) => state.setCuePoints);
+  const setInPoint = useEditorStore((state) => state.setInPoint);
+  const setOutPoint = useEditorStore((state) => state.setOutPoint);
+  const clearSelection = useEditorStore((state) => state.clearSelection);
   const setCurrentTime = useEditorStore((state) => state.setCurrentTime);
-  const setPlayState = useEditorStore((state) => state.setPlayState);
+  const setPlaying = useEditorStore((state) => state.setPlaying);
 
   // Calculate selection duration
-  const selectionDuration = selection ? selection.end - selection.start : 0;
+  const selectionDuration = selection
+    ? selection.endTime - selection.startTime
+    : 0;
   const hasSelection = selection !== null && selectionDuration > 0;
-
-  // Set selection
-  const setSelection = useCallback(
-    (newSelection: Selection | null) => {
-      setSelectionStore(newSelection);
-    },
-    [setSelectionStore]
-  );
 
   // Select all
   const selectAll = useCallback(() => {
-    setSelectionStore({ start: 0, end: duration });
-  }, [setSelectionStore, duration]);
+    setInPoint(0);
+    setOutPoint(duration);
+  }, [setInPoint, setOutPoint, duration]);
 
   // Clear selection
   const selectNone = useCallback(() => {
-    setSelectionStore(null);
-  }, [setSelectionStore]);
+    clearSelection();
+  }, [clearSelection]);
 
   // Select a region
   const selectRegion = useCallback(
@@ -74,132 +67,73 @@ export function useSelection(): UseSelectionReturn {
       const clampedEnd = Math.max(0, Math.min(end, duration));
 
       if (clampedStart < clampedEnd) {
-        setSelectionStore({ start: clampedStart, end: clampedEnd });
+        setInPoint(clampedStart);
+        setOutPoint(clampedEnd);
       } else if (clampedEnd < clampedStart) {
-        setSelectionStore({ start: clampedEnd, end: clampedStart });
+        setInPoint(clampedEnd);
+        setOutPoint(clampedStart);
       }
     },
-    [setSelectionStore, duration]
-  );
-
-  // Extend selection to a point
-  const extendSelectionTo = useCallback(
-    (time: number) => {
-      if (selection) {
-        // Extend from nearest edge
-        if (time < selection.start) {
-          setSelectionStore({ ...selection, start: time });
-        } else if (time > selection.end) {
-          setSelectionStore({ ...selection, end: time });
-        }
-      } else {
-        // Create new selection from current time
-        selectRegion(currentTime, time);
-      }
-    },
-    [selection, currentTime, setSelectionStore, selectRegion]
-  );
-
-  // Nudge selection left
-  const nudgeSelectionLeft = useCallback(
-    (amount = 0.1) => {
-      if (selection) {
-        const newStart = Math.max(0, selection.start - amount);
-        const newEnd = Math.max(amount, selection.end - amount);
-        setSelectionStore({ start: newStart, end: newEnd });
-      }
-    },
-    [selection, setSelectionStore]
-  );
-
-  // Nudge selection right
-  const nudgeSelectionRight = useCallback(
-    (amount = 0.1) => {
-      if (selection) {
-        const newStart = Math.min(duration - (selection.end - selection.start), selection.start + amount);
-        const newEnd = Math.min(duration, selection.end + amount);
-        setSelectionStore({ start: newStart, end: newEnd });
-      }
-    },
-    [selection, duration, setSelectionStore]
+    [setInPoint, setOutPoint, duration]
   );
 
   // Set cue in point
   const setCueIn = useCallback(
     (time?: number) => {
       const cueTime = time ?? currentTime;
-      setCuePointsStore({ cueIn: cueTime });
+      setInPoint(cueTime);
     },
-    [currentTime, setCuePointsStore]
+    [currentTime, setInPoint]
   );
 
   // Set cue out point
   const setCueOut = useCallback(
     (time?: number) => {
       const cueTime = time ?? currentTime;
-      setCuePointsStore({ cueOut: cueTime });
+      setOutPoint(cueTime);
     },
-    [currentTime, setCuePointsStore]
+    [currentTime, setOutPoint]
   );
 
   // Clear cue points
   const clearCuePoints = useCallback(() => {
-    setCuePointsStore({ cueIn: undefined, cueOut: undefined });
-  }, [setCuePointsStore]);
+    clearSelection();
+  }, [clearSelection]);
 
   // Go to cue in
   const goToCueIn = useCallback(() => {
-    if (cuePoints.cueIn !== undefined) {
-      setCurrentTime(cuePoints.cueIn);
+    if (inPoint !== null) {
+      setCurrentTime(inPoint);
     }
-  }, [cuePoints.cueIn, setCurrentTime]);
+  }, [inPoint, setCurrentTime]);
 
   // Go to cue out
   const goToCueOut = useCallback(() => {
-    if (cuePoints.cueOut !== undefined) {
-      setCurrentTime(cuePoints.cueOut);
+    if (outPoint !== null) {
+      setCurrentTime(outPoint);
     }
-  }, [cuePoints.cueOut, setCurrentTime]);
+  }, [outPoint, setCurrentTime]);
 
-  // Select between cue points
-  const selectBetweenCuePoints = useCallback(() => {
-    if (cuePoints.cueIn !== undefined && cuePoints.cueOut !== undefined) {
-      selectRegion(cuePoints.cueIn, cuePoints.cueOut);
-    }
-  }, [cuePoints, selectRegion]);
-
-  // Play selection (placeholder - actual implementation depends on playlist)
+  // Play selection
   const playSelection = useCallback(() => {
-    if (selection) {
-      setCurrentTime(selection.start);
-      setPlayState('playing');
+    if (inPoint !== null) {
+      setCurrentTime(inPoint);
+      setPlaying(true);
     }
-  }, [selection, setCurrentTime, setPlayState]);
-
-  // Loop selection (placeholder)
-  const loopSelection = useCallback(() => {
-    if (selection) {
-      setCurrentTime(selection.start);
-      setPlayState('playing');
-      // Actual looping would need to be implemented in the playlist
-    }
-  }, [selection, setCurrentTime, setPlayState]);
+  }, [inPoint, setCurrentTime, setPlaying]);
 
   return {
     // State
     selection,
-    cuePoints,
+    inPoint,
+    outPoint,
     hasSelection,
     selectionDuration,
 
     // Actions
-    setSelection,
     selectAll,
     selectNone,
     selectRegion,
-    extendSelectionTo,
-    nudgeSelectionLeft,
-    nudgeSelectionRight,
 
     // Cue points
     setCueIn,
@@ -207,10 +141,8 @@ export function useSelection(): UseSelectionReturn {
     clearCuePoints,
     goToCueIn,
     goToCueOut,
-    selectBetweenCuePoints,
 
     // Playback
     playSelection,
-    loopSelection,
   };
 }

@@ -1,109 +1,316 @@
-import { Track, AudioRegion } from '../types/editor.types';
-import { generateId } from '../utils/id';
+/**
+ * Opérations de CUT - Architecture DESTRUCTIVE
+ *
+ * Le CUT modifie RÉELLEMENT l'AudioBuffer en mémoire.
+ * Ce qu'on voit = ce qu'on entend.
+ */
 
 /**
- * CUT : Supprime la sélection et garde le reste
- *
- * Avant (sélection de 2:00 à 3:00) :
- * ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
- * 0:00                      5:00
- *           ████████
- *          2:00  3:00 (sélection)
- *
- * Après :
- * ▓▓▓▓▓▓▓▓▓▓░░░░░░░░▓▓▓▓▓▓▓▓▓▓▓▓
- * 0:00    2:00    3:00        5:00
- * │ Région 1 │    │ Région 2    │
- *
- * Visuellement (recollé) :
- * ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
- * 0:00    2:00        4:00
+ * Coupe une portion de l'AudioBuffer (édition DESTRUCTIVE)
+ * Retourne un NOUVEAU buffer = avant + après (sans la sélection)
  */
-export function cutSelection(
-  track: Track,
-  selectionStart: number, // Dans le temps ORIGINAL
-  selectionEnd: number // Dans le temps ORIGINAL
-): Track {
-  // Validation
-  if (selectionStart >= selectionEnd) {
-    console.warn('Invalid selection: start >= end');
-    return track;
+export function cutAudioBuffer(
+  audioContext: AudioContext,
+  sourceBuffer: AudioBuffer,
+  startTime: number,
+  endTime: number
+): AudioBuffer {
+  const sampleRate = sourceBuffer.sampleRate;
+  const numberOfChannels = sourceBuffer.numberOfChannels;
+
+  // Convertir temps en samples
+  const startSample = Math.floor(startTime * sampleRate);
+  const endSample = Math.floor(endTime * sampleRate);
+
+  // Valider les bornes
+  const safeStartSample = Math.max(0, Math.min(startSample, sourceBuffer.length));
+  const safeEndSample = Math.max(safeStartSample, Math.min(endSample, sourceBuffer.length));
+
+  // Calculer la nouvelle longueur (sans la partie coupée)
+  const cutLength = safeEndSample - safeStartSample;
+  const newLength = sourceBuffer.length - cutLength;
+
+  console.log('=== cutAudioBuffer ===');
+  console.log('Source buffer length:', sourceBuffer.length, 'samples');
+  console.log('Source duration:', sourceBuffer.duration.toFixed(3), 's');
+  console.log('Cut from:', startTime.toFixed(3), 'to', endTime.toFixed(3));
+  console.log('Cut samples:', safeStartSample, 'to', safeEndSample);
+  console.log('Cut length:', cutLength, 'samples');
+  console.log('New length:', newLength, 'samples');
+
+  if (newLength <= 0) {
+    throw new Error('Cannot cut entire audio - nothing would remain');
   }
 
-  const newRegions: AudioRegion[] = [];
+  // Créer le nouveau buffer
+  const newBuffer = audioContext.createBuffer(
+    numberOfChannels,
+    newLength,
+    sampleRate
+  );
 
-  for (const region of track.regions) {
-    // Cas 1: Région entièrement AVANT la sélection → garder intacte
-    if (region.endTime <= selectionStart) {
-      newRegions.push({ ...region });
+  // Copier les données canal par canal
+  for (let channel = 0; channel < numberOfChannels; channel++) {
+    const sourceData = sourceBuffer.getChannelData(channel);
+    const destData = newBuffer.getChannelData(channel);
+
+    // Copier AVANT la sélection
+    for (let i = 0; i < safeStartSample; i++) {
+      destData[i] = sourceData[i];
     }
-    // Cas 2: Région entièrement APRÈS la sélection → garder intacte
-    else if (region.startTime >= selectionEnd) {
-      newRegions.push({ ...region });
+
+    // Copier APRÈS la sélection (décalé)
+    for (let i = safeEndSample; i < sourceBuffer.length; i++) {
+      destData[i - cutLength] = sourceData[i];
     }
-    // Cas 3: La sélection est ENTIÈREMENT dans la région → diviser en 2
-    else if (
-      region.startTime < selectionStart &&
-      region.endTime > selectionEnd
-    ) {
-      // Partie gauche
-      newRegions.push({
-        id: generateId(),
-        startTime: region.startTime,
-        endTime: selectionStart,
-        duration: selectionStart - region.startTime,
-        label: region.label ? `${region.label} (1)` : undefined,
-        fadeIn: region.fadeIn,
-        // Pas de fadeOut car on a coupé
-      });
-      // Partie droite
-      newRegions.push({
-        id: generateId(),
-        startTime: selectionEnd,
-        endTime: region.endTime,
-        duration: region.endTime - selectionEnd,
-        label: region.label ? `${region.label} (2)` : undefined,
-        // Pas de fadeIn car on a coupé
-        fadeOut: region.fadeOut,
-      });
-    }
-    // Cas 4: La sélection coupe le DÉBUT de la région
-    else if (
-      selectionStart <= region.startTime &&
-      selectionEnd < region.endTime
-    ) {
-      newRegions.push({
-        id: generateId(),
-        startTime: selectionEnd,
-        endTime: region.endTime,
-        duration: region.endTime - selectionEnd,
-        label: region.label,
-        fadeOut: region.fadeOut,
-      });
-    }
-    // Cas 5: La sélection coupe la FIN de la région
-    else if (
-      selectionStart > region.startTime &&
-      selectionEnd >= region.endTime
-    ) {
-      newRegions.push({
-        id: generateId(),
-        startTime: region.startTime,
-        endTime: selectionStart,
-        duration: selectionStart - region.startTime,
-        label: region.label,
-        fadeIn: region.fadeIn,
-      });
-    }
-    // Cas 6: La sélection englobe TOUTE la région → la supprimer (ne pas l'ajouter)
-    // (region.startTime >= selectionStart && region.endTime <= selectionEnd)
   }
 
-  // Trier par startTime
-  newRegions.sort((a, b) => a.startTime - b.startTime);
+  // Appliquer un micro-crossfade au point de coupe pour éviter les clics
+  applyCrossfadeAtCut(newBuffer, safeStartSample, 128); // 128 samples ≈ 3ms à 44.1kHz
 
-  return {
-    ...track,
-    regions: newRegions,
-  };
+  console.log('New buffer duration:', newBuffer.duration.toFixed(3), 's');
+  console.log('=== cutAudioBuffer DONE ===');
+
+  return newBuffer;
+}
+
+/**
+ * Applique un crossfade au point de coupe pour éviter les clics audio
+ */
+function applyCrossfadeAtCut(
+  buffer: AudioBuffer,
+  cutPoint: number,
+  fadeLength: number
+): void {
+  const actualFadeLength = Math.min(fadeLength, cutPoint, buffer.length - cutPoint);
+
+  if (actualFadeLength <= 0) return;
+
+  for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+    const data = buffer.getChannelData(channel);
+
+    // Fade out avant le point de coupe
+    for (let i = 0; i < actualFadeLength; i++) {
+      const fadeOutIndex = cutPoint - actualFadeLength + i;
+      if (fadeOutIndex >= 0 && fadeOutIndex < buffer.length) {
+        const gain = i / actualFadeLength;
+        data[fadeOutIndex] *= gain;
+      }
+    }
+
+    // Fade in après le point de coupe
+    for (let i = 0; i < actualFadeLength; i++) {
+      const fadeInIndex = cutPoint + i;
+      if (fadeInIndex >= 0 && fadeInIndex < buffer.length) {
+        const gain = i / actualFadeLength;
+        data[fadeInIndex] *= gain;
+      }
+    }
+  }
+}
+
+/**
+ * Clone un AudioBuffer (pour l'historique undo/redo)
+ */
+export function cloneAudioBuffer(
+  audioContext: AudioContext,
+  sourceBuffer: AudioBuffer
+): AudioBuffer {
+  const newBuffer = audioContext.createBuffer(
+    sourceBuffer.numberOfChannels,
+    sourceBuffer.length,
+    sourceBuffer.sampleRate
+  );
+
+  for (let channel = 0; channel < sourceBuffer.numberOfChannels; channel++) {
+    const sourceData = sourceBuffer.getChannelData(channel);
+    const destData = newBuffer.getChannelData(channel);
+    destData.set(sourceData);
+  }
+
+  return newBuffer;
+}
+
+/**
+ * Normalise un AudioBuffer (peak normalization)
+ */
+export function normalizeAudioBuffer(
+  audioContext: AudioContext,
+  sourceBuffer: AudioBuffer,
+  targetPeak: number = 0.95
+): AudioBuffer {
+  // Trouver le pic max
+  let maxPeak = 0;
+  for (let channel = 0; channel < sourceBuffer.numberOfChannels; channel++) {
+    const data = sourceBuffer.getChannelData(channel);
+    for (let i = 0; i < data.length; i++) {
+      const abs = Math.abs(data[i]);
+      if (abs > maxPeak) maxPeak = abs;
+    }
+  }
+
+  if (maxPeak === 0 || maxPeak >= targetPeak) {
+    // Pas besoin de normaliser - retourner une copie
+    return cloneAudioBuffer(audioContext, sourceBuffer);
+  }
+
+  // Appliquer le gain
+  const gain = targetPeak / maxPeak;
+  const newBuffer = audioContext.createBuffer(
+    sourceBuffer.numberOfChannels,
+    sourceBuffer.length,
+    sourceBuffer.sampleRate
+  );
+
+  for (let channel = 0; channel < sourceBuffer.numberOfChannels; channel++) {
+    const sourceData = sourceBuffer.getChannelData(channel);
+    const destData = newBuffer.getChannelData(channel);
+    for (let i = 0; i < sourceData.length; i++) {
+      destData[i] = sourceData[i] * gain;
+    }
+  }
+
+  return newBuffer;
+}
+
+/**
+ * Convertit un AudioBuffer en WAV Blob
+ */
+export function audioBufferToWav(buffer: AudioBuffer): Blob {
+  const numChannels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const format = 1; // PCM
+  const bitDepth = 16;
+
+  const bytesPerSample = bitDepth / 8;
+  const blockAlign = numChannels * bytesPerSample;
+
+  const dataLength = buffer.length * blockAlign;
+  const bufferLength = 44 + dataLength;
+
+  const arrayBuffer = new ArrayBuffer(bufferLength);
+  const view = new DataView(arrayBuffer);
+
+  // WAV header
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, bufferLength - 8, true);
+  writeString(view, 8, 'WAVE');
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, format, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * blockAlign, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitDepth, true);
+  writeString(view, 36, 'data');
+  view.setUint32(40, dataLength, true);
+
+  // Audio data
+  const channels: Float32Array[] = [];
+  for (let i = 0; i < numChannels; i++) {
+    channels.push(buffer.getChannelData(i));
+  }
+
+  let offset = 44;
+  for (let i = 0; i < buffer.length; i++) {
+    for (let channel = 0; channel < numChannels; channel++) {
+      const sample = Math.max(-1, Math.min(1, channels[channel][i]));
+      const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+      view.setInt16(offset, intSample, true);
+      offset += 2;
+    }
+  }
+
+  return new Blob([arrayBuffer], { type: 'audio/wav' });
+}
+
+function writeString(view: DataView, offset: number, string: string) {
+  for (let i = 0; i < string.length; i++) {
+    view.setUint8(offset + i, string.charCodeAt(i));
+  }
+}
+
+/**
+ * Trim : garde uniquement la sélection (inverse du cut)
+ */
+export function trimAudioBuffer(
+  audioContext: AudioContext,
+  sourceBuffer: AudioBuffer,
+  startTime: number,
+  endTime: number
+): AudioBuffer {
+  const sampleRate = sourceBuffer.sampleRate;
+  const numberOfChannels = sourceBuffer.numberOfChannels;
+
+  // Convertir temps en samples
+  const startSample = Math.max(0, Math.floor(startTime * sampleRate));
+  const endSample = Math.min(sourceBuffer.length, Math.floor(endTime * sampleRate));
+  const newLength = endSample - startSample;
+
+  if (newLength <= 0) {
+    throw new Error('Invalid trim selection');
+  }
+
+  const newBuffer = audioContext.createBuffer(
+    numberOfChannels,
+    newLength,
+    sampleRate
+  );
+
+  for (let channel = 0; channel < numberOfChannels; channel++) {
+    const sourceData = sourceBuffer.getChannelData(channel);
+    const destData = newBuffer.getChannelData(channel);
+
+    for (let i = 0; i < newLength; i++) {
+      destData[i] = sourceData[startSample + i];
+    }
+  }
+
+  return newBuffer;
+}
+
+/**
+ * Applique un fade in au buffer
+ */
+export function applyFadeIn(
+  audioContext: AudioContext,
+  sourceBuffer: AudioBuffer,
+  duration: number
+): AudioBuffer {
+  const newBuffer = cloneAudioBuffer(audioContext, sourceBuffer);
+  const fadeSamples = Math.floor(duration * sourceBuffer.sampleRate);
+
+  for (let channel = 0; channel < newBuffer.numberOfChannels; channel++) {
+    const data = newBuffer.getChannelData(channel);
+    for (let i = 0; i < fadeSamples && i < data.length; i++) {
+      const gain = i / fadeSamples;
+      data[i] *= gain;
+    }
+  }
+
+  return newBuffer;
+}
+
+/**
+ * Applique un fade out au buffer
+ */
+export function applyFadeOut(
+  audioContext: AudioContext,
+  sourceBuffer: AudioBuffer,
+  duration: number
+): AudioBuffer {
+  const newBuffer = cloneAudioBuffer(audioContext, sourceBuffer);
+  const fadeSamples = Math.floor(duration * sourceBuffer.sampleRate);
+  const fadeStart = newBuffer.length - fadeSamples;
+
+  for (let channel = 0; channel < newBuffer.numberOfChannels; channel++) {
+    const data = newBuffer.getChannelData(channel);
+    for (let i = fadeStart; i < data.length; i++) {
+      const gain = (data.length - i) / fadeSamples;
+      data[i] *= gain;
+    }
+  }
+
+  return newBuffer;
 }

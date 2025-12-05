@@ -9,10 +9,6 @@ export { Timeline, WaveformContainer } from './components/Timeline';
 export { ExportDialog } from './components/ExportDialog';
 
 // Hooks
-export { useTransport } from './hooks/useTransport';
-export type { UseTransportReturn } from './hooks/useTransport';
-export { useSelection } from './hooks/useSelection';
-export type { UseSelectionReturn } from './hooks/useSelection';
 export { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 export type { KeyboardShortcutHandlers } from './hooks/useKeyboardShortcuts';
 export { useRecording } from './hooks/useRecording';
@@ -27,21 +23,21 @@ export { useEditorStore } from './stores/editorStore';
 export {
   selectTracks,
   selectCurrentTime,
-  selectPlayState,
+  selectIsPlaying,
   selectZoom,
   selectSelection,
-  selectSelectedTrackIds,
-  selectMarkers,
   selectCanUndo,
   selectCanRedo,
-  selectActiveTracks,
-  selectTrackById,
+  selectActiveTrack,
+  selectActiveTrackId,
+  selectDuration,
+  selectInPoint,
+  selectOutPoint,
 } from './stores/editorStore';
 
 // Types
 export type {
   Track,
-  Clip,
   Selection,
   CuePoints,
   Marker,
@@ -62,20 +58,21 @@ export type {
   EQBand,
   EQPreset,
   ActionType,
-  // New types for region-based editing
+  // Legacy types kept for compatibility
   AudioRegion,
   SelectionMode,
 } from './types/editor.types';
 
-// RegionRenderInfo is defined in region-utils
-export type { RegionRenderInfo } from './utils/region-utils';
-
-// Operations (non-destructive editing)
-export { cutSelection } from './operations/cut';
-export { splitAtPosition } from './operations/split';
-export { trimToSelection } from './operations/trim';
-export { deleteRegion } from './operations/delete-region';
-export { mergeRegions } from './operations/merge-regions';
+// Operations (DESTRUCTIVE editing)
+export {
+  cutAudioBuffer,
+  cloneAudioBuffer,
+  trimAudioBuffer,
+  audioBufferToWav,
+  applyFadeIn,
+  applyFadeOut,
+  normalizeAudioBuffer,
+} from './operations/cut';
 
 // Constants
 export {
@@ -107,15 +104,15 @@ export {
   normalizeBuffer,
   calculateRMS,
   calculatePeakLevel,
-  applyFadeIn,
-  applyFadeOut,
+  applyFadeIn as applyFadeInBuffer,
+  applyFadeOut as applyFadeOutBuffer,
   mixBuffers,
   detectSilences,
   sliceBuffer,
 } from './utils/audio-processing';
 
 export {
-  audioBufferToWav,
+  audioBufferToWav as exportToWav,
   audioBufferToMp3,
   exportAudioBuffer,
   downloadBlob,
@@ -123,45 +120,10 @@ export {
   estimateFileSize,
 } from './utils/export-utils';
 
-// Region utilities (non-destructive editing)
 export {
-  montedTimeToOriginal,
-  originalTimeToMonted,
-  getMontedDuration,
-  getRegionsRenderInfo,
-} from './utils/region-utils';
-
-export {
-  exportTrackWithRegions,
-  calculateRegionsDuration,
   exportWithRegions,
+  calculateRegionsDuration,
+  exportTrackToWav,
 } from './utils/export-regions';
 
 export { generateId } from './utils/id';
-
-// Effects - Exports désactivés pour éviter les warnings Tone.js ESM
-// Ces fonctions sont utilisables en interne par MultitrackEditor
-// Pour les réactiver: importer directement depuis './effects/compressor' etc.
-//
-// export {
-//   createCompressor,
-//   createBroadcastCompressor,
-//   createBroadcastChain,
-//   compressBuffer,
-//   COMPRESSOR_PRESETS,
-// } from './effects/compressor';
-//
-// export {
-//   calculateLUFS,
-//   normalizeToLUFS,
-//   normalizeToPeak,
-//   analyzeAudio,
-// } from './effects/normalizer';
-//
-// export {
-//   createEQ3,
-//   applyEQToBuffer,
-//   createNoiseGate,
-//   applyNoiseGate,
-//   EQ_PRESETS,
-// } from './effects/eq-presets';

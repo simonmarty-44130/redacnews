@@ -1,5 +1,6 @@
 /**
  * Hook pour le controle du transport (play/pause/stop/seek)
+ * Architecture DESTRUCTIVE - utilise isPlaying au lieu de playState
  */
 
 import { useCallback, useRef, useEffect } from 'react';
@@ -42,11 +43,14 @@ export interface UseTransportReturn {
 export function useTransport(options: UseTransportOptions = {}): UseTransportReturn {
   const { onPlay, onPause, onStop, onSeek, onTimeUpdate } = options;
 
-  const playState = useEditorStore((state) => state.playState);
+  const isPlaying = useEditorStore((state) => state.isPlaying);
   const currentTime = useEditorStore((state) => state.currentTime);
   const duration = useEditorStore((state) => state.duration);
-  const setPlayState = useEditorStore((state) => state.setPlayState);
+  const setPlaying = useEditorStore((state) => state.setPlaying);
   const setCurrentTime = useEditorStore((state) => state.setCurrentTime);
+
+  // Derive playState from isPlaying
+  const playState: PlayState = isPlaying ? 'playing' : 'stopped';
 
   const shuttleSpeedRef = useRef(0); // -2, -1, 0, 1, 2
   const shuttleIntervalRef = useRef<number | null>(null);
@@ -62,31 +66,31 @@ export function useTransport(options: UseTransportOptions = {}): UseTransportRet
 
   // Play
   const play = useCallback(() => {
-    setPlayState('playing');
+    setPlaying(true);
     onPlay?.();
-  }, [setPlayState, onPlay]);
+  }, [setPlaying, onPlay]);
 
   // Pause
   const pause = useCallback(() => {
-    setPlayState('paused');
+    setPlaying(false);
     onPause?.();
-  }, [setPlayState, onPause]);
+  }, [setPlaying, onPause]);
 
   // Stop
   const stop = useCallback(() => {
-    setPlayState('stopped');
+    setPlaying(false);
     setCurrentTime(0);
     onStop?.();
-  }, [setPlayState, setCurrentTime, onStop]);
+  }, [setPlaying, setCurrentTime, onStop]);
 
   // Toggle play/pause
   const togglePlayPause = useCallback(() => {
-    if (playState === 'playing') {
+    if (isPlaying) {
       pause();
     } else {
       play();
     }
-  }, [playState, play, pause]);
+  }, [isPlaying, play, pause]);
 
   // Seek to absolute time
   const seek = useCallback(
@@ -184,9 +188,9 @@ export function useTransport(options: UseTransportOptions = {}): UseTransportRet
     playState,
     currentTime,
     duration,
-    isPlaying: playState === 'playing',
-    isPaused: playState === 'paused',
-    isStopped: playState === 'stopped',
+    isPlaying,
+    isPaused: !isPlaying && currentTime > 0,
+    isStopped: !isPlaying && currentTime === 0,
 
     // Actions
     play,

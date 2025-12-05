@@ -13,17 +13,14 @@ import React, {
 type PeaksInstance = any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PeaksOptions = any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SegmentOptions = any;
-import { useEditorStore } from '../stores/editorStore';
+import { useEditorStore, selectCanUndo, selectCanRedo } from '../stores/editorStore';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { TransportControls } from './TransportControls';
 import { Toolbar } from './Toolbar';
 import { TrackList } from './TrackControls';
 import { ExportDialog } from './ExportDialog';
 import { formatTime } from '../utils/time-format';
-import { generateId } from '../utils/id';
-import { exportWithRegions } from '../utils/export-regions';
+import { audioBufferToWav } from '../operations/cut';
 import type {
   MultitrackEditorProps,
   MultitrackEditorRef,
@@ -54,9 +51,8 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
     const overviewRef = useRef<HTMLDivElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
     const peaksRef = useRef<PeaksInstance | null>(null);
-    const audioContextRef = useRef<AudioContext | null>(null);
     const tracksLoadedRef = useRef(false);
-    const loadedTracksKeyRef = useRef<string>('');
+    const bufferVersionRef = useRef(0); // Track buffer changes
 
     // ============ LOCAL STATE ============
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
@@ -65,45 +61,43 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
     const [isReady, setIsReady] = useState(false);
     const [exportProgress, setExportProgress] = useState(0);
     const [isExporting, setIsExporting] = useState(false);
+    const [isFullscreen, setIsFullscreen] = useState(false);
+    const [initRetry, setInitRetry] = useState(0);
 
     // ============ STORE ============
     const tracks = useEditorStore((state) => state.tracks);
     const activeTrackId = useEditorStore((state) => state.activeTrackId);
-    const montedDuration = useEditorStore((state) => state.montedDuration);
+    const duration = useEditorStore((state) => state.duration);
     const currentTime = useEditorStore((state) => state.currentTime);
-    const playState = useEditorStore((state) => state.playState);
+    const isPlaying = useEditorStore((state) => state.isPlaying);
     const zoom = useEditorStore((state) => state.zoom);
     const selection = useEditorStore((state) => state.selection);
-    const selectedTrackIds = useEditorStore((state) => state.selectedTrackIds);
-    const canUndo = useEditorStore((state) => state.canUndo);
-    const canRedo = useEditorStore((state) => state.canRedo);
     const inPoint = useEditorStore((state) => state.inPoint);
     const outPoint = useEditorStore((state) => state.outPoint);
-    const cuePoints = useEditorStore((state) => state.cuePoints);
+    const canUndo = useEditorStore(selectCanUndo);
+    const canRedo = useEditorStore(selectCanRedo);
 
-    const loadTracks = useEditorStore((state) => state.loadTracks);
-    const addTrackStore = useEditorStore((state) => state.addTrack);
-    const removeTrackStore = useEditorStore((state) => state.removeTrack);
+    const loadTrack = useEditorStore((state) => state.loadTrack);
+    const removeTrack = useEditorStore((state) => state.removeTrack);
     const setActiveTrack = useEditorStore((state) => state.setActiveTrack);
-    const setPlayState = useEditorStore((state) => state.setPlayState);
+    const setPlaying = useEditorStore((state) => state.setPlaying);
     const setCurrentTime = useEditorStore((state) => state.setCurrentTime);
-    const setSelection = useEditorStore((state) => state.setSelection);
-    const selectTrack = useEditorStore((state) => state.selectTrack);
     const toggleMute = useEditorStore((state) => state.toggleMute);
     const toggleSolo = useEditorStore((state) => state.toggleSolo);
     const setTrackGain = useEditorStore((state) => state.setTrackGain);
     const setTrackPan = useEditorStore((state) => state.setTrackPan);
     const zoomIn = useEditorStore((state) => state.zoomIn);
     const zoomOut = useEditorStore((state) => state.zoomOut);
-    const zoomToFit = useEditorStore((state) => state.zoomToFit);
+    const setZoom = useEditorStore((state) => state.setZoom);
     const undo = useEditorStore((state) => state.undo);
     const redo = useEditorStore((state) => state.redo);
     const setInPoint = useEditorStore((state) => state.setInPoint);
     const setOutPoint = useEditorStore((state) => state.setOutPoint);
-    const cutSelectionAction = useEditorStore((state) => state.cutSelectionAction);
-    const splitAtCursor = useEditorStore((state) => state.splitAtCursor);
+    const cutSelection = useEditorStore((state) => state.cutSelection);
+    const trimToSelection = useEditorStore((state) => state.trimToSelection);
     const clearSelection = useEditorStore((state) => state.clearSelection);
-    const recalculateMontedDuration = useEditorStore((state) => state.recalculateMontedDuration);
+    const initAudioContext = useEditorStore((state) => state.initAudioContext);
+    const getAudioContext = useEditorStore((state) => state.getAudioContext);
 
     // Active track
     const activeTrack = tracks.find((t) => t.id === activeTrackId);
@@ -111,35 +105,25 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
     // Theme colors
     const colors = theme === 'dark' ? EDITOR_THEME.dark : EDITOR_THEME.light;
 
-    // ============ PEAKS.JS INITIALIZATION ============
-    const [initRetry, setInitRetry] = useState(0);
+    // ============ RELOAD PEAKS WITH NEW BUFFER ============
+    const reloadPeaksWithBuffer = useCallback(async (buffer: AudioBuffer) => {
+      if (!zoomviewRef.current || !audioRef.current) return;
 
-    useEffect(() => {
-      if (!zoomviewRef.current || !audioRef.current || !activeTrack) {
-        return;
-      }
+      console.log('=== Reloading peaks with new buffer ===');
+      console.log('Buffer duration:', buffer.duration.toFixed(3));
 
-      // Check if container is visible and has dimensions
-      const rect = zoomviewRef.current.getBoundingClientRect();
-      if (rect.width === 0 || rect.height === 0) {
-        // Container not visible yet, retry after increasing delay (max 10 retries)
-        if (initRetry < 10) {
-          const delay = Math.min(100 * (initRetry + 1), 500);
-          const retryTimeout = setTimeout(() => {
-            setInitRetry(prev => prev + 1);
-          }, delay);
-          return () => clearTimeout(retryTimeout);
-        }
-        // After 10 retries, give up silently
-        return;
-      }
+      // Convert buffer to WAV blob
+      const wavBlob = audioBufferToWav(buffer);
+      const url = URL.createObjectURL(wavBlob);
 
-      // Reset retry counter on successful dimension check
-      if (initRetry > 0) {
-        setInitRetry(0);
-      }
+      // Update audio element
+      audioRef.current.src = url;
+      await new Promise<void>((resolve) => {
+        audioRef.current!.onloadedmetadata = () => resolve();
+        audioRef.current!.onerror = () => resolve();
+      });
 
-      // Cleanup previous instance
+      // Destroy old peaks instance
       if (peaksRef.current) {
         try {
           peaksRef.current.destroy();
@@ -149,18 +133,11 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
         peaksRef.current = null;
       }
 
-      setIsLoading(true);
-      setError(null);
+      // Re-initialize peaks
       setIsReady(false);
 
-      // Set audio source
-      audioRef.current.src = activeTrack.src;
-
-      // Create AudioContext if needed
-      if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext ||
-          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-      }
+      const audioContext = getAudioContext();
+      if (!audioContext) return;
 
       const options: PeaksOptions = {
         zoomview: {
@@ -184,93 +161,239 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
         }),
         mediaElement: audioRef.current,
         webAudio: {
-          audioContext: audioContextRef.current,
+          audioContext,
         },
-        keyboard: false, // We handle shortcuts ourselves
+        keyboard: false,
         nudgeIncrement: 0.1,
         zoomLevels: [256, 512, 1024, 2048, 4096, 8192],
         logger: console.error.bind(console),
       };
 
-      // Dynamically import peaks.js to avoid SSR issues
-      import('peaks.js').then((PeaksModule) => {
-        // Verify container still exists after async import
-        if (!zoomviewRef.current) {
-          setIsLoading(false);
-          return;
-        }
+      const PeaksModule = await import('peaks.js');
+      const Peaks = PeaksModule.default;
 
-        // Re-check dimensions after async import - container might have been hidden/resized
-        const containerRect = zoomviewRef.current.getBoundingClientRect();
-        if (containerRect.width === 0 || containerRect.height === 0) {
-          // Container not visible yet, trigger retry
-          setIsLoading(false);
-          if (initRetry < 10) {
-            setInitRetry(prev => prev + 1);
-          }
-          return;
-        }
-
-        const Peaks = PeaksModule.default;
-        Peaks.init(options, (err, peaks) => {
-        setIsLoading(false);
-
+      Peaks.init(options, (err: Error | null, peaks: PeaksInstance) => {
         if (err) {
-          console.error('Peaks.js init error:', err);
-          setError(err.message || 'Failed to initialize waveform');
+          console.error('Peaks re-init error:', err);
           return;
         }
 
-        if (!peaks) {
-          setError('Peaks instance is null');
-          return;
-        }
+        if (!peaks) return;
 
         peaksRef.current = peaks;
         setIsReady(true);
 
-        // Get duration from audio element
-        const audioDuration = audioRef.current?.duration || 0;
-        if (audioDuration > 0 && activeTrack.originalDuration === 0) {
-          // Update track duration in store
-          useEditorStore.getState().updateTrack(activeTrack.id, {
-            originalDuration: audioDuration,
-            regions: [
-              {
-                id: generateId(),
-                startTime: 0,
-                endTime: audioDuration,
-                duration: audioDuration,
-              },
-            ],
-          });
-          recalculateMontedDuration();
-        }
-
-        // Event listeners
+        // Setup event listeners
         peaks.on('player.timeupdate', (time: number) => {
           setCurrentTime(time);
         });
 
         peaks.on('player.playing', () => {
-          setPlayState('playing');
+          setPlaying(true);
         });
 
         peaks.on('player.pause', () => {
-          setPlayState('paused');
+          setPlaying(false);
         });
 
         peaks.on('player.ended', () => {
-          setPlayState('stopped');
+          setPlaying(false);
         });
 
-        // Display regions as segments
-        updatePeaksSegments(peaks, activeTrack);
+        peaks.on('zoomview.click', (event: { time: number }) => {
+          setCurrentTime(event.time);
+          peaks.player.seek(event.time);
         });
-      }).catch((err) => {
-        console.error('Failed to load peaks.js:', err);
+
+        // Update IN/OUT markers
+        updatePeaksMarkers(peaks);
+
+        console.log('=== Peaks reloaded ===');
+      });
+    }, [colors, getAudioContext, setCurrentTime, setPlaying]);
+
+    // ============ UPDATE MARKERS ============
+    const updatePeaksMarkers = useCallback((peaks: PeaksInstance) => {
+      if (!peaks) return;
+
+      peaks.points.removeAll();
+
+      if (inPoint !== null) {
+        peaks.points.add({
+          time: inPoint,
+          labelText: 'IN',
+          color: '#22C55E',
+          editable: false,
+        });
+      }
+      if (outPoint !== null) {
+        peaks.points.add({
+          time: outPoint,
+          labelText: 'OUT',
+          color: '#EF4444',
+          editable: false,
+        });
+      }
+
+      // Add selection segment if both points exist
+      if (inPoint !== null && outPoint !== null) {
+        peaks.segments.removeAll();
+        peaks.segments.add({
+          id: 'selection',
+          startTime: Math.min(inPoint, outPoint),
+          endTime: Math.max(inPoint, outPoint),
+          labelText: 'Sélection',
+          color: 'rgba(239, 68, 68, 0.3)',
+          editable: false,
+        });
+      } else {
+        peaks.segments.removeAll();
+      }
+    }, [inPoint, outPoint]);
+
+    // ============ PEAKS.JS INITIALIZATION ============
+    useEffect(() => {
+      if (!zoomviewRef.current || !audioRef.current || !activeTrack) {
+        return;
+      }
+
+      // Check if container is visible
+      const rect = zoomviewRef.current.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) {
+        if (initRetry < 10) {
+          const delay = Math.min(100 * (initRetry + 1), 500);
+          const retryTimeout = setTimeout(() => {
+            setInitRetry((prev) => prev + 1);
+          }, delay);
+          return () => clearTimeout(retryTimeout);
+        }
+        return;
+      }
+
+      if (initRetry > 0) {
+        setInitRetry(0);
+      }
+
+      // Cleanup previous instance
+      if (peaksRef.current) {
+        try {
+          peaksRef.current.destroy();
+        } catch (e) {
+          console.warn('Error destroying peaks:', e);
+        }
+        peaksRef.current = null;
+      }
+
+      setIsLoading(true);
+      setError(null);
+      setIsReady(false);
+
+      // Initialize audio context
+      initAudioContext();
+
+      // If track has an audioBuffer, create a blob URL from it
+      // Otherwise use the src URL
+      const setupAudio = async () => {
+        if (activeTrack.audioBuffer) {
+          const wavBlob = audioBufferToWav(activeTrack.audioBuffer);
+          audioRef.current!.src = URL.createObjectURL(wavBlob);
+        } else if (activeTrack.src) {
+          audioRef.current!.src = activeTrack.src;
+        } else {
+          setIsLoading(false);
+          setError('No audio source');
+          return;
+        }
+
+        // Wait for audio to load
+        await new Promise<void>((resolve) => {
+          audioRef.current!.onloadedmetadata = () => resolve();
+          audioRef.current!.onerror = () => resolve();
+        });
+
+        const audioContext = getAudioContext();
+
+        const options: PeaksOptions = {
+          zoomview: {
+            container: zoomviewRef.current,
+            waveformColor: colors.waveform,
+            playedWaveformColor: colors.waveformSelected,
+            playheadColor: colors.playhead,
+            playheadTextColor: colors.text,
+            axisLabelColor: colors.textMuted,
+            axisGridlineColor: colors.border,
+            timeLabelPrecision: 2,
+          },
+          ...(overviewRef.current && {
+            overview: {
+              container: overviewRef.current,
+              waveformColor: colors.textMuted,
+              playedWaveformColor: colors.waveform,
+              playheadColor: colors.playhead,
+              highlightColor: `${colors.selection}80`,
+            },
+          }),
+          mediaElement: audioRef.current,
+          webAudio: {
+            audioContext: audioContext!,
+          },
+          keyboard: false,
+          nudgeIncrement: 0.1,
+          zoomLevels: [256, 512, 1024, 2048, 4096, 8192],
+          logger: console.error.bind(console),
+        };
+
+        const PeaksModule = await import('peaks.js');
+        const Peaks = PeaksModule.default;
+
+        Peaks.init(options, (err: Error | null, peaks: PeaksInstance) => {
+          setIsLoading(false);
+
+          if (err) {
+            console.error('Peaks.js init error:', err);
+            setError(err.message || 'Failed to initialize waveform');
+            return;
+          }
+
+          if (!peaks) {
+            setError('Peaks instance is null');
+            return;
+          }
+
+          peaksRef.current = peaks;
+          setIsReady(true);
+
+          // Event listeners
+          peaks.on('player.timeupdate', (time: number) => {
+            setCurrentTime(time);
+          });
+
+          peaks.on('player.playing', () => {
+            setPlaying(true);
+          });
+
+          peaks.on('player.pause', () => {
+            setPlaying(false);
+          });
+
+          peaks.on('player.ended', () => {
+            setPlaying(false);
+          });
+
+          peaks.on('zoomview.click', (event: { time: number }) => {
+            setCurrentTime(event.time);
+            peaks.player.seek(event.time);
+          });
+
+          // Update markers
+          updatePeaksMarkers(peaks);
+        });
+      };
+
+      setupAudio().catch((err) => {
+        console.error('Failed to setup audio:', err);
         setIsLoading(false);
-        setError('Failed to load audio editor');
+        setError('Failed to load audio');
       });
 
       return () => {
@@ -283,100 +406,49 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
           peaksRef.current = null;
         }
       };
-    }, [activeTrack?.src, colors, initRetry]);
+    }, [activeTrack?.id, colors, initRetry, initAudioContext, getAudioContext, setCurrentTime, setPlaying, updatePeaksMarkers]);
 
-    // ============ SYNC REGIONS → PEAKS SEGMENTS ============
-    const updatePeaksSegments = useCallback((peaks: PeaksInstance, track: Track) => {
-      if (!peaks) return;
-
-      const segments = peaks.segments;
-
-      // Remove all existing segments
-      segments.removeAll();
-
-      // Add regions as segments
-      track.regions.forEach((region, index) => {
-        const segmentOptions: SegmentOptions = {
-          id: region.id,
-          startTime: region.startTime,
-          endTime: region.endTime,
-          labelText: region.label || `Region ${index + 1}`,
-          color: `${colors.waveform}40`,
-          editable: false,
-        };
-        segments.add(segmentOptions);
-      });
-
-      // Add IN point marker
-      if (inPoint !== null) {
-        peaks.points.removeAll();
-        peaks.points.add({
-          time: inPoint,
-          labelText: 'IN',
-          color: '#22C55E',
-          editable: false,
-        });
-      }
-
-      // Add OUT point marker
-      if (outPoint !== null) {
-        peaks.points.add({
-          time: outPoint,
-          labelText: 'OUT',
-          color: '#EF4444',
-          editable: false,
-        });
-      }
-    }, [colors.waveform, inPoint, outPoint]);
-
-    // Update segments when regions change
+    // ============ WATCH FOR BUFFER CHANGES ============
     useEffect(() => {
-      if (peaksRef.current && activeTrack) {
-        updatePeaksSegments(peaksRef.current, activeTrack);
+      if (!activeTrack?.audioBuffer || !isReady) return;
+
+      // Increment version to track changes
+      const newVersion = bufferVersionRef.current + 1;
+      bufferVersionRef.current = newVersion;
+
+      // Debounce to avoid rapid reloads
+      const timeout = setTimeout(() => {
+        if (bufferVersionRef.current === newVersion) {
+          reloadPeaksWithBuffer(activeTrack.audioBuffer!);
+        }
+      }, 100);
+
+      return () => clearTimeout(timeout);
+    }, [activeTrack?.audioBuffer, activeTrack?.duration]);
+
+    // ============ UPDATE MARKERS ON POINT CHANGE ============
+    useEffect(() => {
+      if (peaksRef.current && isReady) {
+        updatePeaksMarkers(peaksRef.current);
       }
-    }, [activeTrack?.regions, inPoint, outPoint, updatePeaksSegments]);
+    }, [inPoint, outPoint, isReady, updatePeaksMarkers]);
 
     // ============ LOAD INITIAL TRACKS ============
     useEffect(() => {
-      if (initialTracks.length === 0 || tracks.length > 0) {
+      if (initialTracks.length === 0 || tracksLoadedRef.current) {
         return;
       }
 
-      // Create a key from track sources to detect real changes
-      const tracksKey = initialTracks.map((t) => t.src).join(',');
-      if (tracksKey === loadedTracksKeyRef.current) {
-        return;
-      }
-
-      loadedTracksKeyRef.current = tracksKey;
       tracksLoadedRef.current = true;
 
-      // Load tracks by fetching their durations
-      const loadTracksWithDuration = async () => {
-        const tracksWithDuration = await Promise.all(
-          initialTracks.map(async (trackData) => {
-            const audio = new Audio();
-            audio.src = trackData.src;
-
-            const duration = await new Promise<number>((resolve) => {
-              audio.onloadedmetadata = () => resolve(audio.duration || 0);
-              audio.onerror = () => resolve(0);
-            });
-
-            return {
-              id: trackData.id || generateId(),
-              name: trackData.name,
-              src: trackData.src,
-              originalDuration: duration,
-            };
-          })
-        );
-
-        loadTracks(tracksWithDuration);
+      const loadInitialTracks = async () => {
+        for (const trackData of initialTracks) {
+          await loadTrack(trackData.src, trackData.name);
+        }
       };
 
-      loadTracksWithDuration();
-    }, [initialTracks, tracks.length, loadTracks]);
+      loadInitialTracks();
+    }, [initialTracks, loadTrack]);
 
     // Notify parent of track changes
     useEffect(() => {
@@ -401,9 +473,9 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
         peaksRef.current.player.pause();
         peaksRef.current.player.seek(0);
         setCurrentTime(0);
-        setPlayState('stopped');
+        setPlaying(false);
       }
-    }, [setCurrentTime, setPlayState]);
+    }, [setCurrentTime, setPlaying]);
 
     const handleSeek = useCallback(
       (time: number) => {
@@ -430,60 +502,79 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
       zoomOut();
     }, [zoomOut]);
 
+    const handleZoomFit = useCallback(() => {
+      setZoom(DEFAULTS.zoom);
+    }, [setZoom]);
+
+    // ============ FULLSCREEN ============
+    const handleFullscreen = useCallback(() => {
+      if (!containerRef.current) return;
+
+      if (!isFullscreen) {
+        if (containerRef.current.requestFullscreen) {
+          containerRef.current.requestFullscreen();
+        }
+        setIsFullscreen(true);
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        }
+        setIsFullscreen(false);
+      }
+    }, [isFullscreen]);
+
+    useEffect(() => {
+      const handleFullscreenChange = () => {
+        setIsFullscreen(!!document.fullscreenElement);
+      };
+
+      document.addEventListener('fullscreenchange', handleFullscreenChange);
+      return () => {
+        document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      };
+    }, []);
+
     // ============ TRACK MANAGEMENT ============
     const handleAddTrack = useCallback(() => {
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = 'audio/*';
-      input.multiple = true;
       input.onchange = async (e) => {
         const files = (e.target as HTMLInputElement).files;
-        if (!files) return;
+        if (!files || files.length === 0) return;
 
-        for (const file of Array.from(files)) {
-          const url = URL.createObjectURL(file);
-          const audio = new Audio();
-          audio.src = url;
-
-          const duration = await new Promise<number>((resolve) => {
-            audio.onloadedmetadata = () => resolve(audio.duration || 0);
-            audio.onerror = () => resolve(0);
-          });
-
-          addTrackStore({
-            src: url,
-            name: file.name.replace(/\.[^/.]+$/, ''),
-            originalDuration: duration,
-          });
-        }
+        const file = files[0];
+        const url = URL.createObjectURL(file);
+        await loadTrack(url, file.name.replace(/\.[^/.]+$/, ''));
       };
       input.click();
-    }, [addTrackStore]);
+    }, [loadTrack]);
 
     const handleRemoveTrack = useCallback(
       (trackId: string) => {
-        removeTrackStore(trackId);
+        removeTrack(trackId);
       },
-      [removeTrackStore]
+      [removeTrack]
     );
 
     // ============ EXPORT ============
     const handleExport = useCallback(
       async (options: ExportOptions, filename: string) => {
-        if (!activeTrack) return;
+        if (!activeTrack?.audioBuffer) return;
 
         try {
           setIsExporting(true);
           setExportProgress(0);
 
-          const result = await exportWithRegions(
-            activeTrack,
-            options,
-            (progress) => setExportProgress(progress)
-          );
+          setExportProgress(50);
+
+          // For destructive editing, the buffer IS the final result
+          const blob = audioBufferToWav(activeTrack.audioBuffer);
+
+          setExportProgress(100);
 
           // Download the file
-          const url = URL.createObjectURL(result.blob);
+          const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
           a.download = `${filename}.${options.format}`;
@@ -495,12 +586,12 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
           setIsExportDialogOpen(false);
 
           if (onSave) {
-            await onSave(result.blob, {
+            await onSave(blob, {
               title: filename,
-              duration: result.duration,
+              duration: activeTrack.duration,
               format: options.format,
-              sampleRate: result.metadata.sampleRate,
-              channels: result.metadata.channels,
+              sampleRate: activeTrack.audioBuffer.sampleRate,
+              channels: activeTrack.audioBuffer.numberOfChannels,
             });
           }
         } catch (err) {
@@ -519,42 +610,43 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
       enabled: true,
       handlers: {
         onPlayPause: () => {
-          if (playState === 'playing') handlePause();
+          if (isPlaying) handlePause();
           else handlePlay();
         },
         onStop: handleStop,
         onRewind: () => handleSeek(0),
-        onFastForward: () => handleSeek(montedDuration || 0),
+        onFastForward: () => handleSeek(duration || 0),
         onShuttleBack: () => handleSeek(Math.max(0, currentTime - 5)),
         onShuttleStop: handlePause,
-        onShuttleForward: () => handleSeek(Math.min(montedDuration || 0, currentTime + 5)),
+        onShuttleForward: () => handleSeek(Math.min(duration || 0, currentTime + 5)),
         onUndo: undo,
         onRedo: redo,
-        onCut: cutSelectionAction,
-        onCopy: () => {
-          // TODO: Implement copy
-          console.log('Copy not yet implemented');
-        },
-        onPaste: () => {
-          // TODO: Implement paste
-          console.log('Paste not yet implemented');
-        },
-        onDelete: cutSelectionAction,
+        onCut: cutSelection,
+        onCopy: () => console.log('Copy not implemented'),
+        onPaste: () => console.log('Paste not implemented'),
+        onDelete: cutSelection,
         onSelectAll: () => {
-          // Select entire track
           if (activeTrack) {
-            setSelection({
-              start: 0,
-              end: montedDuration || 0,
-              startTime: 0,
-              endTime: montedDuration || 0,
-            });
+            setInPoint(0);
+            setOutPoint(duration);
           }
         },
         onDeselect: clearSelection,
-        onSplit: splitAtCursor,
-        onSetCueIn: setInPoint,
-        onSetCueOut: setOutPoint,
+        onSplit: () => console.log('Split not implemented in destructive mode'),
+        onSetCueIn: () => {
+          if (peaksRef.current) {
+            const peaksTime = peaksRef.current.player.getCurrentTime();
+            console.log('>>> I pressed:', peaksTime.toFixed(3));
+            setInPoint(peaksTime);
+          }
+        },
+        onSetCueOut: () => {
+          if (peaksRef.current) {
+            const peaksTime = peaksRef.current.player.getCurrentTime();
+            console.log('>>> O pressed:', peaksTime.toFixed(3));
+            setOutPoint(peaksTime);
+          }
+        },
         onGoToCueIn: () => {
           if (inPoint !== null) handleSeek(inPoint);
         },
@@ -563,17 +655,16 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
         },
         onZoomIn: handleZoomIn,
         onZoomOut: handleZoomOut,
-        onZoomFit: zoomToFit,
+        onZoomFit: handleZoomFit,
         onMuteTrack: () => {
           if (activeTrackId) toggleMute(activeTrackId);
         },
         onSoloTrack: () => {
           if (activeTrackId) toggleSolo(activeTrackId);
         },
-        onSave: () => {
-          console.log('Save triggered');
-        },
+        onSave: () => console.log('Save'),
         onExport: () => setIsExportDialogOpen(true),
+        onFullscreen: handleFullscreen,
       },
     });
 
@@ -581,53 +672,39 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
     useImperativeHandle(
       ref,
       () => ({
-        play: () => {
-          handlePlay();
+        play: handlePlay,
+        pause: handlePause,
+        stop: handleStop,
+        seek: handleSeek,
+        addTrack: async (track) => {
+          await loadTrack(track.src, track.name);
         },
-        pause: () => {
-          handlePause();
-        },
-        stop: () => {
-          handleStop();
-        },
-        seek: (time: number) => {
-          handleSeek(time);
-        },
-        addTrack: (track) => {
-          addTrackStore(track);
-        },
-        removeTrack: (trackId: string) => {
-          removeTrackStore(trackId);
-        },
+        removeTrack: handleRemoveTrack,
         getState: () => useEditorStore.getState(),
         exportAudio: async (options: ExportOptions): Promise<ExportResult> => {
-          if (!activeTrack) {
+          if (!activeTrack?.audioBuffer) {
             throw new Error('No active track');
           }
-          return exportWithRegions(activeTrack, options);
+          const blob = audioBufferToWav(activeTrack.audioBuffer);
+          return {
+            blob,
+            duration: activeTrack.duration,
+            metadata: {
+              format: options.format,
+              sampleRate: activeTrack.audioBuffer.sampleRate,
+              channels: activeTrack.audioBuffer.numberOfChannels,
+              size: blob.size,
+            },
+          };
         },
         undo,
         redo,
         setInPoint,
         setOutPoint,
-        cutSelection: cutSelectionAction,
-        splitAtCursor,
+        cutSelection,
+        splitAtCursor: () => console.log('Split not implemented'),
       }),
-      [
-        handlePlay,
-        handlePause,
-        handleStop,
-        handleSeek,
-        addTrackStore,
-        removeTrackStore,
-        undo,
-        redo,
-        setInPoint,
-        setOutPoint,
-        cutSelectionAction,
-        splitAtCursor,
-        activeTrack,
-      ]
+      [handlePlay, handlePause, handleStop, handleSeek, loadTrack, handleRemoveTrack, undo, redo, setInPoint, setOutPoint, cutSelection, activeTrack]
     );
 
     // ============ RENDER ============
@@ -642,17 +719,19 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
           canUndo={canUndo}
           canRedo={canRedo}
           hasSelection={inPoint !== null && outPoint !== null}
+          isFullscreen={isFullscreen}
           onUndo={undo}
           onRedo={redo}
-          onCut={cutSelectionAction}
+          onCut={cutSelection}
           onCopy={() => console.log('Copy')}
           onPaste={() => console.log('Paste')}
-          onDelete={cutSelectionAction}
-          onSplit={splitAtCursor}
+          onDelete={cutSelection}
+          onSplit={() => console.log('Split')}
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
-          onZoomFit={zoomToFit}
+          onZoomFit={handleZoomFit}
           onExport={() => setIsExportDialogOpen(true)}
+          onFullscreen={handleFullscreen}
         />
 
         {/* Transport controls */}
@@ -661,9 +740,9 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
           style={{ backgroundColor: colors.surface, borderColor: colors.border }}
         >
           <TransportControls
-            playState={playState}
+            playState={isPlaying ? 'playing' : 'stopped'}
             currentTime={currentTime}
-            duration={montedDuration || 0}
+            duration={duration || 0}
             onPlay={handlePlay}
             onPause={handlePause}
             onStop={handleStop}
@@ -683,6 +762,13 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
               <span className="text-xs">
                 <span className="text-red-500 font-bold">OUT:</span>{' '}
                 <span className="font-mono">{formatTime(outPoint)}</span>
+              </span>
+            )}
+            {inPoint !== null && outPoint !== null && (
+              <span className="text-xs text-yellow-500">
+                <span className="font-mono">
+                  ({formatTime(Math.abs(outPoint - inPoint))})
+                </span>
               </span>
             )}
           </div>
@@ -717,7 +803,6 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
               tracks={tracks}
               selectedTrackIds={activeTrackId ? [activeTrackId] : []}
               onSelectTrack={(trackId) => {
-                selectTrack(trackId);
                 setActiveTrack(trackId);
               }}
               onMuteTrack={toggleMute}
@@ -775,7 +860,6 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
               style={{
                 borderColor: colors.border,
                 backgroundColor: colors.surface,
-                // Don't use display:none as peaks.js needs visible container
                 visibility: !activeTrack ? 'hidden' : 'visible',
               }}
             />
@@ -786,8 +870,6 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
               className="flex-1"
               style={{
                 backgroundColor: colors.background,
-                // Don't use display:none as peaks.js needs visible container
-                // Use visibility instead to keep dimensions
                 visibility: !activeTrack ? 'hidden' : 'visible',
                 minHeight: '200px',
               }}
@@ -839,28 +921,23 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
             </span>
             {selection && (
               <span>
-                Selection:{' '}
+                Sélection:{' '}
                 <span className="font-mono" style={{ color: colors.text }}>
-                  {formatTime(selection.start)} - {formatTime(selection.end)}
+                  {formatTime(selection.startTime)} - {formatTime(selection.endTime)}
                 </span>
-                <span className="ml-1">({formatTime(selection.end - selection.start)})</span>
-              </span>
-            )}
-            {activeTrack && (
-              <span>
-                Regions: <span className="font-mono" style={{ color: colors.text }}>{activeTrack.regions.length}</span>
+                <span className="ml-1">({formatTime(selection.endTime - selection.startTime)})</span>
               </span>
             )}
           </div>
           <div className="flex items-center gap-4">
             <span>
-              Duree: <span className="font-mono" style={{ color: colors.text }}>{formatTime(montedDuration || 0)}</span>
+              Durée: <span className="font-mono" style={{ color: colors.text }}>{formatTime(duration || 0)}</span>
             </span>
             <span>
               Pistes: <span className="font-mono" style={{ color: colors.text }}>{tracks.length}</span>
             </span>
             <span className="opacity-60">
-              I = Point IN | O = Point OUT | X = Couper | S = Diviser
+              I = Point IN | O = Point OUT | X = Couper
             </span>
           </div>
         </div>
@@ -868,7 +945,7 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
         {/* Export dialog */}
         <ExportDialog
           isOpen={isExportDialogOpen}
-          duration={montedDuration || 0}
+          duration={duration || 0}
           onClose={() => setIsExportDialogOpen(false)}
           onExport={handleExport}
           isExporting={isExporting}
