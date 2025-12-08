@@ -21,6 +21,12 @@ function getAudioContext(): AudioContext {
   if (!sharedAudioContext) {
     sharedAudioContext = new AudioContext();
   }
+  // Reprendre l'AudioContext s'il est suspendu (politique autoplay des navigateurs)
+  if (sharedAudioContext.state === 'suspended') {
+    sharedAudioContext.resume().catch(() => {
+      // Ignorer l'erreur si la reprise echoue (sera reprise lors d'une interaction utilisateur)
+    });
+  }
   return sharedAudioContext;
 }
 
