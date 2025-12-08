@@ -6,6 +6,7 @@ import { X, GripVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TRACK_HEIGHT, MIN_CLIP_DURATION } from '@/lib/audio-montage/constants';
 import type { ClipWithComputed } from '@/lib/audio-montage/types';
+import { LazyClipWaveform } from './LazyClipWaveform';
 
 interface ClipProps {
   clip: ClipWithComputed;
@@ -142,8 +143,17 @@ export function Clip({
         onSelect();
       }}
     >
-      {/* Waveform placeholder */}
-      <div className="absolute inset-0 opacity-30 bg-gradient-to-b from-white/20 to-transparent" />
+      {/* Waveform avec peaks.js */}
+      <LazyClipWaveform
+        audioUrl={clip.sourceUrl}
+        clipId={clip.id}
+        color={trackColor}
+        inPoint={clip.inPoint}
+        outPoint={clip.outPoint}
+        width={width}
+        height={TRACK_HEIGHT - 8}
+        className="absolute inset-0"
+      />
 
       {/* Fade in indicator */}
       {clip.fadeInDuration > 0 && (

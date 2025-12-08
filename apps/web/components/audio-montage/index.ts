@@ -6,6 +6,8 @@ export { TimelineRuler } from './TimelineRuler';
 export { Track } from './Track';
 export { TrackControls } from './TrackControls';
 export { Clip } from './Clip';
+export { ClipWaveform } from './ClipWaveform';
+export { LazyClipWaveform } from './LazyClipWaveform';
 export { ClipLibrary } from './ClipLibrary';
 export { TransportBar } from './TransportBar';
 export { ZoomControls } from './ZoomControls';
