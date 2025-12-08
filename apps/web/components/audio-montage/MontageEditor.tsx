@@ -118,25 +118,26 @@ export function MontageEditor({
     clips: track.clips.map(enrichClip),
   }));
 
-  // Initialiser le moteur audio
+  // Initialiser le moteur audio (sans creer d'AudioContext - attend interaction utilisateur)
   useEffect(() => {
     const engine = engineRef.current;
 
-    engine.init().then(() => {
-      engine.setTimeUpdateCallback(setCurrentTime);
-      engine.setPlaybackEndCallback(() => setIsPlaying(false));
-      engine.loadProject(project);
-    });
+    // Configurer les callbacks
+    engine.setTimeUpdateCallback(setCurrentTime);
+    engine.setPlaybackEndCallback(() => setIsPlaying(false));
+
+    // Charger la structure du projet (sans charger l'audio)
+    engine.loadProjectStructure(project);
 
     return () => {
       engine.pause();
     };
   }, []);
 
-  // Recharger le projet quand il change
+  // Recharger la structure du projet quand il change
   useEffect(() => {
     const engine = engineRef.current;
-    engine.loadProject(project);
+    engine.loadProjectStructure(project);
   }, [project]);
 
   // Controles de lecture
