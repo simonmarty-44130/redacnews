@@ -1,7 +1,6 @@
 'use client';
 
 import { useRef, useEffect, useState, memo } from 'react';
-import Peaks, { PeaksInstance } from 'peaks.js';
 import { cn } from '@/lib/utils';
 
 interface ClipWaveformProps {
@@ -26,9 +25,10 @@ export const ClipWaveform = memo(function ClipWaveform({
   className,
 }: ClipWaveformProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const peaksRef = useRef<PeaksInstance | null>(null);
+  const peaksRef = useRef<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [peaksLoaded, setPeaksLoaded] = useState(false);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -51,6 +51,12 @@ export const ClipWaveform = memo(function ClipWaveform({
           peaksRef.current.destroy();
           peaksRef.current = null;
         }
+
+        // Import dynamique de peaks.js (client-only)
+        const PeaksModule = await import('peaks.js');
+        const Peaks = PeaksModule.default;
+
+        if (!isMounted) return;
 
         // Calculer le niveau de zoom base sur la duree visible et la largeur
         const visibleDuration = outPoint - inPoint;
@@ -83,7 +89,7 @@ export const ClipWaveform = memo(function ClipWaveform({
         if (!isMounted) return;
 
         // Initialiser peaks.js
-        Peaks.init(options, (err, peaks) => {
+        Peaks.init(options, (err: Error | undefined, peaks: any) => {
           if (!isMounted) return;
 
           if (err) {
@@ -95,6 +101,7 @@ export const ClipWaveform = memo(function ClipWaveform({
 
           if (peaks) {
             peaksRef.current = peaks;
+            setPeaksLoaded(true);
 
             // Zoomer sur la portion visible (inPoint -> outPoint)
             const view = peaks.views.getView('zoomview');
@@ -165,7 +172,7 @@ export const ClipWaveform = memo(function ClipWaveform({
       )}
 
       {/* Fallback visuel si pas de waveform */}
-      {!isLoading && !error && !peaksRef.current && (
+      {!isLoading && !error && !peaksLoaded && (
         <div
           className="absolute inset-0 flex items-center"
           style={{ backgroundColor: color + '20' }}

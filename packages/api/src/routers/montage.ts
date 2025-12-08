@@ -1,8 +1,59 @@
 // packages/api/src/routers/montage.ts
 
 import { z } from 'zod';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { router, protectedProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
+
+const s3Client = new S3Client({
+  region: process.env.AWS_REGION || 'eu-west-3',
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+  },
+});
+
+// Helper pour extraire la cle S3 depuis une URL S3
+function extractS3KeyFromUrl(url: string): string | null {
+  try {
+    // URL format: https://bucket.s3.region.amazonaws.com/key
+    // ou https://bucket.s3.amazonaws.com/key
+    const urlObj = new URL(url);
+    if (urlObj.hostname.includes('s3.')) {
+      // Retirer le / initial et decoder l'URL (pour eviter le double encodage)
+      return decodeURIComponent(urlObj.pathname.slice(1));
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Helper pour generer une URL signee a partir d'une URL S3
+async function getPresignedUrlFromS3Url(s3Url: string): Promise<string> {
+  const s3Key = extractS3KeyFromUrl(s3Url);
+  if (!s3Key) {
+    // Si on ne peut pas extraire la cle, retourner l'URL originale
+    return s3Url;
+  }
+
+  try {
+    const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
+    const presignedUrl = await getSignedUrl(
+      s3Client,
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: s3Key,
+      }),
+      { expiresIn: 3600 }
+    );
+    return presignedUrl;
+  } catch (error) {
+    console.error('Error generating presigned URL:', error);
+    return s3Url;
+  }
+}
 
 export const montageRouter = router({
   // Liste des projets
@@ -49,7 +100,23 @@ export const montageRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
       }
 
-      return project;
+      // Generer des URLs signees pour chaque clip
+      const tracksWithSignedUrls = await Promise.all(
+        project.tracks.map(async (track) => ({
+          ...track,
+          clips: await Promise.all(
+            track.clips.map(async (clip) => ({
+              ...clip,
+              sourceUrl: await getPresignedUrlFromS3Url(clip.sourceUrl),
+            }))
+          ),
+        }))
+      );
+
+      return {
+        ...project,
+        tracks: tracksWithSignedUrls,
+      };
     }),
 
   // Creer un projet

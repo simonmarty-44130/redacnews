@@ -6,8 +6,8 @@ export { TimelineRuler } from './TimelineRuler';
 export { Track } from './Track';
 export { TrackControls } from './TrackControls';
 export { Clip } from './Clip';
-export { ClipWaveform } from './ClipWaveform';
-export { LazyClipWaveform } from './LazyClipWaveform';
+// ClipWaveform n'est pas exporte directement car peaks.js ne supporte pas le SSR
+// Le composant est charge dynamiquement (next/dynamic ssr:false) dans Clip.tsx
 export { ClipLibrary } from './ClipLibrary';
 export { TransportBar } from './TransportBar';
 export { ZoomControls } from './ZoomControls';

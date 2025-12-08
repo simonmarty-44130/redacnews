@@ -3,10 +3,23 @@
 import { useRef, useState, useEffect } from 'react';
 import { useDrag } from 'react-dnd';
 import { X, GripVertical } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import { cn } from '@/lib/utils';
 import { TRACK_HEIGHT, MIN_CLIP_DURATION } from '@/lib/audio-montage/constants';
 import type { ClipWithComputed } from '@/lib/audio-montage/types';
-import { LazyClipWaveform } from './LazyClipWaveform';
+
+// Import dynamique du composant ClipWaveform pour eviter les erreurs SSR avec peaks.js
+const ClipWaveform = dynamic(
+  () => import('./ClipWaveform').then((mod) => mod.ClipWaveform),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-full rounded bg-black/20 flex items-center justify-center">
+        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+      </div>
+    ),
+  }
+);
 
 interface ClipProps {
   clip: ClipWithComputed;
@@ -143,8 +156,8 @@ export function Clip({
         onSelect();
       }}
     >
-      {/* Waveform avec peaks.js */}
-      <LazyClipWaveform
+      {/* Waveform avec peaks.js (charge dynamiquement cote client uniquement) */}
+      <ClipWaveform
         audioUrl={clip.sourceUrl}
         clipId={clip.id}
         color={trackColor}
