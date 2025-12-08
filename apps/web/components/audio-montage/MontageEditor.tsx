@@ -140,8 +140,8 @@ export function MontageEditor({
   }, [project]);
 
   // Controles de lecture
-  const handlePlay = () => {
-    engineRef.current.play(currentTime);
+  const handlePlay = async () => {
+    await engineRef.current.play(currentTime);
     setIsPlaying(true);
   };
 

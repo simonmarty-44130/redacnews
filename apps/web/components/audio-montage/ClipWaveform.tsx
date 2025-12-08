@@ -19,7 +19,8 @@ let sharedAudioContext: AudioContext | null = null;
 
 function getAudioContext(): AudioContext {
   if (!sharedAudioContext) {
-    sharedAudioContext = new AudioContext();
+    sharedAudioContext = new (window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
   }
   // Reprendre l'AudioContext s'il est suspendu (politique autoplay des navigateurs)
   if (sharedAudioContext.state === 'suspended') {
@@ -41,21 +42,39 @@ export const ClipWaveform = memo(function ClipWaveform({
   className,
 }: ClipWaveformProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const peaksRef = useRef<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [peaksLoaded, setPeaksLoaded] = useState(false);
+  const [initRetry, setInitRetry] = useState(0);
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || !audioUrl || width <= 0) return;
+    const audioElement = audioRef.current;
+    if (!container || !audioElement || !audioUrl || width <= 0) return;
+
+    // Verifier si le conteneur est visible et a des dimensions
+    const rect = container.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+      // Conteneur pas encore visible, reessayer apres un delai (max 10 retries)
+      if (initRetry < 10) {
+        const delay = Math.min(100 * (initRetry + 1), 500);
+        const retryTimeout = setTimeout(() => {
+          setInitRetry(prev => prev + 1);
+        }, delay);
+        return () => clearTimeout(retryTimeout);
+      }
+      // Apres 10 retries, abandonner silencieusement
+      return;
+    }
+
+    // Reset retry counter on successful dimension check
+    if (initRetry > 0) {
+      setInitRetry(0);
+    }
 
     let isMounted = true;
-
-    // Creer un element audio cache
-    const audioElement = document.createElement('audio');
-    audioElement.crossOrigin = 'anonymous';
-    audioElement.preload = 'auto';
 
     const initPeaks = async () => {
       try {
@@ -64,9 +83,34 @@ export const ClipWaveform = memo(function ClipWaveform({
 
         // Detruire l'instance precedente si elle existe
         if (peaksRef.current) {
-          peaksRef.current.destroy();
+          try {
+            peaksRef.current.destroy();
+          } catch (e) {
+            console.warn('Error destroying peaks:', e);
+          }
           peaksRef.current = null;
         }
+
+        // Charger l'audio d'abord
+        audioElement.src = audioUrl;
+
+        await new Promise<void>((resolve, reject) => {
+          const onLoad = () => {
+            audioElement.removeEventListener('loadedmetadata', onLoad);
+            audioElement.removeEventListener('error', onError);
+            resolve();
+          };
+          const onError = () => {
+            audioElement.removeEventListener('loadedmetadata', onLoad);
+            audioElement.removeEventListener('error', onError);
+            reject(new Error('Failed to load audio'));
+          };
+          audioElement.addEventListener('loadedmetadata', onLoad);
+          audioElement.addEventListener('error', onError);
+          audioElement.load();
+        });
+
+        if (!isMounted) return;
 
         // Import dynamique de peaks.js (client-only)
         const PeaksModule = await import('peaks.js');
@@ -76,7 +120,7 @@ export const ClipWaveform = memo(function ClipWaveform({
 
         // Calculer le niveau de zoom base sur la duree visible et la largeur
         const visibleDuration = outPoint - inPoint;
-        const samplesPerPixel = Math.max(128, Math.floor((visibleDuration * 44100) / width));
+        const samplesPerPixel = Math.max(256, Math.floor((visibleDuration * 44100) / width));
 
         // Obtenir ou creer un AudioContext partage
         const audioContext = getAudioContext();
@@ -86,8 +130,11 @@ export const ClipWaveform = memo(function ClipWaveform({
             container: container,
             waveformColor: color + 'B3', // Ajouter transparence
             playedWaveformColor: color,
+            playheadColor: 'transparent',
+            playheadTextColor: 'transparent',
             axisLabelColor: 'transparent',
             axisGridlineColor: 'transparent',
+            showPlayheadTime: false,
           },
           overview: undefined,
           mediaElement: audioElement,
@@ -96,19 +143,9 @@ export const ClipWaveform = memo(function ClipWaveform({
           },
           keyboard: false,
           nudgeIncrement: 0.01,
-          zoomLevels: [samplesPerPixel],
+          zoomLevels: [samplesPerPixel, samplesPerPixel * 2, samplesPerPixel * 4],
+          logger: console.error.bind(console),
         };
-
-        // Charger l'audio d'abord
-        audioElement.src = audioUrl;
-
-        await new Promise<void>((resolve, reject) => {
-          audioElement.onloadedmetadata = () => resolve();
-          audioElement.onerror = () => reject(new Error('Failed to load audio'));
-          audioElement.load();
-        });
-
-        if (!isMounted) return;
 
         // Initialiser peaks.js
         Peaks.init(options, (err: Error | undefined, peaks: any) => {
@@ -148,11 +185,15 @@ export const ClipWaveform = memo(function ClipWaveform({
     return () => {
       isMounted = false;
       if (peaksRef.current) {
-        peaksRef.current.destroy();
+        try {
+          peaksRef.current.destroy();
+        } catch (e) {
+          console.warn('Error destroying peaks:', e);
+        }
         peaksRef.current = null;
       }
     };
-  }, [audioUrl, clipId, color, inPoint, outPoint, width]);
+  }, [audioUrl, clipId, color, inPoint, outPoint, width, initRetry]);
 
   // Mettre a jour la vue quand inPoint/outPoint changent
   useEffect(() => {
@@ -172,6 +213,14 @@ export const ClipWaveform = memo(function ClipWaveform({
       )}
       style={{ width, height }}
     >
+      {/* Element audio cache pour peaks.js */}
+      <audio
+        ref={audioRef}
+        preload="auto"
+        crossOrigin="anonymous"
+        style={{ display: 'none' }}
+      />
+
       {/* Container pour peaks.js */}
       <div
         ref={containerRef}

@@ -29,23 +29,43 @@ export class MontageAudioEngine {
   private animationFrameId: number | null = null;
   private onTimeUpdate: ((time: number) => void) | null = null;
   private onPlaybackEnd: (() => void) | null = null;
+  private isInitialized: boolean = false;
 
   constructor() {}
 
   // Initialiser le contexte audio
   async init(): Promise<AudioContext> {
     if (!this.audioContext) {
-      this.audioContext = new AudioContext();
+      console.log('[MontageEngine] Creating AudioContext...');
+      this.audioContext = new (window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
       this.masterGain = this.audioContext.createGain();
       this.masterGain.connect(this.audioContext.destination);
+      console.log('[MontageEngine] AudioContext created, state:', this.audioContext.state);
     }
 
     // Reprendre le contexte si suspendu
     if (this.audioContext.state === 'suspended') {
-      await this.audioContext.resume();
+      console.log('[MontageEngine] Resuming suspended AudioContext...');
+      try {
+        await this.audioContext.resume();
+        console.log('[MontageEngine] AudioContext resumed, state:', this.audioContext.state);
+      } catch (e) {
+        console.warn('[MontageEngine] Failed to resume AudioContext:', e);
+      }
     }
 
+    this.isInitialized = true;
     return this.audioContext;
+  }
+
+  // Forcer la reprise de l'AudioContext (appele lors d'une interaction utilisateur)
+  async ensureResumed(): Promise<void> {
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      console.log('[MontageEngine] ensureResumed - resuming...');
+      await this.audioContext.resume();
+      console.log('[MontageEngine] ensureResumed - state:', this.audioContext.state);
+    }
   }
 
   getAudioContext(): AudioContext | null {
@@ -64,22 +84,36 @@ export class MontageAudioEngine {
   // Charger un buffer audio depuis une URL (avec cache)
   async loadAudioBuffer(url: string): Promise<AudioBuffer> {
     if (this.audioBufferCache.has(url)) {
+      console.log('[MontageEngine] Buffer from cache:', url.substring(0, 50) + '...');
       return this.audioBufferCache.get(url)!;
     }
 
     await this.init();
     if (!this.audioContext) throw new Error('AudioContext not initialized');
 
-    const response = await fetch(url);
-    const arrayBuffer = await response.arrayBuffer();
-    const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
+    console.log('[MontageEngine] Loading audio from:', url.substring(0, 80) + '...');
 
-    this.audioBufferCache.set(url, audioBuffer);
-    return audioBuffer;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      console.log('[MontageEngine] Decoding audio buffer, size:', arrayBuffer.byteLength);
+      const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
+      console.log('[MontageEngine] Audio decoded, duration:', audioBuffer.duration.toFixed(2) + 's');
+
+      this.audioBufferCache.set(url, audioBuffer);
+      return audioBuffer;
+    } catch (error) {
+      console.error('[MontageEngine] Failed to load audio:', error);
+      throw error;
+    }
   }
 
   // Charger un projet complet
   async loadProject(project: MontageProject): Promise<void> {
+    console.log('[MontageEngine] Loading project:', project.name, '- tracks:', project.tracks.length);
     await this.init();
 
     // Nettoyer les anciennes donnees
@@ -90,6 +124,7 @@ export class MontageAudioEngine {
     for (const track of project.tracks) {
       await this.loadTrack(track);
     }
+    console.log('[MontageEngine] Project loaded. Clips:', this.clips.size, 'Tracks:', this.tracks.size);
   }
 
   // Charger une piste
@@ -166,8 +201,32 @@ export class MontageAudioEngine {
   }
 
   // Lecture
-  play(fromTime: number = this.pauseTime): void {
-    if (!this.audioContext || this.isPlaying) return;
+  async play(fromTime: number = this.pauseTime): Promise<void> {
+    console.log('[MontageEngine] play() called, fromTime:', fromTime.toFixed(2));
+
+    if (!this.audioContext) {
+      console.log('[MontageEngine] play() - no audioContext, initializing...');
+      await this.init();
+    }
+
+    if (!this.audioContext) {
+      console.error('[MontageEngine] play() - failed to initialize audioContext');
+      return;
+    }
+
+    // S'assurer que l'AudioContext est actif
+    if (this.audioContext.state === 'suspended') {
+      console.log('[MontageEngine] play() - resuming suspended context...');
+      await this.audioContext.resume();
+    }
+
+    if (this.isPlaying) {
+      console.log('[MontageEngine] play() - already playing');
+      return;
+    }
+
+    console.log('[MontageEngine] play() - AudioContext state:', this.audioContext.state);
+    console.log('[MontageEngine] play() - Clips to play:', this.clips.size);
 
     this.isPlaying = true;
     this.startTime = this.audioContext.currentTime - fromTime;
