@@ -19,11 +19,12 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users       User[]
-  shows       Show[]
-  stories     Story[]
-  mediaItems  MediaItem[]
-  collections Collection[]
+  users           User[]
+  shows           Show[]
+  stories         Story[]
+  mediaItems      MediaItem[]
+  collections     Collection[]
+  montageProjects MontageProject[]
 }
 
 model User {
@@ -45,6 +46,7 @@ model User {
   rundownItems    RundownItem[]
   mediaItems      MediaItem[]
   comments        Comment[]
+  montageProjects MontageProject[]
 }
 
 enum UserRole {
@@ -242,9 +244,10 @@ model MediaItem {
   uploadedBy   User         @relation(fields: [uploadedById], references: [id])
   organization Organization @relation(fields: [organizationId], references: [id])
 
-  collections     CollectionItem[]
-  storyMedia      StoryMedia[]
+  collections      CollectionItem[]
+  storyMedia       StoryMedia[]
   rundownItemMedia RundownItemMedia[]
+  montageClips     MontageClip[]
 }
 
 enum MediaType {
@@ -304,4 +307,70 @@ model Comment {
   author   User      @relation(fields: [authorId], references: [id])
   parent   Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
   replies  Comment[] @relation("CommentReplies")
+}
+
+// ============ MONTAGE MULTIPISTE ============
+
+model MontageProject {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  duration       Float    @default(0) // Duree totale en secondes
+  organizationId String
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  createdBy    User           @relation(fields: [createdById], references: [id])
+  tracks       MontageTrack[]
+
+  @@index([organizationId])
+  @@index([createdById])
+}
+
+model MontageTrack {
+  id        String  @id @default(cuid())
+  projectId String
+  name      String
+  color     String  @default("#3B82F6")
+  order     Int
+  volume    Float   @default(1)
+  pan       Float   @default(0)
+  muted     Boolean @default(false)
+  solo      Boolean @default(false)
+
+  project MontageProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  clips   MontageClip[]
+
+  @@index([projectId])
+}
+
+model MontageClip {
+  id      String @id @default(cuid())
+  trackId String
+  name    String
+
+  // Source audio (reference a MediaItem existant ou URL directe)
+  mediaItemId    String?
+  sourceUrl      String
+  sourceDuration Float
+
+  // Position sur la timeline
+  startTime Float // Debut du clip sur la timeline (secondes)
+
+  // Trim interne
+  inPoint  Float // Point d'entree dans le fichier source
+  outPoint Float // Point de sortie dans le fichier source
+
+  // Proprietes
+  volume          Float @default(1)
+  fadeInDuration  Float @default(0)
+  fadeOutDuration Float @default(0)
+
+  track     MontageTrack @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  mediaItem MediaItem?   @relation(fields: [mediaItemId], references: [id])
+
+  @@index([trackId])
+  @@index([mediaItemId])
 }
