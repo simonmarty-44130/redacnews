@@ -14,6 +14,16 @@ interface ClipWaveformProps {
   className?: string;
 }
 
+// AudioContext partage pour eviter les limitations du navigateur
+let sharedAudioContext: AudioContext | null = null;
+
+function getAudioContext(): AudioContext {
+  if (!sharedAudioContext) {
+    sharedAudioContext = new AudioContext();
+  }
+  return sharedAudioContext;
+}
+
 export const ClipWaveform = memo(function ClipWaveform({
   audioUrl,
   clipId,
@@ -62,6 +72,9 @@ export const ClipWaveform = memo(function ClipWaveform({
         const visibleDuration = outPoint - inPoint;
         const samplesPerPixel = Math.max(128, Math.floor((visibleDuration * 44100) / width));
 
+        // Obtenir ou creer un AudioContext partage
+        const audioContext = getAudioContext();
+
         const options = {
           zoomview: {
             container: container,
@@ -72,6 +85,9 @@ export const ClipWaveform = memo(function ClipWaveform({
           },
           overview: undefined,
           mediaElement: audioElement,
+          webAudio: {
+            audioContext: audioContext,
+          },
           keyboard: false,
           nudgeIncrement: 0.01,
           zoomLevels: [samplesPerPixel],
