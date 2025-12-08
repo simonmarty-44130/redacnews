@@ -1,25 +1,22 @@
 'use client';
 
-import { useRef, useEffect, useState, useCallback, memo } from 'react';
+import { useRef, useEffect, useState, useCallback, memo, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 
 interface ClipWaveformProps {
   audioUrl: string;
   clipId: string;
   color?: string;
-  inPoint: number;      // Point d'entree dans la source (secondes)
-  outPoint: number;     // Point de sortie dans la source (secondes)
-  width: number;        // Largeur en pixels
-  height?: number;      // Hauteur en pixels
+  inPoint: number;
+  outPoint: number;
+  width: number;
+  height?: number;
   className?: string;
 }
 
-// AudioContext partage pour eviter les limitations du navigateur
-// IMPORTANT: Ne pas creer avant une interaction utilisateur
+// AudioContext partage
 let sharedAudioContext: AudioContext | null = null;
-let audioContextInitPromise: Promise<AudioContext> | null = null;
 
-// Cette fonction DOIT etre appelee suite a un geste utilisateur (click, etc.)
 async function getOrCreateAudioContext(): Promise<AudioContext> {
   if (sharedAudioContext && sharedAudioContext.state !== 'closed') {
     if (sharedAudioContext.state === 'suspended') {
@@ -28,17 +25,9 @@ async function getOrCreateAudioContext(): Promise<AudioContext> {
     return sharedAudioContext;
   }
 
-  if (audioContextInitPromise) {
-    return audioContextInitPromise;
-  }
-
-  audioContextInitPromise = new Promise((resolve) => {
-    sharedAudioContext = new (window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-    resolve(sharedAudioContext);
-  });
-
-  return audioContextInitPromise;
+  sharedAudioContext = new (window.AudioContext ||
+    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+  return sharedAudioContext;
 }
 
 export const ClipWaveform = memo(function ClipWaveform({
@@ -59,13 +48,40 @@ export const ClipWaveform = memo(function ClipWaveform({
   const [peaksLoaded, setPeaksLoaded] = useState(false);
   const [userActivated, setUserActivated] = useState(false);
 
-  // Fonction pour initialiser peaks.js (appelee apres interaction utilisateur)
+  // Generer les barres du faux waveform avec une seed basee sur le clipId
+  const fakeBars = useMemo(() => {
+    const numBars = Math.max(10, Math.floor(width / 3));
+    const bars: number[] = [];
+
+    // Utiliser une seed simple basee sur le clipId pour avoir des barres coherentes
+    let seed = 0;
+    for (let i = 0; i < clipId.length; i++) {
+      seed = ((seed << 5) - seed) + clipId.charCodeAt(i);
+      seed = seed & seed;
+    }
+
+    const seededRandom = () => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return (seed / 0x7fffffff);
+    };
+
+    for (let i = 0; i < numBars; i++) {
+      // Creer une forme de waveform plus realiste (plus haute au centre)
+      const position = i / numBars;
+      const centerBoost = 1 - Math.abs(position - 0.5) * 0.5;
+      const randomHeight = 20 + seededRandom() * 60 * centerBoost;
+      bars.push(randomHeight);
+    }
+
+    return bars;
+  }, [width, clipId]);
+
+  // Fonction pour initialiser peaks.js
   const initPeaks = useCallback(async () => {
     const container = containerRef.current;
     const audioElement = audioRef.current;
     if (!container || !audioElement || !audioUrl || width <= 0) return;
 
-    // Verifier si le conteneur est visible et a des dimensions
     const rect = container.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) {
       console.warn(`[ClipWaveform ${clipId}] Container has no dimensions`);
@@ -76,7 +92,6 @@ export const ClipWaveform = memo(function ClipWaveform({
       setIsLoading(true);
       setError(null);
 
-      // Detruire l'instance precedente si elle existe
       if (peaksRef.current) {
         try {
           peaksRef.current.destroy();
@@ -86,7 +101,6 @@ export const ClipWaveform = memo(function ClipWaveform({
         peaksRef.current = null;
       }
 
-      // Charger l'audio d'abord
       audioElement.src = audioUrl;
 
       await new Promise<void>((resolve, reject) => {
@@ -105,21 +119,18 @@ export const ClipWaveform = memo(function ClipWaveform({
         audioElement.load();
       });
 
-      // Import dynamique de peaks.js (client-only)
       const PeaksModule = await import('peaks.js');
       const Peaks = PeaksModule.default;
 
-      // Calculer le niveau de zoom base sur la duree visible et la largeur
       const visibleDuration = outPoint - inPoint;
       const samplesPerPixel = Math.max(256, Math.floor((visibleDuration * 44100) / width));
 
-      // Obtenir ou creer l'AudioContext (OK car appele suite a un click)
       const audioContext = await getOrCreateAudioContext();
 
       const options = {
         zoomview: {
           container: container,
-          waveformColor: color + 'B3', // Ajouter transparence
+          waveformColor: color,
           playedWaveformColor: color,
           playheadColor: 'transparent',
           playheadTextColor: 'transparent',
@@ -135,10 +146,9 @@ export const ClipWaveform = memo(function ClipWaveform({
         keyboard: false,
         nudgeIncrement: 0.01,
         zoomLevels: [samplesPerPixel, samplesPerPixel * 2, samplesPerPixel * 4],
-        logger: () => {}, // Silencieux
+        logger: () => {},
       };
 
-      // Initialiser peaks.js
       Peaks.init(options, (err: Error | undefined, peaks: any) => {
         if (err) {
           console.error(`Peaks init error for clip ${clipId}:`, err);
@@ -151,7 +161,6 @@ export const ClipWaveform = memo(function ClipWaveform({
           peaksRef.current = peaks;
           setPeaksLoaded(true);
 
-          // Zoomer sur la portion visible (inPoint -> outPoint)
           const view = peaks.views.getView('zoomview');
           if (view) {
             view.setStartTime(inPoint);
@@ -163,26 +172,23 @@ export const ClipWaveform = memo(function ClipWaveform({
 
     } catch (err) {
       console.error(`Error loading waveform for clip ${clipId}:`, err);
-      setError('Erreur chargement');
+      setError('Erreur');
       setIsLoading(false);
     }
   }, [audioUrl, clipId, color, inPoint, outPoint, width]);
 
-  // Activer les waveforms apres un click utilisateur
   const handleActivate = useCallback(() => {
     if (!userActivated) {
       setUserActivated(true);
     }
   }, [userActivated]);
 
-  // Initialiser peaks.js quand userActivated devient true
   useEffect(() => {
     if (userActivated && !peaksLoaded && !isLoading) {
       initPeaks();
     }
   }, [userActivated, peaksLoaded, isLoading, initPeaks]);
 
-  // Cleanup
   useEffect(() => {
     return () => {
       if (peaksRef.current) {
@@ -196,7 +202,6 @@ export const ClipWaveform = memo(function ClipWaveform({
     };
   }, []);
 
-  // Mettre a jour la vue quand inPoint/outPoint changent
   useEffect(() => {
     if (peaksRef.current) {
       const view = peaksRef.current.views.getView('zoomview');
@@ -206,24 +211,21 @@ export const ClipWaveform = memo(function ClipWaveform({
     }
   }, [inPoint]);
 
-  // Generer les barres du faux waveform une seule fois
-  const [fakeBars] = useState(() =>
-    Array.from({ length: Math.max(1, Math.floor(width / 4)) }).map(() =>
-      20 + Math.random() * 80
-    )
-  );
-
   return (
     <div
       className={cn(
         'relative overflow-hidden rounded cursor-pointer',
         className
       )}
-      style={{ width, height }}
+      style={{
+        width,
+        height,
+        backgroundColor: color + '40', // Fond semi-transparent de la couleur
+      }}
       onClick={handleActivate}
-      title={!userActivated ? 'Cliquez pour afficher la waveform' : undefined}
+      title={!userActivated ? 'Cliquez pour charger la waveform HD' : undefined}
     >
-      {/* Element audio cache pour peaks.js */}
+      {/* Element audio cache */}
       <audio
         ref={audioRef}
         preload="auto"
@@ -238,39 +240,41 @@ export const ClipWaveform = memo(function ClipWaveform({
         style={{ width, height }}
       />
 
-      {/* Etat de chargement */}
+      {/* Chargement */}
       {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+        <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-10">
           <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
         </div>
       )}
 
       {/* Erreur */}
       {error && !isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+        <div className="absolute inset-0 flex items-center justify-center bg-black/20 z-10">
           <span className="text-xs text-white/70">{error}</span>
         </div>
       )}
 
-      {/* Fallback visuel si pas de waveform (waveform statique) */}
+      {/* Faux waveform si peaks.js pas encore charge */}
       {!isLoading && !error && !peaksLoaded && (
-        <div
-          className="absolute inset-0 flex items-center"
-          style={{ backgroundColor: color + '20' }}
-        >
-          {/* Faux waveform minimaliste */}
-          <div className="w-full h-full flex items-center justify-around px-0.5">
+        <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+          {/* Barres de waveform simulees */}
+          <div className="w-full h-full flex items-center gap-[1px] px-1">
             {fakeBars.map((h, i) => (
               <div
                 key={i}
-                className="w-0.5 rounded-full"
+                className="flex-1 min-w-[1px] rounded-sm"
                 style={{
                   backgroundColor: color,
                   height: `${h}%`,
-                  opacity: 0.6,
+                  opacity: 0.8,
                 }}
               />
             ))}
+          </div>
+
+          {/* Indicateur "cliquez pour HD" */}
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/30">
+            <span className="text-[10px] text-white/80 font-medium">Cliquez pour HD</span>
           </div>
         </div>
       )}

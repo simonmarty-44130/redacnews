@@ -14,9 +14,7 @@ const ClipWaveform = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="w-full h-full rounded bg-black/20 flex items-center justify-center">
-        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-      </div>
+      <div className="w-full h-full rounded bg-blue-500/30 animate-pulse" />
     ),
   }
 );
@@ -39,7 +37,6 @@ export function Clip({
   isSelected,
   onSelect,
   onDelete,
-  onMove,
   onTrim,
 }: ClipProps) {
   const clipRef = useRef<HTMLDivElement>(null);
@@ -47,11 +44,12 @@ export function Clip({
   const [isTrimming, setIsTrimming] = useState<'left' | 'right' | null>(null);
   const [trimStart, setTrimStart] = useState({ x: 0, inPoint: 0, outPoint: 0 });
 
-  const width = clip.duration * zoom;
+  const width = Math.max(clip.duration * zoom, 20); // Minimum 20px de large
   const left = clip.startTime * zoom;
+  const clipHeight = TRACK_HEIGHT - 8; // Marge de 4px en haut et en bas
 
   // Configuration du drag
-  const [{ opacity }, drag, preview] = useDrag(
+  const [{ opacity }, drag] = useDrag(
     () => ({
       type: 'CLIP',
       item: () => {
@@ -141,60 +139,66 @@ export function Clip({
       }}
       className={cn(
         'absolute top-1 bottom-1 rounded cursor-grab overflow-hidden',
+        'border border-white/20',
         'transition-shadow',
-        isSelected && 'ring-2 ring-primary ring-offset-1',
+        isSelected && 'ring-2 ring-white ring-offset-1 ring-offset-gray-900',
         isDragging && 'cursor-grabbing'
       )}
       style={{
         left,
         width,
-        backgroundColor: trackColor,
+        height: clipHeight,
         opacity,
+        // PAS de backgroundColor ici - on laisse ClipWaveform gerer le fond
       }}
       onClick={(e) => {
         e.stopPropagation();
         onSelect();
       }}
     >
-      {/* Waveform avec peaks.js (charge dynamiquement cote client uniquement) */}
-      <ClipWaveform
-        audioUrl={clip.sourceUrl}
-        clipId={clip.id}
-        color={trackColor}
-        inPoint={clip.inPoint}
-        outPoint={clip.outPoint}
-        width={width}
-        height={TRACK_HEIGHT - 8}
-        className="absolute inset-0"
-      />
+      {/* Waveform - Couche de fond */}
+      <div className="absolute inset-0">
+        <ClipWaveform
+          audioUrl={clip.sourceUrl}
+          clipId={clip.id}
+          color={trackColor}
+          inPoint={clip.inPoint}
+          outPoint={clip.outPoint}
+          width={width}
+          height={clipHeight}
+        />
+      </div>
+
+      {/* Overlay semi-transparent pour le contenu */}
+      <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/40 pointer-events-none" />
 
       {/* Fade in indicator */}
       {clip.fadeInDuration > 0 && (
         <div
-          className="absolute top-0 left-0 bottom-0 bg-gradient-to-r from-black/40 to-transparent pointer-events-none"
-          style={{ width: clip.fadeInDuration * zoom }}
+          className="absolute top-0 left-0 bottom-0 bg-gradient-to-r from-black/60 to-transparent pointer-events-none"
+          style={{ width: Math.max(clip.fadeInDuration * zoom, 8) }}
         />
       )}
 
       {/* Fade out indicator */}
       {clip.fadeOutDuration > 0 && (
         <div
-          className="absolute top-0 right-0 bottom-0 bg-gradient-to-l from-black/40 to-transparent pointer-events-none"
-          style={{ width: clip.fadeOutDuration * zoom }}
+          className="absolute top-0 right-0 bottom-0 bg-gradient-to-l from-black/60 to-transparent pointer-events-none"
+          style={{ width: Math.max(clip.fadeOutDuration * zoom, 8) }}
         />
       )}
 
-      {/* Contenu */}
-      <div className="relative h-full flex flex-col p-1">
+      {/* Contenu textuel - par-dessus la waveform */}
+      <div className="relative h-full flex flex-col p-1 pointer-events-none">
         {/* Header */}
         <div className="flex items-center justify-between text-white text-xs">
-          <div className="flex items-center gap-1 min-w-0">
-            <GripVertical className="h-3 w-3 opacity-50 shrink-0" />
-            <span className="truncate font-medium">{clip.name}</span>
+          <div className="flex items-center gap-1 min-w-0 pointer-events-auto">
+            <GripVertical className="h-3 w-3 opacity-70 shrink-0" />
+            <span className="truncate font-medium drop-shadow-md">{clip.name}</span>
           </div>
           {isSelected && (
             <button
-              className="p-0.5 hover:bg-white/20 rounded shrink-0"
+              className="p-0.5 hover:bg-white/20 rounded shrink-0 pointer-events-auto"
               onClick={(e) => {
                 e.stopPropagation();
                 onDelete();
@@ -205,25 +209,27 @@ export function Clip({
           )}
         </div>
 
-        {/* Duration */}
-        <div className="mt-auto text-white/70 text-[10px]">
+        {/* Duration - en bas */}
+        <div className="mt-auto text-white/80 text-[10px] font-medium drop-shadow-md">
           {formatDuration(clip.duration)}
         </div>
       </div>
 
-      {/* Poignees de trim */}
+      {/* Poignees de trim - interactives */}
       <div
         className={cn(
-          'absolute top-0 left-0 bottom-0 w-2 cursor-ew-resize',
+          'absolute top-0 left-0 bottom-0 w-2 cursor-ew-resize z-10',
           'hover:bg-white/30 active:bg-white/50',
+          'transition-colors',
           isTrimming === 'left' && 'bg-white/50'
         )}
         onMouseDown={(e) => handleTrimStart(e, 'left')}
       />
       <div
         className={cn(
-          'absolute top-0 right-0 bottom-0 w-2 cursor-ew-resize',
+          'absolute top-0 right-0 bottom-0 w-2 cursor-ew-resize z-10',
           'hover:bg-white/30 active:bg-white/50',
+          'transition-colors',
           isTrimming === 'right' && 'bg-white/50'
         )}
         onMouseDown={(e) => handleTrimStart(e, 'right')}

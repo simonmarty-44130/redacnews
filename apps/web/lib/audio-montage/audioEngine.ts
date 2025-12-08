@@ -169,12 +169,20 @@ export class MontageAudioEngine {
 
   // Charger un clip
   async loadClip(clip: Clip, trackId: string): Promise<void> {
-    if (!this.audioContext) return;
+    if (!this.audioContext) {
+      console.error('[MontageEngine] loadClip - No AudioContext');
+      return;
+    }
 
     const trackNode = this.tracks.get(trackId);
-    if (!trackNode) return;
+    if (!trackNode) {
+      console.error(`[MontageEngine] loadClip - Track ${trackId} not found`);
+      return;
+    }
 
     try {
+      console.log(`[MontageEngine] Loading clip "${clip.name}" for track "${trackNode.track.name}"`);
+
       const audioBuffer = await this.loadAudioBuffer(clip.sourceUrl);
 
       const gainNode = this.audioContext.createGain();
@@ -182,11 +190,13 @@ export class MontageAudioEngine {
       gainNode.connect(trackNode.gainNode);
 
       this.clips.set(clip.id, {
-        clip,
+        clip: { ...clip }, // Copie pour eviter les references
         audioBuffer,
         sourceNode: null,
         gainNode,
       });
+
+      console.log(`[MontageEngine] Clip "${clip.name}" loaded successfully`);
     } catch (error) {
       console.error(`Failed to load clip ${clip.id}:`, error);
     }
@@ -263,40 +273,104 @@ export class MontageAudioEngine {
   }
 
   private scheduleClip(clipNode: ClipAudioNode, fromTime: number): void {
-    if (!this.audioContext) return;
+    if (!this.audioContext) {
+      console.error('[MontageEngine] scheduleClip - No AudioContext!');
+      return;
+    }
 
     const { clip, audioBuffer, gainNode } = clipNode;
     const clipStart = clip.startTime;
     const clipDuration = getClipDuration(clip);
     const clipEnd = clipStart + clipDuration;
 
+    console.log(`[MontageEngine] scheduleClip "${clip.name}":`, {
+      clipStart,
+      clipDuration,
+      clipEnd,
+      fromTime,
+      inPoint: clip.inPoint,
+      outPoint: clip.outPoint,
+      bufferDuration: audioBuffer.duration,
+    });
+
     // Le clip est-il apres le temps de lecture ?
-    if (fromTime >= clipEnd) return;
+    if (fromTime >= clipEnd) {
+      console.log(`[MontageEngine] Clip "${clip.name}" already passed, skipping`);
+      return;
+    }
 
     const source = this.audioContext.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(gainNode);
+
+    // S'assurer que le gainNode est connecte au masterGain
+    if (this.masterGain) {
+      // Verifier la connexion de la piste
+      const trackNode = Array.from(this.tracks.values()).find(t =>
+        t.track.clips?.some(c => c.id === clip.id)
+      );
+
+      if (!trackNode) {
+        // Connexion directe au master si pas de track trouvee
+        console.log(`[MontageEngine] Clip "${clip.name}" - connecting directly to master`);
+        gainNode.connect(this.masterGain);
+      }
+    }
 
     // Appliquer fade in/out
     if (clip.fadeInDuration > 0 || clip.fadeOutDuration > 0) {
       this.applyFades(clipNode, clipDuration);
     }
 
+    let startOffset: number;
+    let duration: number;
+    let when: number;
+
     if (fromTime >= clipStart) {
-      // On est deja dans le clip
-      const offset = clip.inPoint + (fromTime - clipStart);
-      const duration = clipDuration - (fromTime - clipStart);
-      source.start(0, offset, duration);
+      // On est deja dans le clip - demarrer immediatement avec offset
+      startOffset = clip.inPoint + (fromTime - clipStart);
+      duration = clipDuration - (fromTime - clipStart);
+      when = 0;
+      console.log(`[MontageEngine] Clip "${clip.name}" - starting NOW with offset ${startOffset.toFixed(2)}s, duration ${duration.toFixed(2)}s`);
     } else {
       // Le clip commence plus tard
       const delay = clipStart - fromTime;
-      source.start(this.audioContext.currentTime + delay, clip.inPoint, clipDuration);
+      startOffset = clip.inPoint;
+      duration = clipDuration;
+      when = this.audioContext.currentTime + delay;
+      console.log(`[MontageEngine] Clip "${clip.name}" - scheduled in ${delay.toFixed(2)}s, offset ${startOffset.toFixed(2)}s, duration ${duration.toFixed(2)}s`);
+    }
+
+    // Verifier que les valeurs sont valides
+    if (startOffset < 0 || startOffset >= audioBuffer.duration) {
+      console.error(`[MontageEngine] Invalid startOffset: ${startOffset} (buffer duration: ${audioBuffer.duration})`);
+      return;
+    }
+
+    if (duration <= 0) {
+      console.error(`[MontageEngine] Invalid duration: ${duration}`);
+      return;
+    }
+
+    // Limiter la duree si elle depasse le buffer
+    const maxDuration = audioBuffer.duration - startOffset;
+    if (duration > maxDuration) {
+      console.warn(`[MontageEngine] Duration ${duration} exceeds buffer, limiting to ${maxDuration}`);
+      duration = maxDuration;
+    }
+
+    try {
+      source.start(when, startOffset, duration);
+      console.log(`[MontageEngine] Clip "${clip.name}" - source.start() called successfully`);
+    } catch (e) {
+      console.error(`[MontageEngine] Error starting source for "${clip.name}":`, e);
+      return;
     }
 
     clipNode.sourceNode = source;
 
-    // Gerer la fin du clip
     source.onended = () => {
+      console.log(`[MontageEngine] Clip "${clip.name}" - playback ended`);
       clipNode.sourceNode = null;
     };
   }
