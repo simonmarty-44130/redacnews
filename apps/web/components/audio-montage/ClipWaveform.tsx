@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useState, memo } from 'react';
+import { useRef, useEffect, useState, useCallback, memo } from 'react';
 import { cn } from '@/lib/utils';
 
 interface ClipWaveformProps {
@@ -15,20 +15,30 @@ interface ClipWaveformProps {
 }
 
 // AudioContext partage pour eviter les limitations du navigateur
+// IMPORTANT: Ne pas creer avant une interaction utilisateur
 let sharedAudioContext: AudioContext | null = null;
+let audioContextInitPromise: Promise<AudioContext> | null = null;
 
-function getAudioContext(): AudioContext {
-  if (!sharedAudioContext) {
+// Cette fonction DOIT etre appelee suite a un geste utilisateur (click, etc.)
+async function getOrCreateAudioContext(): Promise<AudioContext> {
+  if (sharedAudioContext && sharedAudioContext.state !== 'closed') {
+    if (sharedAudioContext.state === 'suspended') {
+      await sharedAudioContext.resume();
+    }
+    return sharedAudioContext;
+  }
+
+  if (audioContextInitPromise) {
+    return audioContextInitPromise;
+  }
+
+  audioContextInitPromise = new Promise((resolve) => {
     sharedAudioContext = new (window.AudioContext ||
       (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-  }
-  // Reprendre l'AudioContext s'il est suspendu (politique autoplay des navigateurs)
-  if (sharedAudioContext.state === 'suspended') {
-    sharedAudioContext.resume().catch(() => {
-      // Ignorer l'erreur si la reprise echoue (sera reprise lors d'une interaction utilisateur)
-    });
-  }
-  return sharedAudioContext;
+    resolve(sharedAudioContext);
+  });
+
+  return audioContextInitPromise;
 }
 
 export const ClipWaveform = memo(function ClipWaveform({
@@ -44,12 +54,13 @@ export const ClipWaveform = memo(function ClipWaveform({
   const containerRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const peaksRef = useRef<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [peaksLoaded, setPeaksLoaded] = useState(false);
-  const [initRetry, setInitRetry] = useState(0);
+  const [userActivated, setUserActivated] = useState(false);
 
-  useEffect(() => {
+  // Fonction pour initialiser peaks.js (appelee apres interaction utilisateur)
+  const initPeaks = useCallback(async () => {
     const container = containerRef.current;
     const audioElement = audioRef.current;
     if (!container || !audioElement || !audioUrl || width <= 0) return;
@@ -57,133 +68,123 @@ export const ClipWaveform = memo(function ClipWaveform({
     // Verifier si le conteneur est visible et a des dimensions
     const rect = container.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) {
-      // Conteneur pas encore visible, reessayer apres un delai (max 10 retries)
-      if (initRetry < 10) {
-        const delay = Math.min(100 * (initRetry + 1), 500);
-        const retryTimeout = setTimeout(() => {
-          setInitRetry(prev => prev + 1);
-        }, delay);
-        return () => clearTimeout(retryTimeout);
-      }
-      // Apres 10 retries, abandonner silencieusement
+      console.warn(`[ClipWaveform ${clipId}] Container has no dimensions`);
       return;
     }
 
-    // Reset retry counter on successful dimension check
-    if (initRetry > 0) {
-      setInitRetry(0);
-    }
+    try {
+      setIsLoading(true);
+      setError(null);
 
-    let isMounted = true;
+      // Detruire l'instance precedente si elle existe
+      if (peaksRef.current) {
+        try {
+          peaksRef.current.destroy();
+        } catch (e) {
+          console.warn('Error destroying peaks:', e);
+        }
+        peaksRef.current = null;
+      }
 
-    const initPeaks = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
+      // Charger l'audio d'abord
+      audioElement.src = audioUrl;
 
-        // Detruire l'instance precedente si elle existe
-        if (peaksRef.current) {
-          try {
-            peaksRef.current.destroy();
-          } catch (e) {
-            console.warn('Error destroying peaks:', e);
-          }
-          peaksRef.current = null;
+      await new Promise<void>((resolve, reject) => {
+        const onLoad = () => {
+          audioElement.removeEventListener('loadedmetadata', onLoad);
+          audioElement.removeEventListener('error', onError);
+          resolve();
+        };
+        const onError = () => {
+          audioElement.removeEventListener('loadedmetadata', onLoad);
+          audioElement.removeEventListener('error', onError);
+          reject(new Error('Failed to load audio'));
+        };
+        audioElement.addEventListener('loadedmetadata', onLoad);
+        audioElement.addEventListener('error', onError);
+        audioElement.load();
+      });
+
+      // Import dynamique de peaks.js (client-only)
+      const PeaksModule = await import('peaks.js');
+      const Peaks = PeaksModule.default;
+
+      // Calculer le niveau de zoom base sur la duree visible et la largeur
+      const visibleDuration = outPoint - inPoint;
+      const samplesPerPixel = Math.max(256, Math.floor((visibleDuration * 44100) / width));
+
+      // Obtenir ou creer l'AudioContext (OK car appele suite a un click)
+      const audioContext = await getOrCreateAudioContext();
+
+      const options = {
+        zoomview: {
+          container: container,
+          waveformColor: color + 'B3', // Ajouter transparence
+          playedWaveformColor: color,
+          playheadColor: 'transparent',
+          playheadTextColor: 'transparent',
+          axisLabelColor: 'transparent',
+          axisGridlineColor: 'transparent',
+          showPlayheadTime: false,
+        },
+        overview: undefined,
+        mediaElement: audioElement,
+        webAudio: {
+          audioContext: audioContext,
+        },
+        keyboard: false,
+        nudgeIncrement: 0.01,
+        zoomLevels: [samplesPerPixel, samplesPerPixel * 2, samplesPerPixel * 4],
+        logger: () => {}, // Silencieux
+      };
+
+      // Initialiser peaks.js
+      Peaks.init(options, (err: Error | undefined, peaks: any) => {
+        if (err) {
+          console.error(`Peaks init error for clip ${clipId}:`, err);
+          setError('Erreur waveform');
+          setIsLoading(false);
+          return;
         }
 
-        // Charger l'audio d'abord
-        audioElement.src = audioUrl;
+        if (peaks) {
+          peaksRef.current = peaks;
+          setPeaksLoaded(true);
 
-        await new Promise<void>((resolve, reject) => {
-          const onLoad = () => {
-            audioElement.removeEventListener('loadedmetadata', onLoad);
-            audioElement.removeEventListener('error', onError);
-            resolve();
-          };
-          const onError = () => {
-            audioElement.removeEventListener('loadedmetadata', onLoad);
-            audioElement.removeEventListener('error', onError);
-            reject(new Error('Failed to load audio'));
-          };
-          audioElement.addEventListener('loadedmetadata', onLoad);
-          audioElement.addEventListener('error', onError);
-          audioElement.load();
-        });
-
-        if (!isMounted) return;
-
-        // Import dynamique de peaks.js (client-only)
-        const PeaksModule = await import('peaks.js');
-        const Peaks = PeaksModule.default;
-
-        if (!isMounted) return;
-
-        // Calculer le niveau de zoom base sur la duree visible et la largeur
-        const visibleDuration = outPoint - inPoint;
-        const samplesPerPixel = Math.max(256, Math.floor((visibleDuration * 44100) / width));
-
-        // Obtenir ou creer un AudioContext partage
-        const audioContext = getAudioContext();
-
-        const options = {
-          zoomview: {
-            container: container,
-            waveformColor: color + 'B3', // Ajouter transparence
-            playedWaveformColor: color,
-            playheadColor: 'transparent',
-            playheadTextColor: 'transparent',
-            axisLabelColor: 'transparent',
-            axisGridlineColor: 'transparent',
-            showPlayheadTime: false,
-          },
-          overview: undefined,
-          mediaElement: audioElement,
-          webAudio: {
-            audioContext: audioContext,
-          },
-          keyboard: false,
-          nudgeIncrement: 0.01,
-          zoomLevels: [samplesPerPixel, samplesPerPixel * 2, samplesPerPixel * 4],
-          logger: console.error.bind(console),
-        };
-
-        // Initialiser peaks.js
-        Peaks.init(options, (err: Error | undefined, peaks: any) => {
-          if (!isMounted) return;
-
-          if (err) {
-            console.error(`Peaks init error for clip ${clipId}:`, err);
-            setError('Erreur chargement waveform');
-            setIsLoading(false);
-            return;
+          // Zoomer sur la portion visible (inPoint -> outPoint)
+          const view = peaks.views.getView('zoomview');
+          if (view) {
+            view.setStartTime(inPoint);
           }
+        }
 
-          if (peaks) {
-            peaksRef.current = peaks;
-            setPeaksLoaded(true);
-
-            // Zoomer sur la portion visible (inPoint -> outPoint)
-            const view = peaks.views.getView('zoomview');
-            if (view) {
-              view.setStartTime(inPoint);
-            }
-          }
-
-          setIsLoading(false);
-        });
-
-      } catch (err) {
-        if (!isMounted) return;
-        console.error(`Error loading waveform for clip ${clipId}:`, err);
-        setError('Erreur chargement');
         setIsLoading(false);
-      }
-    };
+      });
 
-    initPeaks();
+    } catch (err) {
+      console.error(`Error loading waveform for clip ${clipId}:`, err);
+      setError('Erreur chargement');
+      setIsLoading(false);
+    }
+  }, [audioUrl, clipId, color, inPoint, outPoint, width]);
 
+  // Activer les waveforms apres un click utilisateur
+  const handleActivate = useCallback(() => {
+    if (!userActivated) {
+      setUserActivated(true);
+    }
+  }, [userActivated]);
+
+  // Initialiser peaks.js quand userActivated devient true
+  useEffect(() => {
+    if (userActivated && !peaksLoaded && !isLoading) {
+      initPeaks();
+    }
+  }, [userActivated, peaksLoaded, isLoading, initPeaks]);
+
+  // Cleanup
+  useEffect(() => {
     return () => {
-      isMounted = false;
       if (peaksRef.current) {
         try {
           peaksRef.current.destroy();
@@ -193,7 +194,7 @@ export const ClipWaveform = memo(function ClipWaveform({
         peaksRef.current = null;
       }
     };
-  }, [audioUrl, clipId, color, inPoint, outPoint, width, initRetry]);
+  }, []);
 
   // Mettre a jour la vue quand inPoint/outPoint changent
   useEffect(() => {
@@ -205,13 +206,22 @@ export const ClipWaveform = memo(function ClipWaveform({
     }
   }, [inPoint]);
 
+  // Generer les barres du faux waveform une seule fois
+  const [fakeBars] = useState(() =>
+    Array.from({ length: Math.max(1, Math.floor(width / 4)) }).map(() =>
+      20 + Math.random() * 80
+    )
+  );
+
   return (
     <div
       className={cn(
-        'relative overflow-hidden rounded',
+        'relative overflow-hidden rounded cursor-pointer',
         className
       )}
       style={{ width, height }}
+      onClick={handleActivate}
+      title={!userActivated ? 'Cliquez pour afficher la waveform' : undefined}
     >
       {/* Element audio cache pour peaks.js */}
       <audio
@@ -242,21 +252,21 @@ export const ClipWaveform = memo(function ClipWaveform({
         </div>
       )}
 
-      {/* Fallback visuel si pas de waveform */}
+      {/* Fallback visuel si pas de waveform (waveform statique) */}
       {!isLoading && !error && !peaksLoaded && (
         <div
           className="absolute inset-0 flex items-center"
           style={{ backgroundColor: color + '20' }}
         >
           {/* Faux waveform minimaliste */}
-          <div className="w-full h-1/2 flex items-end justify-around px-1">
-            {Array.from({ length: Math.floor(width / 4) }).map((_, i) => (
+          <div className="w-full h-full flex items-center justify-around px-0.5">
+            {fakeBars.map((h, i) => (
               <div
                 key={i}
                 className="w-0.5 rounded-full"
                 style={{
                   backgroundColor: color,
-                  height: `${20 + Math.random() * 80}%`,
+                  height: `${h}%`,
                   opacity: 0.6,
                 }}
               />
