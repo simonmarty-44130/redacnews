@@ -17,6 +17,7 @@ import {
   ChevronDown,
   ChevronRight,
   Volume2,
+  ScrollText,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -27,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { EditItemScriptDialog } from './EditItemScriptDialog';
 
 interface StoryMediaItem {
   id: string;
@@ -47,11 +49,13 @@ interface RundownItemData {
   position: number;
   status: 'PENDING' | 'IN_PROGRESS' | 'READY' | 'ON_AIR' | 'DONE';
   notes?: string | null;
+  script?: string | null;
   storyId?: string | null;
   assigneeId?: string | null;
   story?: {
     id: string;
     title: string;
+    content?: string | null;
     media?: StoryMediaItem[];
   } | null;
   assignee?: { id: string; firstName?: string | null; lastName?: string | null } | null;
@@ -200,6 +204,27 @@ export function RundownItem({
         <Clock className="h-4 w-4" />
         {formatDuration(item.duration)}
       </div>
+
+      {/* Script button */}
+      <EditItemScriptDialog
+        itemId={item.id}
+        itemTitle={item.title}
+        currentScript={item.script || null}
+        storyContent={item.story?.content}
+        trigger={
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              'h-8 w-8',
+              item.script ? 'text-blue-600' : 'text-gray-400'
+            )}
+            title={item.script ? 'Script defini - Cliquer pour modifier' : 'Ajouter un script'}
+          >
+            <ScrollText className="h-4 w-4" />
+          </Button>
+        }
+      />
 
       {/* Status */}
       <Badge className={cn('text-xs', statusInfo.color)}>{statusInfo.label}</Badge>

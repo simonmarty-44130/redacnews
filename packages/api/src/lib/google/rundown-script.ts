@@ -18,6 +18,7 @@ export interface RundownWithItems {
     duration: number;
     position: number;
     notes: string | null;
+    script: string | null; // Texte a lire (prioritaire sur story.content)
     story: {
       title: string;
       content: string | null;
@@ -201,8 +202,11 @@ function buildScriptContent(rundown: RundownWithItems): docs_v1.Schema$Request[]
     const timeStr = formatTime(currentTime);
     const durationStr = formatDuration(item.duration);
 
-    if (item.type === 'STORY' && item.story?.content) {
-      // === SUJET AVEC TEXTE ===
+    // Priorite: script > story.content
+    const textContent = item.script || item.story?.content;
+
+    if (textContent) {
+      // === ELEMENT AVEC TEXTE A LIRE ===
 
       // Ligne separatrice
       const separator = `${'_'.repeat(60)}\n`;
@@ -219,13 +223,13 @@ function buildScriptContent(rundown: RundownWithItems): docs_v1.Schema$Request[]
         type: 'itemHeader',
       });
 
-      // Contenu du sujet
-      const storyContent = cleanContent(item.story.content) + '\n\n';
+      // Contenu (script ou contenu du sujet)
+      const content = cleanContent(textContent) + '\n\n';
       const contentStart = fullText.length + 1;
-      fullText += storyContent;
-      formatRanges.push({ start: contentStart, end: contentStart + storyContent.length, type: 'body' });
+      fullText += content;
+      formatRanges.push({ start: contentStart, end: contentStart + content.length, type: 'body' });
 
-      // Sons attaches au sujet
+      // Sons attaches
       for (const media of item.media) {
         const mediaText = buildMediaBoxText(media.mediaItem);
         const mediaStart = fullText.length + 1;

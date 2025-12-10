@@ -67,6 +67,38 @@ export const rundownRouter = router({
       });
     }),
 
+  // Get single rundown item with script
+  getItem: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.db.rundownItem.findUniqueOrThrow({
+        where: { id: input.id },
+        include: {
+          story: {
+            select: {
+              id: true,
+              title: true,
+              content: true,
+            },
+          },
+          media: {
+            include: {
+              mediaItem: {
+                select: {
+                  id: true,
+                  title: true,
+                  type: true,
+                  duration: true,
+                  s3Url: true,
+                },
+              },
+            },
+            orderBy: { position: 'asc' },
+          },
+        },
+      });
+    }),
+
   // Create rundown
   create: protectedProcedure
     .input(
@@ -174,6 +206,7 @@ export const rundownRouter = router({
         duration: z.number().optional(),
         status: z.enum(['PENDING', 'IN_PROGRESS', 'READY', 'ON_AIR', 'DONE']).optional(),
         notes: z.string().optional(),
+        script: z.string().nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -200,6 +233,7 @@ export const rundownRouter = router({
         description: z.string().optional(),
         defaultDuration: z.number().optional(),
         color: z.string().optional(),
+        category: z.enum(['FLASH', 'JOURNAL', 'MAGAZINE', 'CHRONIQUE', 'AUTRE']).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {

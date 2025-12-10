@@ -18,7 +18,7 @@ import {
 } from '@dnd-kit/sortable';
 import { format, addSeconds, parse } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { Clock, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Clock, AlertTriangle, ChevronLeft, ChevronRight, Presentation } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -176,6 +176,15 @@ export function RundownEditor({ rundownId }: RundownEditorProps) {
               existingScriptUrl={rundown.scriptDocUrl}
               existingScriptGeneratedAt={rundown.scriptGeneratedAt}
             />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.open(`/prompteur/${rundownId}`, '_blank')}
+              title="Ouvrir le prompteur dans une nouvelle fenetre"
+            >
+              <Presentation className="h-4 w-4 mr-2" />
+              Prompteur
+            </Button>
             <Badge className={statusColors[rundown.status]}>
               {rundown.status === 'DRAFT' && 'Brouillon'}
               {rundown.status === 'READY' && 'Pret'}
