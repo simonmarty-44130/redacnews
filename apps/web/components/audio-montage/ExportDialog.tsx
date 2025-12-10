@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Download, Loader2 } from 'lucide-react';
+import { Download, Loader2, FolderUp } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -20,7 +20,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
-import { getMontageAudioEngine } from '@/lib/audio-montage';
+import { getMultiTrackEngine } from '@/lib/audio-montage';
+import { trpc } from '@/lib/trpc/client';
+import { toast } from 'sonner';
 import type { MontageProject } from '@/lib/audio-montage/types';
 
 interface ExportDialogProps {
@@ -37,9 +39,30 @@ export function ExportDialog({
   duration,
 }: ExportDialogProps) {
   const [format, setFormat] = useState<'wav' | 'mp3'>('wav');
+  const [exportTarget, setExportTarget] = useState<'download' | 'mediatheque'>('download');
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+
+  // Mutations pour l'upload vers la médiathèque
+  const getUploadUrl = trpc.media.getUploadUrl.useMutation();
+  const createMedia = trpc.media.create.useMutation();
+  const utils = trpc.useUtils();
+
+  // Fonction utilitaire pour obtenir la durée audio
+  const getAudioDuration = async (blob: Blob): Promise<number> => {
+    return new Promise((resolve) => {
+      const audio = new Audio();
+      audio.onloadedmetadata = () => {
+        resolve(Math.round(audio.duration));
+        URL.revokeObjectURL(audio.src);
+      };
+      audio.onerror = () => {
+        resolve(Math.round(duration)); // Fallback sur la durée du projet
+      };
+      audio.src = URL.createObjectURL(blob);
+    });
+  };
 
   const handleExport = async () => {
     setIsExporting(true);
@@ -47,30 +70,82 @@ export function ExportDialog({
     setError(null);
 
     try {
-      const engine = getMontageAudioEngine();
+      const engine = getMultiTrackEngine();
 
       // Simuler la progression (l'export reel n'a pas de callback de progression)
       const progressInterval = setInterval(() => {
-        setProgress((p) => Math.min(p + 10, 90));
+        setProgress((p) => Math.min(p + 10, exportTarget === 'mediatheque' ? 70 : 90));
       }, 200);
 
-      const blob = await engine.exportMix(
-        { ...project, duration },
-        format
-      );
+      const blob = await engine.exportMix({ ...project, duration });
 
       clearInterval(progressInterval);
-      setProgress(100);
 
-      // Telecharger le fichier
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${project.name.replace(/[^a-z0-9]/gi, '_')}.${format}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      if (exportTarget === 'download') {
+        // Télécharger le fichier localement
+        setProgress(100);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${project.name.replace(/[^a-z0-9]/gi, '_')}.${format}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        toast.success('Fichier téléchargé');
+      } else {
+        // Exporter vers la médiathèque
+        setProgress(75);
+
+        const fileName = `${project.name.replace(/[^a-z0-9]/gi, '_')}-${Date.now()}.${format}`;
+        const mimeType = format === 'wav' ? 'audio/wav' : 'audio/mpeg';
+
+        // 1. Obtenir l'URL présignée
+        const { uploadUrl, key, publicUrl } = await getUploadUrl.mutateAsync({
+          filename: fileName,
+          contentType: mimeType,
+        });
+
+        setProgress(80);
+
+        // 2. Uploader vers S3
+        const uploadResponse = await fetch(uploadUrl, {
+          method: 'PUT',
+          body: blob,
+          headers: {
+            'Content-Type': mimeType,
+          },
+        });
+
+        if (!uploadResponse.ok) {
+          throw new Error('Erreur lors de l\'upload vers S3');
+        }
+
+        setProgress(90);
+
+        // 3. Obtenir la durée audio
+        const audioDuration = await getAudioDuration(blob);
+
+        // 4. Créer l'entrée MediaItem en base
+        await createMedia.mutateAsync({
+          title: project.name || 'Montage audio',
+          description: `Exporté depuis l'éditeur multipiste le ${new Date().toLocaleDateString('fr-FR')}`,
+          type: 'AUDIO',
+          mimeType: mimeType,
+          fileSize: blob.size,
+          duration: audioDuration,
+          s3Key: key,
+          s3Url: publicUrl,
+        });
+
+        setProgress(100);
+
+        // Invalider le cache de la médiathèque
+        utils.media.list.invalidate();
+
+        toast.success('Exporté vers la médiathèque !');
+      }
 
       // Fermer apres un court delai
       setTimeout(() => {
@@ -106,10 +181,49 @@ export function ExportDialog({
             <div className="grid grid-cols-2 gap-2 text-sm">
               <div className="text-muted-foreground">Projet</div>
               <div className="font-medium">{project.name}</div>
-              <div className="text-muted-foreground">Duree</div>
+              <div className="text-muted-foreground">Durée</div>
               <div className="font-medium">{formatDuration(duration)}</div>
               <div className="text-muted-foreground">Pistes</div>
               <div className="font-medium">{project.tracks.length}</div>
+            </div>
+          </div>
+
+          {/* Destination */}
+          <div className="space-y-3">
+            <Label>Destination</Label>
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                type="button"
+                onClick={() => !isExporting && setExportTarget('download')}
+                disabled={isExporting}
+                className={`flex flex-col items-center justify-center rounded-lg border-2 p-4 transition-colors ${
+                  exportTarget === 'download'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-muted hover:border-muted-foreground/50'
+                } ${isExporting ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+              >
+                <Download className="h-8 w-8 mb-2 text-muted-foreground" />
+                <span className="text-sm font-medium">Télécharger</span>
+                <span className="text-xs text-muted-foreground text-center mt-1">
+                  Sur votre ordinateur
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => !isExporting && setExportTarget('mediatheque')}
+                disabled={isExporting}
+                className={`flex flex-col items-center justify-center rounded-lg border-2 p-4 transition-colors ${
+                  exportTarget === 'mediatheque'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-muted hover:border-muted-foreground/50'
+                } ${isExporting ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+              >
+                <FolderUp className="h-8 w-8 mb-2 text-muted-foreground" />
+                <span className="text-sm font-medium">Médiathèque</span>
+                <span className="text-xs text-muted-foreground text-center mt-1">
+                  Enregistrer dans la bibliothèque
+                </span>
+              </button>
             </div>
           </div>
 
@@ -129,7 +243,7 @@ export function ExportDialog({
                   WAV (sans perte, fichier volumineux)
                 </SelectItem>
                 <SelectItem value="mp3">
-                  MP3 (compresse, fichier leger)
+                  MP3 (compressé, fichier léger)
                 </SelectItem>
               </SelectContent>
             </Select>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { FolderOpen, Inbox, Layers, Plus, X, CheckSquare } from 'lucide-react';
 import { trpc } from '@/lib/trpc/client';
@@ -28,6 +28,7 @@ interface PlayingMedia {
   title: string;
   url: string;
   type: 'AUDIO' | 'VIDEO';
+  duration?: number | null;
 }
 
 export default function MediathequePage() {
@@ -45,6 +46,8 @@ export default function MediathequePage() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  const utils = trpc.useUtils();
+
   const { data: mediaItems, isLoading } = trpc.media.list.useQuery({
     type:
       filters.type !== 'all'
@@ -54,11 +57,20 @@ export default function MediathequePage() {
     collectionId: filters.collectionId || undefined,
   });
 
+  // Mutation pour mettre a jour la duree des fichiers existants
+  const updateMedia = trpc.media.update.useMutation({
+    onSuccess: () => {
+      // Rafraichir la liste pour afficher la nouvelle duree
+      utils.media.list.invalidate();
+    },
+  });
+
   const handlePlay = (media: {
     id: string;
     title: string;
     s3Url: string;
     type: 'AUDIO' | 'VIDEO' | 'IMAGE' | 'DOCUMENT';
+    duration?: number | null;
   }) => {
     if (media.type === 'AUDIO' || media.type === 'VIDEO') {
       setPlayingMedia({
@@ -66,9 +78,16 @@ export default function MediathequePage() {
         title: media.title,
         url: media.s3Url,
         type: media.type,
+        duration: media.duration,
       });
     }
   };
+
+  // Callback pour sauvegarder la duree detectee par le lecteur
+  const handleDurationDetected = useCallback((mediaId: string, duration: number) => {
+    console.log(`[MediathequePage] Saving duration for ${mediaId}: ${duration}s`);
+    updateMedia.mutate({ id: mediaId, duration });
+  }, [updateMedia]);
 
   const handleMediaDeleted = () => {
     setSelectedMediaId(null);
@@ -307,7 +326,10 @@ export default function MediathequePage() {
           title={playingMedia.title}
           url={playingMedia.url}
           type={playingMedia.type}
+          mediaId={playingMedia.id}
+          currentDuration={playingMedia.duration}
           onClose={() => setPlayingMedia(null)}
+          onDurationDetected={handleDurationDetected}
         />
       )}
     </div>

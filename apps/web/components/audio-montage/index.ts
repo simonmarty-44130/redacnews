@@ -6,9 +6,11 @@ export { TimelineRuler } from './TimelineRuler';
 export { Track } from './Track';
 export { TrackControls } from './TrackControls';
 export { Clip } from './Clip';
-// ClipWaveform n'est pas exporte directement car peaks.js ne supporte pas le SSR
-// Le composant est charge dynamiquement (next/dynamic ssr:false) dans Clip.tsx
+// SyncedWaveSurfer - Nouveau composant WaveSurfer synchronise
+// S'enregistre automatiquement aupres du SyncEngine
+export { SyncedWaveSurfer } from './SyncedWaveSurfer';
 export { ClipLibrary } from './ClipLibrary';
 export { TransportBar } from './TransportBar';
+export { Toolbar } from './Toolbar';
 export { ZoomControls } from './ZoomControls';
 export { ExportDialog } from './ExportDialog';

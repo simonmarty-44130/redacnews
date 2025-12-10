@@ -1,55 +1,104 @@
 'use client';
 
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useDrag } from 'react-dnd';
-import { X, GripVertical } from 'lucide-react';
-import dynamic from 'next/dynamic';
+import { getEmptyImage } from 'react-dnd-html5-backend';
+import { X, GripVertical, Volume2, VolumeX } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TRACK_HEIGHT, MIN_CLIP_DURATION } from '@/lib/audio-montage/constants';
 import type { ClipWithComputed } from '@/lib/audio-montage/types';
+import { SyncedWaveSurfer } from './SyncedWaveSurfer';
+import type { SyncedClipRef } from '@/lib/audio-montage/SyncEngine';
 
-// Import dynamique du composant ClipWaveform pour eviter les erreurs SSR avec peaks.js
-const ClipWaveform = dynamic(
-  () => import('./ClipWaveform').then((mod) => mod.ClipWaveform),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="w-full h-full rounded bg-blue-500/30 animate-pulse" />
-    ),
-  }
-);
+// Ref exposee pour le controle de lecture du clip
+// Compatible avec SyncedClipRef du SyncEngine
+export interface ClipRef {
+  play: () => void;
+  pause: () => void;
+  stop: () => void;
+  seekToGlobalTime: (globalTime: number) => void;
+  setVolume: (volume: number) => void;
+  isReady: () => boolean;
+  isPlaying: () => boolean;
+}
 
 interface ClipProps {
   clip: ClipWithComputed;
   zoom: number;
   trackColor: string;
   isSelected: boolean;
+  trackVolume: number;
+  trackMuted: boolean;
+  editMode: 'select' | 'razor';
   onSelect: () => void;
   onDelete: () => void;
   onMove: (startTime: number) => void;
   onTrim: (inPoint: number, outPoint: number) => void;
+  onVolumeChange?: (clipId: string, volume: number) => void;
+  onClipReady?: (clipId: string) => void;
+  onSplit?: (globalTime: number) => void;
+  onDurationDetected?: (clipId: string, realDuration: number) => void;
 }
 
-export function Clip({
+// Conversion lineaire <-> dB
+const linearToDb = (linear: number): number => {
+  if (linear <= 0) return -Infinity;
+  return 20 * Math.log10(linear);
+};
+
+// Formater l'affichage dB
+const formatDb = (linear: number): string => {
+  const db = linearToDb(linear);
+  if (db === -Infinity) return '-∞';
+  if (db >= 0) return `+${db.toFixed(1)}`;
+  return db.toFixed(1);
+};
+
+export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
   clip,
   zoom,
   trackColor,
   isSelected,
+  trackVolume,
+  trackMuted,
+  editMode,
   onSelect,
   onDelete,
   onTrim,
-}: ClipProps) {
-  const clipRef = useRef<HTMLDivElement>(null);
+  onVolumeChange,
+  onClipReady,
+  onSplit,
+  onDurationDetected,
+}, ref) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const syncedWaveSurferRef = useRef<SyncedClipRef | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isTrimming, setIsTrimming] = useState<'left' | 'right' | null>(null);
   const [trimStart, setTrimStart] = useState({ x: 0, inPoint: 0, outPoint: 0 });
+  const [showVolumeSlider, setShowVolumeSlider] = useState(false);
+  const [isDraggingVolume, setIsDraggingVolume] = useState(false);
+
+  // Calculer le volume effectif
+  const effectiveVolume = trackMuted ? 0 : trackVolume * clip.volume;
+
+  // Exposer les methodes de controle via ref
+  // Compatible avec l'ancienne interface ClipRef
+  useImperativeHandle(ref, () => ({
+    play: () => syncedWaveSurferRef.current?.play(),
+    pause: () => syncedWaveSurferRef.current?.pause(),
+    stop: () => syncedWaveSurferRef.current?.stop(),
+    seekToGlobalTime: (globalTime: number) => syncedWaveSurferRef.current?.seekTo(globalTime),
+    setVolume: (volume: number) => syncedWaveSurferRef.current?.setVolume(volume),
+    isReady: () => syncedWaveSurferRef.current?.isReady() || false,
+    isPlaying: () => syncedWaveSurferRef.current?.isCurrentlyPlaying() || false,
+  }));
 
   const width = Math.max(clip.duration * zoom, 20); // Minimum 20px de large
   const left = clip.startTime * zoom;
   const clipHeight = TRACK_HEIGHT - 8; // Marge de 4px en haut et en bas
 
   // Configuration du drag
-  const [{ opacity }, drag] = useDrag(
+  const [{ opacity }, drag, dragPreview] = useDrag(
     () => ({
       type: 'CLIP',
       item: () => {
@@ -73,6 +122,12 @@ export function Clip({
     }),
     [clip]
   );
+
+  // Desactiver la preview HTML5 native qui capture les elements environnants
+  // Cela evite le bug ou les controles de piste semblent se deplacer avec le clip
+  useEffect(() => {
+    dragPreview(getEmptyImage(), { captureDraggingState: true });
+  }, [dragPreview]);
 
   // Gestion du trim
   const handleTrimStart = (
@@ -131,17 +186,45 @@ export function Clip({
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Volume du clip (defaut 1 si non defini)
+  const clipVolume = clip.volume ?? 1;
+
+  // Handler pour le changement de volume
+  const handleVolumeSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    e.stopPropagation();
+    const newVolume = parseFloat(e.target.value);
+    onVolumeChange?.(clip.id, newVolume);
+  };
+
+  // Handler pour la molette (Shift + molette = ajuster volume)
+  const handleWheel = (e: React.WheelEvent) => {
+    if (e.shiftKey && onVolumeChange) {
+      e.preventDefault();
+      e.stopPropagation();
+      const delta = e.deltaY > 0 ? -0.05 : 0.05;
+      const newVolume = Math.max(0, Math.min(2, clipVolume + delta));
+      onVolumeChange(clip.id, newVolume);
+    }
+  };
+
+  // Double-clic sur le volume pour reset a 0 dB
+  const handleVolumeDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onVolumeChange?.(clip.id, 1);
+  };
+
   return (
     <div
       ref={(node) => {
-        (clipRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+        (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
         drag(node);
       }}
       className={cn(
-        'absolute top-1 bottom-1 rounded cursor-grab overflow-hidden',
+        'absolute top-1 bottom-1 rounded overflow-hidden',
         'border border-white/20',
         'transition-shadow',
         isSelected && 'ring-2 ring-white ring-offset-1 ring-offset-gray-900',
+        editMode === 'razor' ? 'cursor-crosshair' : 'cursor-grab',
         isDragging && 'cursor-grabbing'
       )}
       style={{
@@ -151,21 +234,42 @@ export function Clip({
         opacity,
         // PAS de backgroundColor ici - on laisse ClipWaveform gerer le fond
       }}
+      onWheel={handleWheel}
       onClick={(e) => {
         e.stopPropagation();
-        onSelect();
+
+        if (editMode === 'razor' && onSplit) {
+          // Mode rasoir : diviser le clip à la position du clic
+          const rect = e.currentTarget.getBoundingClientRect();
+          const clickX = e.clientX - rect.left;
+          const clickTimeInClip = clickX / zoom;
+          const globalTime = clip.startTime + clickTimeInClip;
+          onSplit(globalTime);
+        } else {
+          // Mode sélection normal
+          onSelect();
+        }
       }}
     >
-      {/* Waveform - Couche de fond */}
+      {/* SyncedWaveSurfer - Couche de fond avec lecture audio synchronisee */}
       <div className="absolute inset-0">
-        <ClipWaveform
-          audioUrl={clip.sourceUrl}
+        <SyncedWaveSurfer
+          ref={(instance) => {
+            syncedWaveSurferRef.current = instance;
+          }}
           clipId={clip.id}
-          color={trackColor}
+          sourceUrl={clip.sourceUrl}
+          sourceDuration={clip.sourceDuration}
+          startTime={clip.startTime}
           inPoint={clip.inPoint}
           outPoint={clip.outPoint}
-          width={width}
+          volume={effectiveVolume}
+          clipVolume={clipVolume}
+          color={trackColor}
+          pixelsPerSecond={zoom}
           height={clipHeight}
+          onReady={onClipReady}
+          onDurationDetected={onDurationDetected}
         />
       </div>
 
@@ -196,17 +300,71 @@ export function Clip({
             <GripVertical className="h-3 w-3 opacity-70 shrink-0" />
             <span className="truncate font-medium drop-shadow-md">{clip.name}</span>
           </div>
-          {isSelected && (
-            <button
-              className="p-0.5 hover:bg-white/20 rounded shrink-0 pointer-events-auto"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete();
-              }}
+          <div className="flex items-center gap-1 shrink-0 pointer-events-auto">
+            {/* Controle de volume */}
+            <div
+              className="relative"
+              onMouseEnter={() => setShowVolumeSlider(true)}
+              onMouseLeave={() => !isDraggingVolume && setShowVolumeSlider(false)}
             >
-              <X className="h-3 w-3" />
-            </button>
-          )}
+              <div
+                className={cn(
+                  'flex items-center gap-0.5 px-1 rounded cursor-pointer',
+                  clipVolume !== 1 ? 'bg-yellow-600/60 text-yellow-200' : 'hover:bg-white/20'
+                )}
+                onDoubleClick={handleVolumeDoubleClick}
+                title="Shift+molette pour ajuster, double-clic pour reset"
+              >
+                {clipVolume === 0 ? (
+                  <VolumeX className="h-3 w-3" />
+                ) : (
+                  <Volume2 className="h-3 w-3" />
+                )}
+                <span className="text-[10px] font-mono w-8 text-right">
+                  {formatDb(clipVolume)}
+                </span>
+              </div>
+
+              {/* Slider au hover */}
+              {showVolumeSlider && (
+                <div
+                  className="absolute top-full right-0 mt-1 bg-gray-900/95 rounded-lg p-2 shadow-xl z-30 border border-white/20"
+                  onMouseDown={() => setIsDraggingVolume(true)}
+                  onMouseUp={() => setIsDraggingVolume(false)}
+                  onMouseLeave={() => setIsDraggingVolume(false)}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <input
+                    type="range"
+                    min="0"
+                    max="2"
+                    step="0.01"
+                    value={clipVolume}
+                    onChange={handleVolumeSliderChange}
+                    className="w-24 h-2 accent-blue-500 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[9px] text-gray-400 mt-1 px-0.5">
+                    <span>-∞</span>
+                    <span>0dB</span>
+                    <span>+6</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Bouton supprimer */}
+            {isSelected && (
+              <button
+                className="p-0.5 hover:bg-white/20 rounded"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Duration - en bas */}
@@ -236,4 +394,4 @@ export function Clip({
       />
     </div>
   );
-}
+});

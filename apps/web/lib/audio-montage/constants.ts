@@ -19,7 +19,8 @@ export const TRACK_HEIGHT = 96; // px
 export const TRACK_CONTROLS_WIDTH = 180; // px
 export const TIMELINE_RULER_HEIGHT = 32; // px
 
-export const SNAP_TO_GRID = 0.1; // secondes (pour le snap magnetique)
+export const SNAP_TO_GRID = 0.1; // secondes (pour le snap à la grille)
+export const SNAP_THRESHOLD_PX = 10; // pixels - distance pour activer le snap vers les clips
 
 // Couleurs de waveform par defaut
 export const WAVEFORM_COLOR = 'rgba(59, 130, 246, 0.7)';
@@ -45,7 +46,41 @@ export const KEYBOARD_SHORTCUTS = {
 } as const;
 
 // Nombre maximum de pistes
-export const MAX_TRACKS = 16;
+export const MAX_TRACKS = 3;
+
+// Pistes fixes par défaut
+export const DEFAULT_TRACKS = [
+  {
+    id: 'rush-a',
+    name: 'Rush A',
+    color: '#3b82f6', // Bleu
+    volume: 1,
+    muted: false,
+    solo: false,
+    pan: 0,
+  },
+  {
+    id: 'rush-b',
+    name: 'Rush B',
+    color: '#10b981', // Vert
+    volume: 1,
+    muted: false,
+    solo: false,
+    pan: 0,
+  },
+  {
+    id: 'voix-off',
+    name: 'Voix-off',
+    color: '#f59e0b', // Orange
+    volume: 1,
+    muted: false,
+    solo: false,
+    pan: 0,
+  },
+] as const;
+
+// Mode pistes fixes (désactive ajout/suppression de pistes)
+export const FIXED_TRACKS_MODE = true;
 
 // Formats d'export supportes
 export const EXPORT_FORMATS = ['wav', 'mp3'] as const;

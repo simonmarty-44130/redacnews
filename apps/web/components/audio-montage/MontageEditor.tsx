@@ -7,15 +7,21 @@ import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { TransportBar } from './TransportBar';
+import { Toolbar } from './Toolbar';
 import { Timeline } from './Timeline';
 import { ClipLibrary } from './ClipLibrary';
 import { ExportDialog } from './ExportDialog';
+import { ClipDragLayer } from './ClipDragLayer';
+import { useAudioRecorder } from '@/hooks/useAudioRecorder';
+import type { ClipRef } from './Clip';
 import {
-  getMontageAudioEngine,
   DEFAULT_ZOOM,
   TRACK_COLORS,
   enrichClip,
+  DEFAULT_TRACKS,
+  FIXED_TRACKS_MODE,
 } from '@/lib/audio-montage';
+import { getSyncEngine, resetSyncEngine } from '@/lib/audio-montage/SyncEngine';
 import type {
   MontageProject,
   Track,
@@ -87,14 +93,97 @@ export function MontageEditor({
   const [scrollLeft, setScrollLeft] = useState(0);
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
 
+  // State pour les points In/Out et mode d'édition
+  const [inPoint, setInPoint] = useState<number | null>(null);
+  const [outPoint, setOutPoint] = useState<number | null>(null);
+  const [editMode, setEditMode] = useState<'select' | 'razor'>('select');
+
+  // Hook d'enregistrement audio
+  const { isRecording, startRecording, stopRecording, error: recordingError } = useAudioRecorder();
+  const [recordingTrackId, setRecordingTrackId] = useState<string | null>(null);
+  const recordingStartTimeRef = useRef<number>(0); // Position sur la timeline
+  const recordingStartTimestampRef = useRef<number>(0); // Timestamp du début
+
   // State de la bibliotheque
   const [isLibraryCollapsed, setIsLibraryCollapsed] = useState(false);
 
   // State de l'export
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
 
-  // Reference au moteur audio
-  const engineRef = useRef(getMontageAudioEngine());
+  // Map pour stocker les refs de tous les clips WaveSurfer
+  // Note: Maintenant les clips s'enregistrent eux-memes aupres du SyncEngine
+  const clipRefsRef = useRef<Map<string, ClipRef | null>>(new Map());
+
+  // Reference au SyncEngine
+  const syncEngine = getSyncEngine();
+
+  // Initialiser les pistes par défaut si manquantes (mode FIXED_TRACKS_MODE)
+  // Utilise un ref pour éviter la double exécution en React StrictMode
+  const tracksInitializedRef = useRef(false);
+
+  useEffect(() => {
+    const initDefaultTracks = async () => {
+      // Éviter la double exécution (React StrictMode)
+      if (tracksInitializedRef.current) {
+        return;
+      }
+
+      if (!FIXED_TRACKS_MODE) {
+        return;
+      }
+
+      // Vérifier les pistes existantes par leur ID
+      const existingTrackIds = new Set(project.tracks.map((t) => t.id));
+      const missingTracks = DEFAULT_TRACKS.filter(
+        (dt) => !existingTrackIds.has(dt.id)
+      );
+
+      if (missingTracks.length === 0) {
+        console.log('[MontageEditor] All default tracks already exist');
+        return;
+      }
+
+      tracksInitializedRef.current = true;
+      console.log('[MontageEditor] Initializing missing default tracks:', missingTracks.map(t => t.name));
+
+      // Créer les pistes manquantes une par une
+      for (const defaultTrack of missingTracks) {
+        try {
+          const newTrack = await onAddTrack(defaultTrack.name, defaultTrack.color);
+          setProject((prev) => ({
+            ...prev,
+            tracks: [...prev.tracks, { ...newTrack, clips: [] }],
+          }));
+        } catch (error) {
+          console.error('[MontageEditor] Failed to create default track:', error);
+        }
+      }
+    };
+    initDefaultTracks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Exécuté une seule fois au montage
+
+  // Dédupliquer les pistes si nécessaire (pour corriger les projets existants)
+  useEffect(() => {
+    if (FIXED_TRACKS_MODE && project.tracks.length > 3) {
+      console.log('[MontageEditor] Deduplicating tracks, found:', project.tracks.length);
+      const seen = new Set<string>();
+      const uniqueTracks = project.tracks.filter((track) => {
+        // Utiliser le nom comme clé de déduplication car les IDs peuvent différer
+        const key = track.name.toLowerCase();
+        if (seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+        return true;
+      });
+
+      if (uniqueTracks.length !== project.tracks.length) {
+        console.log('[MontageEditor] Deduplicated to:', uniqueTracks.length, 'tracks');
+        setProject((prev) => ({ ...prev, tracks: uniqueTracks }));
+      }
+    }
+  }, [project.tracks.length]);
 
   // Calculer la duree totale
   const calculateDuration = useCallback(() => {
@@ -118,54 +207,134 @@ export function MontageEditor({
     clips: track.clips.map(enrichClip),
   }));
 
-  // Initialiser le moteur audio (sans creer d'AudioContext - attend interaction utilisateur)
+  // S'abonner aux evenements du SyncEngine
   useEffect(() => {
-    const engine = engineRef.current;
+    const unsubTime = syncEngine.onTimeUpdate((time) => {
+      setCurrentTime(time);
+    });
 
-    // Configurer les callbacks
-    engine.setTimeUpdateCallback(setCurrentTime);
-    engine.setPlaybackEndCallback(() => setIsPlaying(false));
-
-    // Charger la structure du projet (sans charger l'audio)
-    engine.loadProjectStructure(project);
+    const unsubPlay = syncEngine.onPlayStateChange((playing) => {
+      setIsPlaying(playing);
+    });
 
     return () => {
-      engine.pause();
+      unsubTime();
+      unsubPlay();
+    };
+  }, [syncEngine]);
+
+  // Cleanup au demontage du composant
+  useEffect(() => {
+    return () => {
+      resetSyncEngine();
     };
   }, []);
 
-  // Recharger la structure du projet quand il change
-  useEffect(() => {
-    const engine = engineRef.current;
-    engine.loadProjectStructure(project);
-  }, [project]);
+  // Controles de lecture via SyncEngine
+  const handlePlay = useCallback(() => {
+    console.log('[MontageEditor] play() from', currentTime.toFixed(2));
+    syncEngine.play(currentTime);
+  }, [currentTime, syncEngine]);
 
-  // Controles de lecture
-  const handlePlay = async () => {
-    await engineRef.current.play(currentTime);
-    setIsPlaying(true);
-  };
+  const handlePause = useCallback(() => {
+    console.log('[MontageEditor] pause()');
+    syncEngine.pause();
+  }, [syncEngine]);
 
-  const handlePause = () => {
-    engineRef.current.pause();
-    setIsPlaying(false);
-  };
+  const handleStop = useCallback(() => {
+    console.log('[MontageEditor] stop()');
+    syncEngine.stop();
+  }, [syncEngine]);
 
-  const handleStop = () => {
-    engineRef.current.stop();
-    setIsPlaying(false);
-    setCurrentTime(0);
-  };
+  const handleSeek = useCallback((time: number) => {
+    console.log('[MontageEditor] seek() to', time.toFixed(2));
+    syncEngine.seek(Math.max(0, time));
+  }, [syncEngine]);
 
-  const handleSeek = (time: number) => {
-    engineRef.current.seek(time);
-    setCurrentTime(time);
-  };
-
-  const handleMasterVolumeChange = (volume: number) => {
+  const handleMasterVolumeChange = useCallback((volume: number) => {
     setMasterVolume(volume);
-    engineRef.current.setMasterVolume(volume);
-  };
+    // Mettre a jour le volume de tous les clips en cours de lecture
+    clipRefsRef.current.forEach((ref, clipId) => {
+      if (ref?.isReady()) {
+        // Trouver le clip et sa piste pour calculer le volume effectif
+        for (const track of project.tracks) {
+          const clip = track.clips.find((c) => c.id === clipId);
+          if (clip) {
+            const effectiveVolume = track.volume * clip.volume * volume;
+            ref.setVolume(effectiveVolume);
+            break;
+          }
+        }
+      }
+    });
+  }, [project.tracks]);
+
+  // Callback quand un clip est pret
+  const handleClipReady = useCallback((clipId: string) => {
+    console.log('[MontageEditor] Clip ready:', clipId);
+  }, []);
+
+  // Callback pour changer le volume d'un clip
+  const handleClipVolumeChange = useCallback((clipId: string, volume: number) => {
+    setProject((prev) => ({
+      ...prev,
+      tracks: prev.tracks.map((track) => ({
+        ...track,
+        clips: track.clips.map((clip) =>
+          clip.id === clipId ? { ...clip, volume } : clip
+        ),
+      })),
+    }));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  // Callback quand la vraie duree d'un clip est detectee
+  // Cela permet de corriger les clips dont la duree etait manquante ou incorrecte
+  const handleDurationDetected = useCallback(async (clipId: string, realDuration: number) => {
+    console.log('[MontageEditor] Duration detected for clip:', clipId, 'Real duration:', realDuration);
+
+    // Trouver le clip actuel
+    let clipFound: Clip | null = null;
+    for (const track of project.tracks) {
+      const clip = track.clips.find((c) => c.id === clipId);
+      if (clip) {
+        clipFound = clip;
+        break;
+      }
+    }
+
+    if (!clipFound) return;
+
+    // Si la duree en base etait 0 ou tres differente, mettre a jour
+    const currentDuration = clipFound.outPoint - clipFound.inPoint;
+    if (currentDuration < 1 || Math.abs(currentDuration - realDuration) > 1) {
+      console.log('[MontageEditor] Updating clip duration from', currentDuration, 'to', realDuration);
+
+      // Mettre a jour le clip avec la vraie duree
+      const newOutPoint = clipFound.inPoint + realDuration;
+
+      // Mise a jour locale immediate
+      setProject((prev) => ({
+        ...prev,
+        tracks: prev.tracks.map((t) => ({
+          ...t,
+          clips: t.clips.map((c) =>
+            c.id === clipId
+              ? { ...c, outPoint: newOutPoint, sourceDuration: realDuration }
+              : c
+          ),
+        })),
+      }));
+
+      // Sauvegarder en arriere-plan
+      try {
+        await onUpdateClip(clipId, { outPoint: newOutPoint });
+        setHasUnsavedChanges(true);
+      } catch (error) {
+        console.error('[MontageEditor] Failed to update clip duration:', error);
+      }
+    }
+  }, [project.tracks, onUpdateClip]);
 
   // Sauvegarde
   const handleSave = async () => {
@@ -229,18 +398,28 @@ export function MontageEditor({
       ),
     }));
 
-    // Mise a jour du moteur audio
-    if (updates.volume !== undefined) {
-      engineRef.current.setTrackVolume(trackId, updates.volume);
-    }
-    if (updates.pan !== undefined) {
-      engineRef.current.setTrackPan(trackId, updates.pan);
-    }
-    if (updates.muted !== undefined) {
-      engineRef.current.setTrackMute(trackId, updates.muted);
-    }
-    if (updates.solo !== undefined) {
-      engineRef.current.setTrackSolo(trackId, updates.solo);
+    // Mettre a jour le volume des clips de cette piste
+    const track = project.tracks.find((t) => t.id === trackId);
+    if (track) {
+      const newVolume = updates.volume ?? track.volume;
+      const newMuted = updates.muted ?? track.muted;
+      const hasSolo = project.tracks.some((t) => t.solo);
+      const newSolo = updates.solo ?? track.solo;
+
+      track.clips.forEach((clip) => {
+        const clipRef = clipRefsRef.current.get(clip.id);
+        if (clipRef?.isReady()) {
+          // Determiner si ce clip doit etre audible
+          let shouldBeMuted = newMuted;
+          if (hasSolo || newSolo) {
+            // S'il y a du solo, seules les pistes solo sont audibles
+            shouldBeMuted = !(updates.solo !== undefined ? newSolo : track.solo);
+          }
+
+          const effectiveVolume = shouldBeMuted ? 0 : newVolume * clip.volume * masterVolume;
+          clipRef.setVolume(effectiveVolume);
+        }
+      });
     }
 
     // Sauvegarder en arriere-plan
@@ -248,18 +427,40 @@ export function MontageEditor({
     setHasUnsavedChanges(true);
   };
 
+  // Vérifier si la timeline est vide (aucun clip sur aucune piste)
+  const isTimelineEmpty = useCallback(() => {
+    return project.tracks.every((track) => track.clips.length === 0);
+  }, [project.tracks]);
+
   // Gestion des clips
   const handleAddClipFromLibrary = async (
     trackId: string,
     item: DragItem,
     startTime: number
   ) => {
+    // Import intelligent :
+    // - Si timeline vide (aucun clip) → toujours à 0
+    // - Si startTime est explicitement fourni (drag&drop précis) → utiliser cette valeur
+    // - Sinon → position de la playhead
+    let finalStartTime = startTime;
+
+    // Vérifier si la timeline est vide
+    const timelineEmpty = isTimelineEmpty();
+
+    if (timelineEmpty) {
+      // Timeline vide : toujours placer à 0
+      finalStartTime = 0;
+      console.log('[MontageEditor] Timeline empty, placing clip at 0');
+    }
+    // Note: Si la timeline n'est pas vide et qu'un startTime est fourni via drag&drop,
+    // on utilise ce startTime tel quel (déjà calculé par Track.tsx)
+
     const newClip = await onAddClip(trackId, {
       name: item.name,
       mediaItemId: item.mediaItemId,
       sourceUrl: item.sourceUrl,
       sourceDuration: item.duration,
-      startTime,
+      startTime: finalStartTime,
       inPoint: 0,
       outPoint: item.duration,
       volume: 1,
@@ -274,13 +475,13 @@ export function MontageEditor({
       ),
     }));
     setHasUnsavedChanges(true);
-
-    // Recharger le moteur audio
-    await engineRef.current.loadClip(newClip, trackId);
+    // Le clip sera automatiquement charge par WaveSurferClip via le rendu React
   };
 
   const handleDeleteClip = async (clipId: string) => {
     await onDeleteClip(clipId);
+    // Supprimer la ref du clip
+    clipRefsRef.current.delete(clipId);
     setProject((prev) => ({
       ...prev,
       tracks: prev.tracks.map((t) => ({
@@ -288,7 +489,6 @@ export function MontageEditor({
         clips: t.clips.filter((c) => c.id !== clipId),
       })),
     }));
-    engineRef.current.removeClip(clipId);
     setSelectedClipId(null);
     setHasUnsavedChanges(true);
   };
@@ -346,9 +546,229 @@ export function MontageEditor({
         ),
       })),
     }));
-    engineRef.current.updateClip(clipId, { inPoint, outPoint });
+    // Le WaveSurferClip sera mis a jour automatiquement via les props
     setHasUnsavedChanges(true);
   };
+
+  // Effacer les points In/Out
+  const clearInOutPoints = useCallback(() => {
+    setInPoint(null);
+    setOutPoint(null);
+  }, []);
+
+  // Couper un clip à la position de la playhead
+  const cutAtPlayhead = useCallback(async () => {
+    // Trouver le clip sous la playhead
+    let clipToCut: Clip | null = null;
+    let trackId: string | null = null;
+
+    for (const track of project.tracks) {
+      for (const clip of track.clips) {
+        const clipDuration = clip.outPoint - clip.inPoint;
+        const clipEndTime = clip.startTime + clipDuration;
+        if (currentTime > clip.startTime && currentTime < clipEndTime) {
+          clipToCut = clip;
+          trackId = track.id;
+          break;
+        }
+      }
+      if (clipToCut) break;
+    }
+
+    if (!clipToCut || !trackId) {
+      console.log('[MontageEditor] No clip found at playhead position');
+      return;
+    }
+
+    // Position relative dans le clip (en tenant compte du inPoint)
+    const cutPointInSource = currentTime - clipToCut.startTime + clipToCut.inPoint;
+
+    // Créer le premier clip (avant la coupe)
+    const clipA = {
+      name: clipToCut.name,
+      mediaItemId: clipToCut.mediaItemId,
+      sourceUrl: clipToCut.sourceUrl,
+      sourceDuration: clipToCut.sourceDuration,
+      startTime: clipToCut.startTime,
+      inPoint: clipToCut.inPoint,
+      outPoint: cutPointInSource,
+      volume: clipToCut.volume,
+      fadeInDuration: clipToCut.fadeInDuration,
+      fadeOutDuration: 0,
+    };
+
+    // Créer le second clip (après la coupe)
+    const clipB = {
+      name: clipToCut.name,
+      mediaItemId: clipToCut.mediaItemId,
+      sourceUrl: clipToCut.sourceUrl,
+      sourceDuration: clipToCut.sourceDuration,
+      startTime: currentTime,
+      inPoint: cutPointInSource,
+      outPoint: clipToCut.outPoint,
+      volume: clipToCut.volume,
+      fadeInDuration: 0,
+      fadeOutDuration: clipToCut.fadeOutDuration,
+    };
+
+    // Supprimer l'ancien clip et ajouter les deux nouveaux
+    await onDeleteClip(clipToCut.id);
+    const newClipA = await onAddClip(trackId, clipA);
+    const newClipB = await onAddClip(trackId, clipB);
+
+    setProject((prev) => ({
+      ...prev,
+      tracks: prev.tracks.map((t) => {
+        if (t.id !== trackId) return t;
+        return {
+          ...t,
+          clips: [...t.clips.filter((c) => c.id !== clipToCut!.id), newClipA, newClipB],
+        };
+      }),
+    }));
+    setHasUnsavedChanges(true);
+    console.log('[MontageEditor] Clip cut at', currentTime.toFixed(2));
+  }, [project.tracks, currentTime, onDeleteClip, onAddClip]);
+
+  // Diviser un clip à une position spécifique (pour le mode rasoir)
+  const splitClipAt = useCallback(async (clipId: string, globalTime: number) => {
+    let clipToSplit: Clip | null = null;
+    let trackId: string | null = null;
+
+    for (const track of project.tracks) {
+      const clip = track.clips.find((c) => c.id === clipId);
+      if (clip) {
+        clipToSplit = clip;
+        trackId = track.id;
+        break;
+      }
+    }
+
+    if (!clipToSplit || !trackId) return;
+
+    const clipDuration = clipToSplit.outPoint - clipToSplit.inPoint;
+    const clipEndTime = clipToSplit.startTime + clipDuration;
+
+    // Vérifier que le point de coupe est bien dans le clip
+    if (globalTime <= clipToSplit.startTime || globalTime >= clipEndTime) {
+      console.log('[MontageEditor] Split point outside clip bounds');
+      return;
+    }
+
+    // Position relative dans le clip source
+    const cutPointInSource = globalTime - clipToSplit.startTime + clipToSplit.inPoint;
+
+    // Créer le premier clip (avant la coupe)
+    const clipA = {
+      name: clipToSplit.name,
+      mediaItemId: clipToSplit.mediaItemId,
+      sourceUrl: clipToSplit.sourceUrl,
+      sourceDuration: clipToSplit.sourceDuration,
+      startTime: clipToSplit.startTime,
+      inPoint: clipToSplit.inPoint,
+      outPoint: cutPointInSource,
+      volume: clipToSplit.volume,
+      fadeInDuration: clipToSplit.fadeInDuration,
+      fadeOutDuration: 0,
+    };
+
+    // Créer le second clip (après la coupe)
+    const clipB = {
+      name: clipToSplit.name,
+      mediaItemId: clipToSplit.mediaItemId,
+      sourceUrl: clipToSplit.sourceUrl,
+      sourceDuration: clipToSplit.sourceDuration,
+      startTime: globalTime,
+      inPoint: cutPointInSource,
+      outPoint: clipToSplit.outPoint,
+      volume: clipToSplit.volume,
+      fadeInDuration: 0,
+      fadeOutDuration: clipToSplit.fadeOutDuration,
+    };
+
+    // Supprimer l'ancien clip et ajouter les deux nouveaux
+    await onDeleteClip(clipToSplit.id);
+    const newClipA = await onAddClip(trackId, clipA);
+    const newClipB = await onAddClip(trackId, clipB);
+
+    setProject((prev) => ({
+      ...prev,
+      tracks: prev.tracks.map((t) => {
+        if (t.id !== trackId) return t;
+        return {
+          ...t,
+          clips: [...t.clips.filter((c) => c.id !== clipToSplit!.id), newClipA, newClipB],
+        };
+      }),
+    }));
+    setHasUnsavedChanges(true);
+    console.log('[MontageEditor] Clip split at', globalTime.toFixed(2));
+  }, [project.tracks, onDeleteClip, onAddClip]);
+
+  // Gestion de l'enregistrement voix-off
+  const handleStartRecording = useCallback(async (trackId: string) => {
+    if (isRecording) {
+      // Arreter l'enregistrement en cours
+      await handleStopRecording();
+      return;
+    }
+
+    recordingStartTimeRef.current = currentTime;
+    recordingStartTimestampRef.current = Date.now();
+    setRecordingTrackId(trackId);
+    await startRecording();
+
+    console.log('[MontageEditor] Recording started on track', trackId, 'at', currentTime.toFixed(2));
+  }, [isRecording, currentTime, startRecording]);
+
+  const handleStopRecording = useCallback(async () => {
+    if (!isRecording || !recordingTrackId) return;
+
+    const blob = await stopRecording();
+    const recordingDuration = Math.max(0.1, (Date.now() - recordingStartTimestampRef.current) / 1000);
+
+    // Verifier que le blob n'est pas vide
+    if (blob.size === 0) {
+      console.error('[MontageEditor] Recording blob is empty');
+      setRecordingTrackId(null);
+      return;
+    }
+
+    // Creer une URL temporaire pour le blob
+    const url = URL.createObjectURL(blob);
+
+    try {
+      // Creer un nouveau clip avec l'enregistrement
+      // Note: En production, on uploaderait vers S3 et utiliserait l'URL S3
+      const newClip = await onAddClip(recordingTrackId, {
+        name: `Enregistrement ${new Date().toLocaleTimeString()}`,
+        sourceUrl: url,
+        sourceDuration: recordingDuration,
+        startTime: recordingStartTimeRef.current,
+        inPoint: 0,
+        outPoint: recordingDuration,
+        volume: 1,
+        fadeInDuration: 0,
+        fadeOutDuration: 0,
+      });
+
+      setProject((prev) => ({
+        ...prev,
+        tracks: prev.tracks.map((t) =>
+          t.id === recordingTrackId ? { ...t, clips: [...t.clips, newClip] } : t
+        ),
+      }));
+
+      setHasUnsavedChanges(true);
+      console.log('[MontageEditor] Recording stopped, clip created with duration', recordingDuration.toFixed(2));
+    } catch (error) {
+      console.error('[MontageEditor] Failed to create clip from recording:', error);
+      // Liberer l'URL du blob en cas d'erreur
+      URL.revokeObjectURL(url);
+    } finally {
+      setRecordingTrackId(null);
+    }
+  }, [isRecording, recordingTrackId, stopRecording, onAddClip]);
 
   // Raccourcis clavier
   useEffect(() => {
@@ -372,6 +792,9 @@ export function MontageEditor({
           break;
         case 'Escape':
           handleStop();
+          // Effacer aussi la sélection et les points In/Out
+          setSelectedClipId(null);
+          clearInOutPoints();
           break;
         case 'Delete':
         case 'Backspace':
@@ -385,15 +808,77 @@ export function MontageEditor({
             handleSave();
           }
           break;
+        case 'KeyI':
+          // Définir le point In à la position actuelle
+          e.preventDefault();
+          setInPoint(currentTime);
+          console.log('[MontageEditor] In point set at', currentTime.toFixed(2));
+          break;
+        case 'KeyO':
+          // Définir le point Out à la position actuelle
+          e.preventDefault();
+          setOutPoint(currentTime);
+          console.log('[MontageEditor] Out point set at', currentTime.toFixed(2));
+          break;
+        case 'KeyX':
+          // Couper à la position de la playhead
+          e.preventDefault();
+          cutAtPlayhead();
+          break;
+        case 'KeyR':
+          // Toggle mode rasoir
+          e.preventDefault();
+          setEditMode((mode) => (mode === 'razor' ? 'select' : 'razor'));
+          break;
+        case 'ArrowUp':
+          // Shift + ArrowUp : augmenter le volume du clip selectionne
+          if (e.shiftKey && selectedClipId) {
+            e.preventDefault();
+            // Trouver le clip selectionne pour obtenir son volume actuel
+            for (const track of project.tracks) {
+              const clip = track.clips.find((c) => c.id === selectedClipId);
+              if (clip) {
+                const newVolume = Math.min(2, (clip.volume ?? 1) + 0.1); // +~1dB
+                handleClipVolumeChange(selectedClipId, newVolume);
+                break;
+              }
+            }
+          }
+          break;
+        case 'ArrowDown':
+          // Shift + ArrowDown : diminuer le volume du clip selectionne
+          if (e.shiftKey && selectedClipId) {
+            e.preventDefault();
+            for (const track of project.tracks) {
+              const clip = track.clips.find((c) => c.id === selectedClipId);
+              if (clip) {
+                const newVolume = Math.max(0, (clip.volume ?? 1) - 0.1); // -~1dB
+                handleClipVolumeChange(selectedClipId, newVolume);
+                break;
+              }
+            }
+          }
+          break;
+        case 'Digit0':
+        case 'Numpad0':
+          // Shift + 0 : reset le volume a 0dB
+          if (e.shiftKey && selectedClipId) {
+            e.preventDefault();
+            handleClipVolumeChange(selectedClipId, 1);
+          }
+          break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, selectedClipId]);
+  }, [isPlaying, selectedClipId, currentTime, cutAtPlayhead, clearInOutPoints, project.tracks, handleClipVolumeChange]);
 
   return (
     <DndProvider backend={HTML5Backend}>
+      {/* Layer de preview personnalise pour le drag des clips */}
+      <ClipDragLayer />
+
       <div className="h-screen flex flex-col bg-background">
         {/* Header */}
         <div className="flex items-center gap-4 px-4 py-2 border-b">
@@ -429,6 +914,20 @@ export function MontageEditor({
           onExport={() => setIsExportDialogOpen(true)}
         />
 
+        {/* Toolbar d'edition */}
+        <Toolbar
+          editMode={editMode}
+          inPoint={inPoint}
+          outPoint={outPoint}
+          isRecording={isRecording}
+          recordingTrackId={recordingTrackId}
+          onEditModeChange={setEditMode}
+          onSetInPoint={() => setInPoint(currentTime)}
+          onSetOutPoint={() => setOutPoint(currentTime)}
+          onClearInOutPoints={clearInOutPoints}
+          onCut={cutAtPlayhead}
+        />
+
         {/* Timeline */}
         <Timeline
           tracks={enrichedTracks}
@@ -437,6 +936,10 @@ export function MontageEditor({
           currentTime={currentTime}
           duration={duration}
           selectedClipId={selectedClipId}
+          clipRefs={clipRefsRef.current}
+          inPoint={inPoint}
+          outPoint={outPoint}
+          editMode={editMode}
           onZoomChange={setZoom}
           onScrollChange={setScrollLeft}
           onSeek={handleSeek}
@@ -448,6 +951,13 @@ export function MontageEditor({
           onAddTrack={handleAddTrack}
           onDeleteTrack={handleDeleteTrack}
           onUpdateTrack={handleUpdateTrack}
+          onClipReady={handleClipReady}
+          onSplitClip={splitClipAt}
+          onDurationDetected={handleDurationDetected}
+          onClipVolumeChange={handleClipVolumeChange}
+          isRecording={isRecording}
+          recordingTrackId={recordingTrackId}
+          onStartRecording={handleStartRecording}
         />
 
         {/* Bibliotheque */}

@@ -10,7 +10,10 @@ interface MediaPlayerProps {
   title: string;
   url: string;
   type: 'AUDIO' | 'VIDEO';
+  mediaId?: string; // ID du media pour mise a jour de la duree
+  currentDuration?: number | null; // Duree actuelle en base (si null, on doit la sauvegarder)
   onClose?: () => void;
+  onDurationDetected?: (mediaId: string, duration: number) => void; // Callback pour sauvegarder la duree
   className?: string;
 }
 
@@ -24,7 +27,10 @@ export function MediaPlayer({
   title,
   url,
   type,
+  mediaId,
+  currentDuration,
   onClose,
+  onDurationDetected,
   className,
 }: MediaPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -34,12 +40,33 @@ export function MediaPlayer({
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
 
+  // Ref pour eviter de notifier plusieurs fois
+  const hasDurationBeenReported = useRef(false);
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
     const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
-    const handleDurationChange = () => setDuration(audio.duration || 0);
+    const handleDurationChange = () => {
+      const detectedDuration = audio.duration;
+      if (detectedDuration && isFinite(detectedDuration) && detectedDuration > 0) {
+        setDuration(detectedDuration);
+
+        // Si la duree n'etait pas en base, la sauvegarder
+        if (
+          mediaId &&
+          onDurationDetected &&
+          !hasDurationBeenReported.current &&
+          (!currentDuration || currentDuration === 0)
+        ) {
+          hasDurationBeenReported.current = true;
+          const roundedDuration = Math.round(detectedDuration);
+          console.log(`[MediaPlayer] Duration detected for ${mediaId}: ${roundedDuration}s`);
+          onDurationDetected(mediaId, roundedDuration);
+        }
+      }
+    };
     const handleEnded = () => setIsPlaying(false);
 
     audio.addEventListener('timeupdate', handleTimeUpdate);
@@ -51,7 +78,12 @@ export function MediaPlayer({
       audio.removeEventListener('durationchange', handleDurationChange);
       audio.removeEventListener('ended', handleEnded);
     };
-  }, []);
+  }, [mediaId, currentDuration, onDurationDetected]);
+
+  // Reset le flag quand le media change
+  useEffect(() => {
+    hasDurationBeenReported.current = false;
+  }, [mediaId]);
 
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;

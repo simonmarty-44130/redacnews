@@ -257,6 +257,7 @@ export const mediaRouter = router({
         id: z.string(),
         title: z.string().optional(),
         description: z.string().optional(),
+        duration: z.number().optional(), // Permet de mettre a jour la duree
         tags: z.array(z.string()).optional(),
         transcription: z.string().optional(),
         transcriptionStatus: z
