@@ -4,4 +4,3 @@ export { CollaborativeRundownEditor } from './CollaborativeRundownEditor';
 export { AddItemDialog } from './AddItemDialog';
 export { CreateRundownDialog } from './CreateRundownDialog';
 export { GenerateScriptButton } from './GenerateScriptButton';
-export { EditItemScriptDialog } from './EditItemScriptDialog';

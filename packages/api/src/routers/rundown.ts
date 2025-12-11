@@ -200,13 +200,41 @@ export const rundownRouter = router({
         orderBy: { position: 'desc' },
       });
 
-      return ctx.db.rundownItem.create({
+      // Creer l'item
+      const item = await ctx.db.rundownItem.create({
         data: {
           ...data,
           rundownId,
           position: position ?? (lastItem?.position ?? 0) + 1,
         },
+        include: { rundown: { include: { show: true } } },
       });
+
+      // Si c'est un type avec texte, creer automatiquement un Google Doc
+      const typesWithScript = ['STORY', 'INTERVIEW', 'LIVE', 'OTHER'];
+      if (typesWithScript.includes(input.type)) {
+        try {
+          const { createStoryDoc } = await import('../lib/google/docs');
+          const docTitle = `${item.rundown.show.name} - ${item.title}`;
+          const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+          const doc = await createStoryDoc(docTitle, folderId);
+
+          const updatedItem = await ctx.db.rundownItem.update({
+            where: { id: item.id },
+            data: {
+              googleDocId: doc.id,
+              googleDocUrl: doc.url,
+            },
+          });
+
+          return updatedItem;
+        } catch (error) {
+          console.error('Failed to create Google Doc for new item:', error);
+          // Continuer meme si la creation echoue - l'utilisateur pourra creer le doc plus tard
+        }
+      }
+
+      return item;
     }),
 
   // Delete item
@@ -675,7 +703,7 @@ export const rundownRouter = router({
 
       return ctx.db.rundown.findMany({
         where: {
-          show: { organizationId: ctx.organizationId },
+          show: { organizationId: ctx.organizationId! },
           id: { not: input.currentRundownId },
           date: {
             gte: dateFrom,

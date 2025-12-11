@@ -20,6 +20,7 @@ import {
   ScrollText,
   Link2,
   Unlink,
+  Loader2,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,9 +30,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { EditItemScriptDialog } from './EditItemScriptDialog';
 import { LinkRundownDialog } from './LinkRundownDialog';
+import { trpc } from '@/lib/trpc/client';
+import { toast } from 'sonner';
 
 interface StoryMediaItem {
   id: string;
@@ -171,6 +179,37 @@ export function RundownItem({
     transition,
     isDragging,
   } = useSortable({ id: item.id });
+
+  const utils = trpc.useUtils();
+
+  // Mutation pour creer un Google Doc pour l'item
+  const createItemDoc = trpc.rundown.createItemDoc.useMutation({
+    onSuccess: (data) => {
+      // Ouvrir le Google Doc cree dans un nouvel onglet
+      if (data.googleDocUrl) {
+        window.open(data.googleDocUrl, '_blank');
+      }
+      // Rafraichir les donnees
+      utils.rundown.get.invalidate();
+    },
+    onError: () => {
+      toast.error('Erreur lors de la creation du document');
+    },
+  });
+
+  // Handler pour ouvrir ou creer le script
+  const handleOpenScript = () => {
+    if (item.googleDocUrl) {
+      // Google Doc existe → l'ouvrir directement
+      window.open(item.googleDocUrl, '_blank');
+    } else {
+      // Pas de Google Doc → le creer puis l'ouvrir
+      createItemDoc.mutate({
+        itemId: item.id,
+        initialContent: item.script || item.story?.content || '',
+      });
+    }
+  };
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -313,38 +352,41 @@ export function RundownItem({
         {formatDuration(item.duration)}
       </div>
 
-      {/* Script button */}
-      <EditItemScriptDialog
-        itemId={item.id}
-        itemTitle={item.title}
-        currentScript={item.script || null}
-        storyContent={item.story?.content}
-        googleDocId={item.googleDocId}
-        googleDocUrl={item.googleDocUrl}
-        trigger={
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(
-              'h-8 w-8',
-              item.googleDocUrl
-                ? 'text-green-600' // Google Doc existe
-                : item.script
-                  ? 'text-blue-600' // Script texte simple
-                  : 'text-gray-400' // Pas de script
-            )}
-            title={
-              item.googleDocUrl
-                ? 'Google Doc - Cliquer pour editer'
-                : item.script
-                  ? 'Script defini - Cliquer pour modifier'
-                  : 'Ajouter un script'
+      {/* Script button - Ouvre directement le Google Doc */}
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleOpenScript}
+              disabled={createItemDoc.isPending}
+              className={cn(
+                'h-8 w-8',
+                item.googleDocUrl
+                  ? 'text-green-600' // Google Doc existe
+                  : item.script
+                    ? 'text-blue-600' // Script texte simple
+                    : 'text-gray-400' // Pas de script
+              )}
+            >
+              {createItemDoc.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+              ) : (
+                <ScrollText className="h-4 w-4" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {createItemDoc.isPending
+              ? 'Creation en cours...'
+              : item.googleDocUrl
+                ? 'Ouvrir le script'
+                : 'Creer le script'
             }
-          >
-            <ScrollText className="h-4 w-4" />
-          </Button>
-        }
-      />
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
 
       {/* Link rundown button */}
       <LinkRundownDialog

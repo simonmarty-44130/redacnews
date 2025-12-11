@@ -146,17 +146,19 @@ export function LinkRundownDialog({
   const isSubmitting = linkMutation.isPending || createLinkedMutation.isPending;
 
   // Grouper les conducteurs par emission
+  type AvailableRundown = NonNullable<typeof availableRundowns>[number];
   const rundownsByShow = availableRundowns?.reduce((acc, r) => {
-    const showId = r.show.id;
+    const rundown = r as AvailableRundown & { show: { id: string; name: string; color: string } };
+    const showId = rundown.show.id;
     if (!acc[showId]) {
       acc[showId] = {
-        show: r.show,
-        rundowns: [],
+        show: rundown.show,
+        rundowns: [] as typeof availableRundowns,
       };
     }
     acc[showId].rundowns.push(r);
     return acc;
-  }, {} as Record<string, { show: typeof availableRundowns[0]['show']; rundowns: typeof availableRundowns }>);
+  }, {} as Record<string, { show: { id: string; name: string; color: string }; rundowns: typeof availableRundowns }>);
 
   return (
     <Dialog

@@ -315,6 +315,8 @@ export function CollaborativeRundownEditor({ rundownId }: CollaborativeRundownEd
                       media: [],
                     }}
                     startTime={timing.startTimes[item.id] || '--:--:--'}
+                    rundownId={rundownId}
+                    rundownDate={rundown?.date || new Date()}
                     onDelete={() => handleDeleteItem(item.id)}
                     onStatusChange={(status) => handleStatusChange(item.id, status)}
                     onFocus={() => handleItemFocus(item.id)}

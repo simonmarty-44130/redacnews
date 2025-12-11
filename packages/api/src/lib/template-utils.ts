@@ -102,3 +102,39 @@ export function prepareVariableValues(
 
   return result;
 }
+
+/**
+ * Applique un template à un conducteur existant
+ * Crée les items du conducteur basés sur le template
+ */
+export async function applyTemplate(
+  db: any,
+  rundownId: string,
+  template: {
+    items: Array<{
+      type: string;
+      title: string;
+      duration: number;
+      position: number;
+      notes: string | null;
+      script: string | null;
+    }>;
+  },
+  variables: Record<string, string>
+): Promise<void> {
+  // Créer les items du conducteur depuis le template
+  for (const templateItem of template.items) {
+    await db.rundownItem.create({
+      data: {
+        rundownId,
+        type: templateItem.type,
+        title: replaceVariables(templateItem.title, variables) || templateItem.title,
+        duration: templateItem.duration,
+        position: templateItem.position,
+        notes: replaceVariables(templateItem.notes, variables),
+        script: replaceVariables(templateItem.script, variables),
+        status: 'PENDING',
+      },
+    });
+  }
+}
