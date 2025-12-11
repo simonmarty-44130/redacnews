@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
 
 export const rundownRouter = router({
@@ -150,6 +151,28 @@ export const rundownRouter = router({
         where: { id },
         data,
       });
+    }),
+
+  // Delete rundown
+  delete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // Vérifier que le conducteur appartient à l'organisation
+      const rundown = await ctx.db.rundown.findUniqueOrThrow({
+        where: { id: input.id },
+        include: { show: true },
+      });
+
+      if (rundown.show.organizationId !== ctx.organizationId) {
+        throw new TRPCError({ code: 'FORBIDDEN' });
+      }
+
+      // Supprimer le conducteur (cascade supprime les items)
+      await ctx.db.rundown.delete({
+        where: { id: input.id },
+      });
+
+      return { success: true };
     }),
 
   // Reorder items
