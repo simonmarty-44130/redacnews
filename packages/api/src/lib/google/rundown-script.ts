@@ -10,6 +10,7 @@ export interface RundownWithItems {
   show: {
     name: string;
     defaultDuration: number;
+    startTime?: string; // Format HH:mm
   };
   items: Array<{
     id: string;
@@ -194,9 +195,12 @@ function buildScriptContent(rundown: RundownWithItems): docs_v1.Schema$Request[]
   fullText += headerTitle + headerSubtitle;
 
   // === ITEMS ===
-  // Calculer l'heure de debut (12h00 par defaut)
+  // Calculer l'heure de debut (utiliser startTime de l'emission ou 12h00 par defaut)
   let currentTime = new Date(rundown.date);
-  currentTime.setHours(12, 0, 0, 0);
+  const startTimeParts = (rundown.show.startTime || '12:00').split(':');
+  const startHour = parseInt(startTimeParts[0], 10) || 12;
+  const startMinute = parseInt(startTimeParts[1], 10) || 0;
+  currentTime.setHours(startHour, startMinute, 0, 0);
 
   for (const item of rundown.items) {
     const timeStr = formatTime(currentTime);

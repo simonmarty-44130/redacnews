@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Plus, Calendar, Radio, Palette } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, Calendar, Radio, Palette, FileText, Clock, Copy } from 'lucide-react';
 import { format } from 'date-fns';
 import {
   Dialog,
@@ -25,6 +25,17 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { trpc } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
+
+// Type pour les variables de template
+interface TemplateVariable {
+  name: string;
+  label: string;
+  required?: boolean;
+  defaultValue?: string;
+}
+
+// Mode de création du conducteur
+type CreationMode = 'empty' | 'template' | 'duplicate';
 
 interface CreateRundownDialogProps {
   onSuccess?: (rundownId: string) => void;
@@ -55,7 +66,12 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
   const [open, setOpen] = useState(false);
   const [showId, setShowId] = useState<string>('');
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  
+
+  // Mode de création : vide, depuis template, ou duplication
+  const [creationMode, setCreationMode] = useState<CreationMode>('empty');
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [templateVariables, setTemplateVariables] = useState<Record<string, string>>({});
+
   // État pour la création d'une nouvelle émission
   const [isCreatingShow, setIsCreatingShow] = useState(false);
   const [newShowName, setNewShowName] = useState('');
@@ -63,8 +79,41 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
   const [newShowDuration, setNewShowDuration] = useState(60);
   const [newShowColor, setNewShowColor] = useState(SHOW_COLORS[0]);
   const [newShowCategory, setNewShowCategory] = useState<string>('MAGAZINE');
+  const [newShowStartTime, setNewShowStartTime] = useState('12:00'); // Heure de début par défaut
 
   const { data: shows, refetch: refetchShows } = trpc.rundown.listShows.useQuery();
+
+  // Templates disponibles (filtrés par émission sélectionnée)
+  const { data: templates } = trpc.template.list.useQuery(
+    { showId: showId || undefined },
+    { enabled: !!showId }
+  );
+
+  // Template sélectionné avec ses détails
+  const { data: selectedTemplate } = trpc.template.get.useQuery(
+    { id: selectedTemplateId },
+    { enabled: !!selectedTemplateId }
+  );
+
+  // Initialiser les variables du template quand il change
+  useEffect(() => {
+    if (selectedTemplate?.variables) {
+      const vars = selectedTemplate.variables as unknown as TemplateVariable[];
+      const initialValues: Record<string, string> = {};
+      vars.forEach((v) => {
+        initialValues[v.name] = v.defaultValue || '';
+      });
+      setTemplateVariables(initialValues);
+    } else {
+      setTemplateVariables({});
+    }
+  }, [selectedTemplate]);
+
+  // Réinitialiser le template quand l'émission change
+  useEffect(() => {
+    setSelectedTemplateId('');
+    setCreationMode('empty');
+  }, [showId]);
 
   const utils = trpc.useUtils();
   
@@ -88,17 +137,30 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
     },
   });
 
+  const createFromTemplate = trpc.template.createRundownFromTemplate.useMutation({
+    onSuccess: (data) => {
+      utils.rundown.list.invalidate();
+      setOpen(false);
+      resetForm();
+      onSuccess?.(data.id);
+    },
+  });
+
   const resetShowForm = () => {
     setNewShowName('');
     setNewShowDescription('');
     setNewShowDuration(60);
     setNewShowColor(SHOW_COLORS[0]);
     setNewShowCategory('MAGAZINE');
+    setNewShowStartTime('12:00');
   };
 
   const resetForm = () => {
     setShowId('');
     setDate(format(new Date(), 'yyyy-MM-dd'));
+    setCreationMode('empty');
+    setSelectedTemplateId('');
+    setTemplateVariables({});
     setIsCreatingShow(false);
     resetShowForm();
   };
@@ -112,6 +174,7 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
       defaultDuration: newShowDuration,
       color: newShowColor,
       category: newShowCategory as 'FLASH' | 'JOURNAL' | 'MAGAZINE' | 'CHRONIQUE' | 'AUTRE',
+      startTime: newShowStartTime,
     });
   };
 
@@ -119,11 +182,33 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
     e.preventDefault();
     if (!showId || !date) return;
 
-    createRundown.mutate({
-      showId,
-      date: new Date(date),
-    });
+    // Création depuis un template
+    if (creationMode === 'template' && selectedTemplateId) {
+      createFromTemplate.mutate({
+        templateId: selectedTemplateId,
+        date: new Date(date),
+        variables: templateVariables,
+      });
+    } else {
+      // Création d'un conducteur vide
+      createRundown.mutate({
+        showId,
+        date: new Date(date),
+      });
+    }
   };
+
+  // Formater la durée en heures et minutes
+  const formatDuration = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    if (hours > 0) {
+      return `${hours}h${minutes.toString().padStart(2, '0')}`;
+    }
+    return `${minutes} min`;
+  };
+
+  const isSubmitting = createRundown.isPending || createFromTemplate.isPending;
 
   return (
     <Dialog open={open} onOpenChange={(newOpen) => {
@@ -136,17 +221,17 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
           Nouveau conducteur
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[500px] max-h-[90vh] flex flex-col">
         {!isCreatingShow ? (
           // Formulaire de création de conducteur
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
             <DialogHeader>
               <DialogTitle>Créer un conducteur</DialogTitle>
               <DialogDescription>
                 Sélectionnez une émission et une date pour créer un nouveau conducteur.
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
+            <div className="grid gap-4 py-4 overflow-y-auto flex-1">
               <div className="grid gap-2">
                 <Label htmlFor="show">Émission</Label>
                 <Select value={showId} onValueChange={setShowId}>
@@ -181,6 +266,7 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
                   </SelectContent>
                 </Select>
               </div>
+
               <div className="grid gap-2">
                 <Label htmlFor="date">Date</Label>
                 <div className="relative">
@@ -194,7 +280,186 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
                   />
                 </div>
               </div>
+
+              {/* Options de création */}
+              {showId && (
+                <div className="space-y-3 pt-2 border-t">
+                  <Label>Mode de création</Label>
+                  <div className="space-y-2">
+                    {/* Option conducteur vide */}
+                    <label
+                      className={cn(
+                        'flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
+                        creationMode === 'empty'
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="creationMode"
+                        checked={creationMode === 'empty'}
+                        onChange={() => {
+                          setCreationMode('empty');
+                          setSelectedTemplateId('');
+                        }}
+                        className="sr-only"
+                      />
+                      <div
+                        className={cn(
+                          'w-4 h-4 rounded-full border-2 flex items-center justify-center',
+                          creationMode === 'empty'
+                            ? 'border-blue-500'
+                            : 'border-gray-300'
+                        )}
+                      >
+                        {creationMode === 'empty' && (
+                          <div className="w-2 h-2 rounded-full bg-blue-500" />
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <div className="font-medium">Conducteur vide</div>
+                        <div className="text-sm text-gray-500">
+                          Créer un conducteur sans éléments pré-remplis
+                        </div>
+                      </div>
+                    </label>
+
+                    {/* Option depuis un modèle */}
+                    <label
+                      className={cn(
+                        'flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
+                        creationMode === 'template'
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 hover:border-gray-300',
+                        !templates?.length && 'opacity-50 cursor-not-allowed'
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="creationMode"
+                        checked={creationMode === 'template'}
+                        onChange={() => setCreationMode('template')}
+                        disabled={!templates?.length}
+                        className="sr-only"
+                      />
+                      <div
+                        className={cn(
+                          'w-4 h-4 rounded-full border-2 flex items-center justify-center mt-1',
+                          creationMode === 'template'
+                            ? 'border-blue-500'
+                            : 'border-gray-300'
+                        )}
+                      >
+                        {creationMode === 'template' && (
+                          <div className="w-2 h-2 rounded-full bg-blue-500" />
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <div className="font-medium flex items-center gap-2">
+                          <FileText className="h-4 w-4" />
+                          Depuis un modèle
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {templates?.length
+                            ? 'Utiliser un modèle pré-configuré avec des éléments'
+                            : 'Aucun modèle disponible pour cette émission'}
+                        </div>
+                      </div>
+                    </label>
+
+                    {/* Sélection du template et variables */}
+                    {creationMode === 'template' && templates && templates.length > 0 && (
+                      <div className="ml-7 space-y-3">
+                        <Select
+                          value={selectedTemplateId}
+                          onValueChange={setSelectedTemplateId}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Choisir un modèle" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {templates.map((template) => (
+                              <SelectItem key={template.id} value={template.id}>
+                                <div className="flex items-center gap-2">
+                                  <FileText className="h-4 w-4 text-gray-400" />
+                                  <span>{template.name}</span>
+                                  {template.isDefault && (
+                                    <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
+                                      Par défaut
+                                    </span>
+                                  )}
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+
+                        {/* Infos du template sélectionné */}
+                        {selectedTemplate && (
+                          <div className="p-3 bg-gray-50 rounded-lg space-y-2">
+                            <div className="flex items-center gap-4 text-sm text-gray-600">
+                              <span className="flex items-center gap-1">
+                                <FileText className="h-4 w-4" />
+                                {selectedTemplate.items.length} éléments
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-4 w-4" />
+                                {formatDuration(selectedTemplate.totalDuration)}
+                              </span>
+                            </div>
+
+                            {selectedTemplate.description && (
+                              <p className="text-sm text-gray-500">
+                                {selectedTemplate.description}
+                              </p>
+                            )}
+
+                            {/* Variables à remplir */}
+                            {selectedTemplate.variables &&
+                              (selectedTemplate.variables as unknown as TemplateVariable[]).length > 0 && (
+                                <div className="space-y-2 pt-2 border-t">
+                                  <Label className="text-sm font-medium">
+                                    Variables à remplir
+                                  </Label>
+                                  {(selectedTemplate.variables as unknown as TemplateVariable[]).map(
+                                    (variable) => (
+                                      <div key={variable.name} className="grid gap-1">
+                                        <Label
+                                          htmlFor={`var-${variable.name}`}
+                                          className="text-sm text-gray-600"
+                                        >
+                                          {variable.label}
+                                          {variable.required && (
+                                            <span className="text-red-500 ml-1">*</span>
+                                          )}
+                                        </Label>
+                                        <Input
+                                          id={`var-${variable.name}`}
+                                          value={templateVariables[variable.name] || ''}
+                                          onChange={(e) =>
+                                            setTemplateVariables((prev) => ({
+                                              ...prev,
+                                              [variable.name]: e.target.value,
+                                            }))
+                                          }
+                                          placeholder={variable.defaultValue || ''}
+                                          className="h-8"
+                                        />
+                                      </div>
+                                    )
+                                  )}
+                                </div>
+                              )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
+
             <DialogFooter>
               <Button
                 type="button"
@@ -205,9 +470,14 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
               </Button>
               <Button
                 type="submit"
-                disabled={!showId || !date || createRundown.isPending}
+                disabled={
+                  !showId ||
+                  !date ||
+                  isSubmitting ||
+                  (creationMode === 'template' && !selectedTemplateId)
+                }
               >
-                {createRundown.isPending ? 'Création...' : 'Créer'}
+                {isSubmitting ? 'Création...' : 'Créer le conducteur'}
               </Button>
             </DialogFooter>
           </form>
@@ -262,7 +532,7 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
                     </SelectContent>
                   </Select>
                 </div>
-                
+
                 <div className="grid gap-2">
                   <Label htmlFor="showDuration">Durée (minutes)</Label>
                   <Input
@@ -274,6 +544,23 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
                     onChange={(e) => setNewShowDuration(parseInt(e.target.value) || 60)}
                   />
                 </div>
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="showStartTime" className="flex items-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  Heure de début
+                </Label>
+                <Input
+                  id="showStartTime"
+                  type="time"
+                  value={newShowStartTime}
+                  onChange={(e) => setNewShowStartTime(e.target.value)}
+                  className="w-32"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Heure de début par défaut pour les conducteurs de cette émission
+                </p>
               </div>
 
               <div className="grid gap-2">

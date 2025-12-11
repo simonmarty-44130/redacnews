@@ -19,12 +19,13 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users           User[]
-  shows           Show[]
-  stories         Story[]
-  mediaItems      MediaItem[]
-  collections     Collection[]
-  montageProjects MontageProject[]
+  users            User[]
+  shows            Show[]
+  stories          Story[]
+  mediaItems       MediaItem[]
+  collections      Collection[]
+  montageProjects  MontageProject[]
+  rundownTemplates RundownTemplate[]
 }
 
 model User {
@@ -74,12 +75,14 @@ model Show {
   defaultDuration Int         @default(60) // minutes
   color          String       @default("#3B82F6")
   category       ShowCategory @default(MAGAZINE)
+  startTime      String       @default("12:00") // Format HH:mm - heure de debut par defaut
   organizationId String
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id])
   rundowns     Rundown[]
+  templates    RundownTemplate[]
 }
 
 model Rundown {
@@ -126,6 +129,10 @@ model RundownItem {
   // Texte a lire pour cet element (optionnel)
   // Si vide, le contenu du sujet lie sera utilise
   script      String?         @db.Text
+
+  // Google Doc associe pour le script (edition collaborative)
+  googleDocId    String?   // ID du Google Doc
+  googleDocUrl   String?   // URL d'edition
 
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
@@ -390,4 +397,43 @@ model MontageClip {
 
   @@index([trackId])
   @@index([mediaItemId])
+}
+
+// ============ TEMPLATES DE CONDUCTEUR ============
+
+model RundownTemplate {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  showId         String   // Émission associée
+  isDefault      Boolean  @default(false) // Template par défaut pour cette émission
+
+  // Variables configurables (JSON: [{name: "PAROISSE", label: "Nom de la paroisse", required: true}])
+  variables      Json?
+
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  show         Show                   @relation(fields: [showId], references: [id])
+  organization Organization           @relation(fields: [organizationId], references: [id])
+  items        RundownTemplateItem[]
+
+  @@index([showId])
+  @@index([organizationId])
+}
+
+model RundownTemplateItem {
+  id         String          @id @default(cuid())
+  templateId String
+  type       RundownItemType
+  title      String          // Peut contenir {{VARIABLE}}
+  duration   Int             // secondes
+  position   Int
+  notes      String?
+  script     String?         @db.Text // Texte à lire, peut contenir {{VARIABLE}}
+
+  template RundownTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
 }

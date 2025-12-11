@@ -50,6 +50,8 @@ interface RundownItemData {
   status: 'PENDING' | 'IN_PROGRESS' | 'READY' | 'ON_AIR' | 'DONE';
   notes?: string | null;
   script?: string | null;
+  googleDocId?: string | null;
+  googleDocUrl?: string | null;
   storyId?: string | null;
   assigneeId?: string | null;
   story?: {
@@ -211,15 +213,27 @@ export function RundownItem({
         itemTitle={item.title}
         currentScript={item.script || null}
         storyContent={item.story?.content}
+        googleDocId={item.googleDocId}
+        googleDocUrl={item.googleDocUrl}
         trigger={
           <Button
             variant="ghost"
             size="icon"
             className={cn(
               'h-8 w-8',
-              item.script ? 'text-blue-600' : 'text-gray-400'
+              item.googleDocUrl
+                ? 'text-green-600' // Google Doc existe
+                : item.script
+                  ? 'text-blue-600' // Script texte simple
+                  : 'text-gray-400' // Pas de script
             )}
-            title={item.script ? 'Script defini - Cliquer pour modifier' : 'Ajouter un script'}
+            title={
+              item.googleDocUrl
+                ? 'Google Doc - Cliquer pour editer'
+                : item.script
+                  ? 'Script defini - Cliquer pour modifier'
+                  : 'Ajouter un script'
+            }
           >
             <ScrollText className="h-4 w-4" />
           </Button>

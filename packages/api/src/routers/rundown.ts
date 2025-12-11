@@ -234,6 +234,7 @@ export const rundownRouter = router({
         defaultDuration: z.number().optional(),
         color: z.string().optional(),
         category: z.enum(['FLASH', 'JOURNAL', 'MAGAZINE', 'CHRONIQUE', 'AUTRE']).optional(),
+        startTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(), // Format HH:mm
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -242,6 +243,27 @@ export const rundownRouter = router({
           ...input,
           organizationId: ctx.organizationId!,
         },
+      });
+    }),
+
+  // Update show
+  updateShow: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        name: z.string().optional(),
+        description: z.string().optional(),
+        defaultDuration: z.number().optional(),
+        color: z.string().optional(),
+        category: z.enum(['FLASH', 'JOURNAL', 'MAGAZINE', 'CHRONIQUE', 'AUTRE']).optional(),
+        startTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(), // Format HH:mm
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+      return ctx.db.show.update({
+        where: { id },
+        data,
       });
     }),
 
@@ -427,5 +449,78 @@ export const rundownRouter = router({
       });
 
       return { success: true };
+    }),
+
+  // Create/link a Google Doc for a rundown item script
+  createItemDoc: protectedProcedure
+    .input(
+      z.object({
+        itemId: z.string(),
+        initialContent: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const item = await ctx.db.rundownItem.findUniqueOrThrow({
+        where: { id: input.itemId },
+        include: { rundown: { include: { show: true } } },
+      });
+
+      // If a doc already exists, return it
+      if (item.googleDocId) {
+        return {
+          googleDocId: item.googleDocId,
+          googleDocUrl: item.googleDocUrl,
+          isNew: false,
+        };
+      }
+
+      // Create the Google Doc
+      const { createStoryDoc, insertTextInDoc } = await import('../lib/google/docs');
+
+      const docTitle = `${item.rundown.show.name} - ${item.title}`;
+      const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+
+      const doc = await createStoryDoc(docTitle, folderId);
+
+      // If initial content provided (from template), insert it into the doc
+      if (input.initialContent) {
+        await insertTextInDoc(doc.id, input.initialContent);
+      }
+
+      // Save the reference
+      const updated = await ctx.db.rundownItem.update({
+        where: { id: input.itemId },
+        data: {
+          googleDocId: doc.id,
+          googleDocUrl: doc.url,
+        },
+      });
+
+      return {
+        googleDocId: updated.googleDocId,
+        googleDocUrl: updated.googleDocUrl,
+        isNew: true,
+      };
+    }),
+
+  // Sync Google Doc content to script field (for backup/prompter)
+  syncItemDoc: protectedProcedure
+    .input(z.object({ itemId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const item = await ctx.db.rundownItem.findUniqueOrThrow({
+        where: { id: input.itemId },
+      });
+
+      if (!item.googleDocId) {
+        throw new Error('Pas de Google Doc associe');
+      }
+
+      const { getDocContent } = await import('../lib/google/docs');
+      const content = await getDocContent(item.googleDocId);
+
+      return ctx.db.rundownItem.update({
+        where: { id: input.itemId },
+        data: { script: content },
+      });
     }),
 });

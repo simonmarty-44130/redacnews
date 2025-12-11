@@ -67,7 +67,12 @@ export const scriptRouter = router({
       });
 
       // Build prompter sections
+      // Utiliser l'heure de debut de l'emission (ou 12h00 par defaut)
       let currentTime = new Date(rundown.date);
+      const startTimeParts = (rundown.show.startTime || '12:00').split(':');
+      const startHour = parseInt(startTimeParts[0], 10) || 12;
+      const startMinute = parseInt(startTimeParts[1], 10) || 0;
+      currentTime.setHours(startHour, startMinute, 0, 0);
 
       const sections: PrompterSection[] = rundown.items.map((item) => {
         const section: PrompterSection = {
@@ -155,7 +160,12 @@ export const scriptRouter = router({
       content += `${format(rundown.date, 'EEEE d MMMM yyyy', { locale: fr })}\n`;
       content += `${'═'.repeat(60)}\n\n`;
 
+      // Utiliser l'heure de debut de l'emission (ou 12h00 par defaut)
       let currentTime = new Date(rundown.date);
+      const startTimeParts = (rundown.show.startTime || '12:00').split(':');
+      const startHour = parseInt(startTimeParts[0], 10) || 12;
+      const startMinute = parseInt(startTimeParts[1], 10) || 0;
+      currentTime.setHours(startHour, startMinute, 0, 0);
 
       for (const item of rundown.items) {
         const timeStr = format(currentTime, 'HH:mm');
