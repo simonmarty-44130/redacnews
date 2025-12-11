@@ -6,10 +6,21 @@ import { fr } from 'date-fns/locale';
 import { trpc } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
 
+interface LinkedRundownItem {
+  id: string;
+  title: string;
+  script: string | null;
+  duration: number;
+  type: string;
+  position: number;
+}
+
 interface LinkedRundownInfo {
   id: string;
   showName: string;
+  assigneeName: string | null;
   endCues: string[];
+  items: LinkedRundownItem[];
 }
 
 interface PrompterSection {
@@ -46,6 +57,7 @@ export default function PrompterPage({ params }: PageProps) {
   const [fontSize, setFontSize] = useState(36);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [showLinkedDetails, setShowLinkedDetails] = useState(true); // Toggle pour afficher/masquer les details des conducteurs imbriques
 
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -368,32 +380,62 @@ export default function PrompterPage({ params }: PageProps) {
                   </div>
                 )}
 
-              {/* Conducteur imbrique */}
+              {/* Conducteur imbrique - Affichage complet */}
               {section.linkedRundown && (
-                <div className="my-8 p-6 bg-purple-900/30 border-2 border-purple-400 rounded-lg">
-                  <div className="text-center text-purple-300 font-bold text-xl mb-4">
-                    &gt;&gt;&gt; {section.title} - {section.linkedRundown.showName} ({formatDuration(section.duration)}) &lt;&lt;&lt;
+                <div className="my-8">
+                  {/* Header du bloc imbrique */}
+                  <div className="bg-purple-600 text-white px-6 py-3 rounded-t-lg flex justify-between items-center">
+                    <div>
+                      <div className="font-bold text-xl">
+                        {section.linkedRundown.showName} — {section.linkedRundown.assigneeName || 'Autre presentateur'}
+                      </div>
+                      <div className="text-purple-200 text-sm">
+                        Duree : {formatDuration(section.duration)}
+                      </div>
+                    </div>
+                    {!showLinkedDetails && section.linkedRundown.items.length > 0 && (
+                      <span className="text-purple-200 text-sm">
+                        {section.linkedRundown.items.length} element{section.linkedRundown.items.length > 1 ? 's' : ''}
+                      </span>
+                    )}
                   </div>
 
-                  {section.linkedRundown.endCues.length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-purple-500/50">
-                      <div className="text-purple-400 text-sm mb-2">Reperes de fin :</div>
-                      {section.linkedRundown.endCues.map((cue, i) => (
-                        <div key={i} className="text-purple-200 italic text-lg mb-1">
-                          &quot;{cue}&quot;
+                  {/* Contenu detaille du conducteur imbrique - conditionnel */}
+                  {showLinkedDetails && section.linkedRundown.items.length > 0 && (
+                    <div className="bg-purple-900/20 border-2 border-purple-500 border-t-0 p-6">
+                      {section.linkedRundown.items.map((item, itemIndex) => (
+                        <div key={item.id} className="mb-6 last:mb-0">
+                          {/* Titre de l'element */}
+                          <div className="text-purple-400 font-semibold text-lg mb-2">
+                            {item.title}
+                          </div>
+
+                          {/* Texte du script */}
+                          {item.script && (
+                            <div className="text-purple-100 text-2xl leading-relaxed pl-4 border-l-4 border-purple-500 whitespace-pre-wrap">
+                              {item.script}
+                            </div>
+                          )}
+
+                          {/* Separateur entre elements */}
+                          {itemIndex < section.linkedRundown!.items.length - 1 && (
+                            <div className="border-b border-purple-500/30 mt-6" />
+                          )}
                         </div>
                       ))}
                     </div>
                   )}
 
-                  <div className="mt-4 text-center">
+                  {/* Indicateur de fin et lien */}
+                  <div className="bg-purple-600 text-white px-6 py-2 rounded-b-lg flex justify-between items-center text-sm">
+                    <span>← Fin {section.linkedRundown.showName} — Reprise antenne</span>
                     <a
                       href={`/prompteur/${section.linkedRundown.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-purple-300 underline text-sm hover:text-purple-100"
+                      className="text-purple-200 underline hover:text-white"
                     >
-                      Ouvrir le prompteur de {section.linkedRundown.showName} &rarr;
+                      Ouvrir le prompteur →
                     </a>
                   </div>
                 </div>
@@ -477,6 +519,18 @@ export default function PrompterPage({ params }: PageProps) {
           </div>
 
           <div className="flex items-center gap-6 text-gray-400">
+            <button
+              onClick={() => setShowLinkedDetails(!showLinkedDetails)}
+              className={cn(
+                'px-3 py-1 rounded text-sm transition-colors',
+                showLinkedDetails
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-gray-700 text-gray-400 hover:text-white'
+              )}
+            >
+              {showLinkedDetails ? 'Masquer details imbriques' : 'Afficher details imbriques'}
+            </button>
+
             <div>
               <span className="text-gray-500 mr-1">[+/-]</span>
               Vitesse:{' '}

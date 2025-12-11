@@ -5,10 +5,21 @@ import { fr } from 'date-fns/locale';
 import { getRundownEndCues } from '../lib/script-utils';
 
 // Types for the assembled script
+interface LinkedRundownItem {
+  id: string;
+  title: string;
+  script: string | null;
+  duration: number;
+  type: string;
+  position: number;
+}
+
 interface LinkedRundownInfo {
   id: string;
   showName: string;
+  assigneeName: string | null;
   endCues: string[]; // Les 2 dernieres phrases comme reperes de fin
+  items: LinkedRundownItem[]; // Tous les items du conducteur imbrique
 }
 
 interface PrompterSection {
@@ -70,17 +81,28 @@ export const scriptRouter = router({
                 },
                 orderBy: { position: 'asc' },
               },
-              // Conducteur imbrique avec ses items pour extraire les reperes de fin
+              // Conducteur imbrique avec tous ses items
               linkedRundown: {
                 include: {
                   show: true,
                   items: {
                     orderBy: { position: 'asc' },
                     select: {
+                      id: true,
+                      title: true,
                       script: true,
+                      duration: true,
+                      type: true,
                       position: true,
                     },
                   },
+                },
+              },
+              // Assignee pour le conducteur imbrique
+              assignee: {
+                select: {
+                  firstName: true,
+                  lastName: true,
                 },
               },
             },
@@ -100,10 +122,24 @@ export const scriptRouter = router({
         // Construire les infos du conducteur imbrique si present
         let linkedRundownInfo: LinkedRundownInfo | undefined;
         if (item.linkedRundown) {
+          // Nom de l'assignee (presentateur du conducteur imbrique)
+          const assigneeName = item.assignee
+            ? `${item.assignee.firstName || ''} ${item.assignee.lastName || ''}`.trim() || null
+            : null;
+
           linkedRundownInfo = {
             id: item.linkedRundown.id,
             showName: item.linkedRundown.show.name,
+            assigneeName,
             endCues: getRundownEndCues(item.linkedRundown.items),
+            items: item.linkedRundown.items.map((linkedItem) => ({
+              id: linkedItem.id,
+              title: linkedItem.title,
+              script: linkedItem.script,
+              duration: linkedItem.duration,
+              type: linkedItem.type,
+              position: linkedItem.position,
+            })),
           };
         }
 
