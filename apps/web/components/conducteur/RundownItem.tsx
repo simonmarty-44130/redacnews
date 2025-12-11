@@ -18,6 +18,8 @@ import {
   ChevronRight,
   Volume2,
   ScrollText,
+  Link2,
+  Unlink,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,6 +31,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { EditItemScriptDialog } from './EditItemScriptDialog';
+import { LinkRundownDialog } from './LinkRundownDialog';
 
 interface StoryMediaItem {
   id: string;
@@ -38,6 +41,15 @@ interface StoryMediaItem {
     type: string;
     duration: number | null;
     s3Url: string;
+  };
+}
+
+interface LinkedRundownInfo {
+  id: string;
+  show: {
+    id: string;
+    name: string;
+    color: string;
   };
 }
 
@@ -54,6 +66,8 @@ interface RundownItemData {
   googleDocUrl?: string | null;
   storyId?: string | null;
   assigneeId?: string | null;
+  linkedRundownId?: string | null;
+  linkedRundown?: LinkedRundownInfo | null;
   story?: {
     id: string;
     title: string;
@@ -70,10 +84,13 @@ interface RundownItemData {
 interface RundownItemProps {
   item: RundownItemData;
   startTime: string;
+  rundownId: string;
+  rundownDate: Date;
   onDelete?: () => void;
   onStatusChange?: (status: RundownItemData['status']) => void;
   onFocus?: () => void; // For collaborative cursor tracking
   onBlur?: () => void;
+  onLinkChange?: () => void;
 }
 
 const typeConfig = {
@@ -103,10 +120,13 @@ function formatDuration(seconds: number): string {
 export function RundownItem({
   item,
   startTime,
+  rundownId,
+  rundownDate,
   onDelete,
   onStatusChange,
   onFocus,
   onBlur,
+  onLinkChange,
 }: RundownItemProps) {
   const [mediaExpanded, setMediaExpanded] = useState(false);
   const {
@@ -199,6 +219,23 @@ export function RundownItem({
             {storyMedia.length} media{storyMedia.length > 1 ? 's' : ''} attache{storyMedia.length > 1 ? 's' : ''}
           </button>
         )}
+        {/* Linked rundown indicator */}
+        {item.linkedRundown && (
+          <div className="flex items-center gap-1.5 mt-1">
+            <div
+              className="w-2 h-2 rounded-full"
+              style={{ backgroundColor: item.linkedRundown.show.color }}
+            />
+            <Link2 className="h-3 w-3 text-purple-500" />
+            <Link
+              href={`/conducteur?id=${item.linkedRundown.id}`}
+              className="text-xs text-purple-600 hover:text-purple-800 hover:underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {item.linkedRundown.show.name}
+            </Link>
+          </div>
+        )}
       </div>
 
       {/* Duration */}
@@ -236,6 +273,35 @@ export function RundownItem({
             }
           >
             <ScrollText className="h-4 w-4" />
+          </Button>
+        }
+      />
+
+      {/* Link rundown button */}
+      <LinkRundownDialog
+        itemId={item.id}
+        itemTitle={item.title}
+        rundownId={rundownId}
+        rundownDate={rundownDate}
+        linkedRundown={item.linkedRundown}
+        onSuccess={onLinkChange}
+        trigger={
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              'h-8 w-8',
+              item.linkedRundown
+                ? 'text-purple-600' // Conducteur lie
+                : 'text-gray-400' // Pas de lien
+            )}
+            title={
+              item.linkedRundown
+                ? `Conducteur lie: ${item.linkedRundown.show.name}`
+                : 'Lier un conducteur imbrique'
+            }
+          >
+            <Link2 className="h-4 w-4" />
           </Button>
         }
       />

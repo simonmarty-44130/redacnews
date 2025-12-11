@@ -105,6 +105,9 @@ model Rundown {
 
   show  Show          @relation(fields: [showId], references: [id])
   items RundownItem[]
+
+  // Elements qui referencent ce conducteur comme imbrique
+  linkedFromItems RundownItem[] @relation("LinkedRundown")
 }
 
 enum RundownStatus {
@@ -133,6 +136,11 @@ model RundownItem {
   // Google Doc associe pour le script (edition collaborative)
   googleDocId    String?   // ID du Google Doc
   googleDocUrl   String?   // URL d'edition
+
+  // Conducteur imbrique (optionnel)
+  // Si defini, cet element represente un autre conducteur integre
+  linkedRundownId String?
+  linkedRundown   Rundown? @relation("LinkedRundown", fields: [linkedRundownId], references: [id])
 
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt

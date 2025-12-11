@@ -6,6 +6,12 @@ import { fr } from 'date-fns/locale';
 import { trpc } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
 
+interface LinkedRundownInfo {
+  id: string;
+  showName: string;
+  endCues: string[];
+}
+
 interface PrompterSection {
   id: string;
   time: string;
@@ -15,6 +21,7 @@ interface PrompterSection {
   content: string;
   soundCues: { title: string; duration: number | null }[];
   notes: string | null;
+  linkedRundown?: LinkedRundownInfo;
 }
 
 interface PageProps {
@@ -360,6 +367,37 @@ export default function PrompterPage({ params }: PageProps) {
                     {' '}&lt;&lt;&lt;
                   </div>
                 )}
+
+              {/* Conducteur imbrique */}
+              {section.linkedRundown && (
+                <div className="my-8 p-6 bg-purple-900/30 border-2 border-purple-400 rounded-lg">
+                  <div className="text-center text-purple-300 font-bold text-xl mb-4">
+                    &gt;&gt;&gt; {section.title} - {section.linkedRundown.showName} ({formatDuration(section.duration)}) &lt;&lt;&lt;
+                  </div>
+
+                  {section.linkedRundown.endCues.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-purple-500/50">
+                      <div className="text-purple-400 text-sm mb-2">Reperes de fin :</div>
+                      {section.linkedRundown.endCues.map((cue, i) => (
+                        <div key={i} className="text-purple-200 italic text-lg mb-1">
+                          &quot;{cue}&quot;
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="mt-4 text-center">
+                    <a
+                      href={`/prompteur/${section.linkedRundown.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-purple-300 underline text-sm hover:text-purple-100"
+                    >
+                      Ouvrir le prompteur de {section.linkedRundown.showName} &rarr;
+                    </a>
+                  </div>
+                </div>
+              )}
 
               {/* Notes if any */}
               {section.notes && (

@@ -61,6 +61,12 @@ export const rundownRouter = router({
               },
               assignee: true,
               media: { include: { mediaItem: true } },
+              // Conducteur lie (imbrique)
+              linkedRundown: {
+                include: {
+                  show: true,
+                },
+              },
             },
           },
         },
@@ -521,6 +527,150 @@ export const rundownRouter = router({
       return ctx.db.rundownItem.update({
         where: { id: input.itemId },
         data: { script: content },
+      });
+    }),
+
+  // === CONDUCTEURS IMBRIQUES ===
+
+  // Lier un conducteur existant a un element
+  linkRundownToItem: protectedProcedure
+    .input(
+      z.object({
+        itemId: z.string(),
+        linkedRundownId: z.string().nullable(), // null pour supprimer le lien
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Si on lie un conducteur, verifier qu'il existe et appartient a la meme organisation
+      if (input.linkedRundownId) {
+        const linkedRundown = await ctx.db.rundown.findUniqueOrThrow({
+          where: { id: input.linkedRundownId },
+          include: { show: true },
+        });
+
+        // Verifier que le conducteur lie est dans la meme organisation
+        if (linkedRundown.show.organizationId !== ctx.organizationId) {
+          throw new Error('Le conducteur doit appartenir a la meme organisation');
+        }
+
+        // Verifier qu'on ne cree pas de boucle (l'element ne peut pas pointer vers son propre conducteur)
+        const item = await ctx.db.rundownItem.findUniqueOrThrow({
+          where: { id: input.itemId },
+        });
+
+        if (item.rundownId === input.linkedRundownId) {
+          throw new Error('Un element ne peut pas pointer vers son propre conducteur');
+        }
+      }
+
+      // Mettre a jour l'element
+      return ctx.db.rundownItem.update({
+        where: { id: input.itemId },
+        data: { linkedRundownId: input.linkedRundownId },
+        include: {
+          linkedRundown: {
+            include: {
+              show: true,
+            },
+          },
+        },
+      });
+    }),
+
+  // Creer un conducteur enfant et le lier automatiquement a un element
+  createLinkedRundown: protectedProcedure
+    .input(
+      z.object({
+        parentItemId: z.string(), // L'element parent qui contiendra le lien
+        showId: z.string(), // L'emission du conducteur enfant (ex: Flash Info)
+        date: z.date(),
+        templateId: z.string().optional(), // Optionnel: creer depuis un template
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verifier que l'emission existe et appartient a l'organisation
+      const show = await ctx.db.show.findUniqueOrThrow({
+        where: { id: input.showId },
+      });
+
+      if (show.organizationId !== ctx.organizationId) {
+        throw new Error("L'emission doit appartenir a votre organisation");
+      }
+
+      // Creer le conducteur enfant
+      let childRundown;
+
+      if (input.templateId) {
+        // Importer les utils de template
+        const { applyTemplate } = await import('../lib/template-utils');
+
+        // Recuperer le template
+        const template = await ctx.db.rundownTemplate.findUniqueOrThrow({
+          where: { id: input.templateId },
+          include: { items: { orderBy: { position: 'asc' } } },
+        });
+
+        // Creer le conducteur
+        childRundown = await ctx.db.rundown.create({
+          data: {
+            showId: input.showId,
+            date: input.date,
+          },
+        });
+
+        // Appliquer le template
+        const variables: Record<string, string> = {};
+        await applyTemplate(ctx.db, childRundown.id, template, variables);
+      } else {
+        // Creer un conducteur vide
+        childRundown = await ctx.db.rundown.create({
+          data: {
+            showId: input.showId,
+            date: input.date,
+          },
+        });
+      }
+
+      // Lier au parent
+      await ctx.db.rundownItem.update({
+        where: { id: input.parentItemId },
+        data: { linkedRundownId: childRundown.id },
+      });
+
+      return ctx.db.rundown.findUniqueOrThrow({
+        where: { id: childRundown.id },
+        include: { show: true },
+      });
+    }),
+
+  // Liste des conducteurs disponibles pour liaison (meme date +/- 1 jour)
+  listAvailableForLinking: protectedProcedure
+    .input(
+      z.object({
+        currentRundownId: z.string(), // Pour exclure le conducteur actuel
+        date: z.date(), // Date de reference
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      // Calculer la plage de dates (+/- 1 jour)
+      const dateFrom = new Date(input.date);
+      dateFrom.setDate(dateFrom.getDate() - 1);
+      const dateTo = new Date(input.date);
+      dateTo.setDate(dateTo.getDate() + 1);
+
+      return ctx.db.rundown.findMany({
+        where: {
+          show: { organizationId: ctx.organizationId },
+          id: { not: input.currentRundownId },
+          date: {
+            gte: dateFrom,
+            lte: dateTo,
+          },
+        },
+        include: {
+          show: true,
+        },
+        orderBy: [{ date: 'asc' }, { show: { name: 'asc' } }],
       });
     }),
 });

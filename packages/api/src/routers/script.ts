@@ -2,8 +2,15 @@ import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
 import { format, addSeconds } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { getRundownEndCues } from '../lib/script-utils';
 
 // Types for the assembled script
+interface LinkedRundownInfo {
+  id: string;
+  showName: string;
+  endCues: string[]; // Les 2 dernieres phrases comme reperes de fin
+}
+
 interface PrompterSection {
   id: string;
   time: string;
@@ -13,6 +20,8 @@ interface PrompterSection {
   content: string;
   soundCues: { title: string; duration: number | null }[];
   notes: string | null;
+  // Info conducteur imbrique (optionnel)
+  linkedRundown?: LinkedRundownInfo;
 }
 
 // Helper to format duration
@@ -61,6 +70,19 @@ export const scriptRouter = router({
                 },
                 orderBy: { position: 'asc' },
               },
+              // Conducteur imbrique avec ses items pour extraire les reperes de fin
+              linkedRundown: {
+                include: {
+                  show: true,
+                  items: {
+                    orderBy: { position: 'asc' },
+                    select: {
+                      script: true,
+                      position: true,
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -75,6 +97,16 @@ export const scriptRouter = router({
       currentTime.setHours(startHour, startMinute, 0, 0);
 
       const sections: PrompterSection[] = rundown.items.map((item) => {
+        // Construire les infos du conducteur imbrique si present
+        let linkedRundownInfo: LinkedRundownInfo | undefined;
+        if (item.linkedRundown) {
+          linkedRundownInfo = {
+            id: item.linkedRundown.id,
+            showName: item.linkedRundown.show.name,
+            endCues: getRundownEndCues(item.linkedRundown.items),
+          };
+        }
+
         const section: PrompterSection = {
           id: item.id,
           time: format(currentTime, 'HH:mm'),
@@ -89,6 +121,8 @@ export const scriptRouter = router({
             duration: m.mediaItem.duration,
           })) || [],
           notes: item.notes,
+          // Conducteur imbrique
+          linkedRundown: linkedRundownInfo,
         };
 
         currentTime = addSeconds(currentTime, item.duration);

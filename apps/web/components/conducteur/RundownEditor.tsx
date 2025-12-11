@@ -248,10 +248,13 @@ export function RundownEditor({ rundownId }: RundownEditorProps) {
                     key={item.id}
                     item={item}
                     startTime={timing.startTimes[item.id] || '--:--:--'}
+                    rundownId={rundownId}
+                    rundownDate={new Date(rundown.date)}
                     onDelete={() => handleDeleteItem(item.id)}
                     onStatusChange={(status) =>
                       handleStatusChange(item.id, status)
                     }
+                    onLinkChange={() => utils.rundown.get.invalidate({ id: rundownId })}
                   />
                 ))}
               </div>
