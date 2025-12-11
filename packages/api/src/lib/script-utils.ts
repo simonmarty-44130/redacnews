@@ -65,3 +65,43 @@ export function formatDurationScript(seconds: number): string {
   const sec = seconds % 60;
   return sec > 0 ? `${min}'${sec.toString().padStart(2, '0')}"` : `${min}'00"`;
 }
+
+/**
+ * Etat d'un conducteur imbrique pour l'indicateur visuel
+ */
+export type LinkedRundownState = 'empty' | 'draft' | 'ready';
+
+/**
+ * Calcule l'etat d'un conducteur imbrique pour l'indicateur visuel
+ * - 'ready': Conducteur marque READY ou ON_AIR (vert)
+ * - 'draft': Conducteur en cours avec >30% de contenu (orange)
+ * - 'empty': Conducteur vide ou < 30% rempli (rouge)
+ *
+ * @param linkedRundown Le conducteur lie avec son statut et ses items
+ * @returns L'etat du conducteur
+ */
+export function getLinkedRundownState(linkedRundown: {
+  status: string;
+  items: Array<{ script: string | null; googleDocId: string | null }>;
+}): LinkedRundownState {
+  // Si marque READY ou ON_AIR → vert
+  if (linkedRundown.status === 'READY' || linkedRundown.status === 'ON_AIR') {
+    return 'ready';
+  }
+
+  // Calculer le taux de remplissage
+  const total = linkedRundown.items.length;
+  if (total === 0) return 'empty';
+
+  const filled = linkedRundown.items.filter(
+    (item) => item.script || item.googleDocId
+  ).length;
+
+  const fillRate = filled / total;
+
+  // < 30% rempli → rouge
+  if (fillRate < 0.3) return 'empty';
+
+  // Sinon → orange (en cours)
+  return 'draft';
+}

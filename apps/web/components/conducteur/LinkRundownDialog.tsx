@@ -31,11 +31,17 @@ type LinkMode = 'existing' | 'create';
 
 interface LinkedRundownInfo {
   id: string;
+  status: string;
   show: {
     id: string;
     name: string;
     color: string;
   };
+  items: Array<{
+    id: string;
+    script: string | null;
+    googleDocId: string | null;
+  }>;
 }
 
 interface LinkRundownDialogProps {

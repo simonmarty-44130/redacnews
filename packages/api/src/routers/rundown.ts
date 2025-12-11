@@ -61,10 +61,25 @@ export const rundownRouter = router({
               },
               assignee: true,
               media: { include: { mediaItem: true } },
-              // Conducteur lie (imbrique)
+              // Conducteur lie (imbrique) avec infos pour l'indicateur de statut
               linkedRundown: {
-                include: {
-                  show: true,
+                select: {
+                  id: true,
+                  status: true,
+                  show: {
+                    select: {
+                      id: true,
+                      name: true,
+                      color: true,
+                    },
+                  },
+                  items: {
+                    select: {
+                      id: true,
+                      script: true,
+                      googleDocId: true,
+                    },
+                  },
                 },
               },
             },

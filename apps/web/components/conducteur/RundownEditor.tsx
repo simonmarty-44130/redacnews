@@ -41,9 +41,14 @@ const statusColors = {
 };
 
 export function RundownEditor({ rundownId }: RundownEditorProps) {
-  const { data: rundown, isLoading } = trpc.rundown.get.useQuery({
-    id: rundownId,
-  });
+  const { data: rundown, isLoading } = trpc.rundown.get.useQuery(
+    { id: rundownId },
+    {
+      // Rafraichir toutes les 15 secondes pour voir les mises a jour
+      // des conducteurs imbriques (statut, contenu)
+      refetchInterval: 15000,
+    }
+  );
 
   const utils = trpc.useUtils();
 

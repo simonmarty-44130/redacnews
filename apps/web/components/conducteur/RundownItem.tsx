@@ -46,11 +46,45 @@ interface StoryMediaItem {
 
 interface LinkedRundownInfo {
   id: string;
+  status: string;
   show: {
     id: string;
     name: string;
     color: string;
   };
+  items: Array<{
+    id: string;
+    script: string | null;
+    googleDocId: string | null;
+  }>;
+}
+
+type LinkedRundownState = 'empty' | 'draft' | 'ready';
+
+/**
+ * Calcule l'etat d'un conducteur imbrique pour l'indicateur visuel
+ */
+function getLinkedRundownState(linkedRundown: LinkedRundownInfo): LinkedRundownState {
+  // Si marque READY ou ON_AIR → vert
+  if (linkedRundown.status === 'READY' || linkedRundown.status === 'ON_AIR') {
+    return 'ready';
+  }
+
+  // Calculer le taux de remplissage
+  const total = linkedRundown.items.length;
+  if (total === 0) return 'empty';
+
+  const filled = linkedRundown.items.filter(
+    (item) => item.script || item.googleDocId
+  ).length;
+
+  const fillRate = filled / total;
+
+  // < 30% rempli → rouge
+  if (fillRate < 0.3) return 'empty';
+
+  // Sinon → orange (en cours)
+  return 'draft';
 }
 
 interface RundownItemData {
@@ -219,24 +253,59 @@ export function RundownItem({
             {storyMedia.length} media{storyMedia.length > 1 ? 's' : ''} attache{storyMedia.length > 1 ? 's' : ''}
           </button>
         )}
-        {/* Linked rundown indicator */}
-        {item.linkedRundown && (
-          <div className="flex items-center gap-1.5 mt-1">
-            <div
-              className="w-2 h-2 rounded-full"
-              style={{ backgroundColor: item.linkedRundown.show.color }}
+      </div>
+
+      {/* Linked rundown indicator with status */}
+      {item.linkedRundown && (() => {
+        const state = getLinkedRundownState(item.linkedRundown);
+        return (
+          <div
+            className={cn(
+              'flex items-center gap-2 px-3 py-2 rounded-lg border-2 col-span-full ml-14',
+              state === 'ready' && 'border-green-500 bg-green-50',
+              state === 'draft' && 'border-orange-500 bg-orange-50',
+              state === 'empty' && 'border-red-500 bg-red-50'
+            )}
+          >
+            <Link2
+              className={cn(
+                'h-4 w-4',
+                state === 'ready' && 'text-green-600',
+                state === 'draft' && 'text-orange-600',
+                state === 'empty' && 'text-red-600'
+              )}
             />
-            <Link2 className="h-3 w-3 text-purple-500" />
+
+            <span className="text-sm font-medium">
+              {item.linkedRundown.show.name}
+            </span>
+
+            <span
+              className={cn(
+                'text-xs px-2 py-0.5 rounded-full',
+                state === 'ready' && 'bg-green-200 text-green-800',
+                state === 'draft' && 'bg-orange-200 text-orange-800',
+                state === 'empty' && 'bg-red-200 text-red-800'
+              )}
+            >
+              {state === 'ready' && 'Pret'}
+              {state === 'draft' && 'En cours...'}
+              {state === 'empty' && 'A remplir'}
+            </span>
+
             <Link
               href={`/conducteur?id=${item.linkedRundown.id}`}
-              className="text-xs text-purple-600 hover:text-purple-800 hover:underline"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-auto text-xs text-blue-600 hover:underline flex items-center gap-1"
               onClick={(e) => e.stopPropagation()}
             >
-              {item.linkedRundown.show.name}
+              Ouvrir
+              <ExternalLink className="h-3 w-3" />
             </Link>
           </div>
-        )}
-      </div>
+        );
+      })()}
 
       {/* Duration */}
       <div className="flex items-center gap-1 text-sm text-gray-600">
