@@ -6,6 +6,8 @@ import { storyMediaRouter } from './routers/storyMedia';
 import { montageRouter } from './routers/montage';
 import { scriptRouter } from './routers/script';
 import { templateRouter } from './routers/template';
+import { rundownGuestRouter } from './routers/rundown-guest';
+import { politicsRouter } from './routers/politics';
 
 export const appRouter = router({
   rundown: rundownRouter,
@@ -15,6 +17,8 @@ export const appRouter = router({
   montage: montageRouter,
   script: scriptRouter,
   template: templateRouter,
+  rundownGuest: rundownGuestRouter,
+  politics: politicsRouter,
 });
 
 export type AppRouter = typeof appRouter;

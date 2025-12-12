@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Save, Clock, Tag, User, FileText, Trash2, RefreshCw, Link2, Music } from 'lucide-react';
+import { Save, Clock, Tag, User, FileText, Trash2, RefreshCw, Link2, Music, Vote } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,8 +20,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { GoogleDocEmbed } from './GoogleDocEmbed';
 import { MediaPicker } from './MediaPicker';
 import { LinkedMediaList } from './LinkedMediaList';
+import { PoliticalTagSelector } from '@/components/politics';
 import { trpc } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
+import type { ElectionTypeCode } from '@/lib/politics/config';
 
 const CATEGORIES = [
   'Actualite',
@@ -64,6 +66,7 @@ export function StoryEditor({ storyId, onClose, onDelete }: StoryEditorProps) {
   const [category, setCategory] = useState('');
   const [estimatedDuration, setEstimatedDuration] = useState<number | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
+  const [electionType, setElectionType] = useState<ElectionTypeCode | null>(null);
 
   const updateStory = trpc.story.update.useMutation({
     onSuccess: () => {
@@ -98,6 +101,7 @@ export function StoryEditor({ storyId, onClose, onDelete }: StoryEditorProps) {
       setStatus(story.status);
       setCategory(story.category || '');
       setEstimatedDuration(story.estimatedDuration);
+      setElectionType((story.electionType as ElectionTypeCode) || null);
       setHasChanges(false);
     }
   }, [story]);
@@ -399,6 +403,40 @@ Chaque phrase devrait etre comprehensible independamment."
             </div>
             <LinkedMediaList storyId={storyId} />
           </div>
+
+          <Separator />
+
+          {/* Section Pluralisme politique */}
+          {(category === 'Politique' || electionType) && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Vote className="h-4 w-4 text-gray-500" />
+                <Label>Pluralisme politique (ARCOM)</Label>
+              </div>
+              <div className="bg-blue-50 rounded-lg p-4">
+                <PoliticalTagSelector
+                  storyId={storyId}
+                  electionType={electionType}
+                  onElectionTypeChange={(type) => setElectionType(type)}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Bouton pour afficher la section politique si categorie n'est pas Politique */}
+          {category !== 'Politique' && !electionType && (
+            <div className="text-center py-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setElectionType('OTHER')}
+                className="text-blue-600"
+              >
+                <Vote className="h-4 w-4 mr-2" />
+                Ajouter des etiquettes politiques
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </div>
