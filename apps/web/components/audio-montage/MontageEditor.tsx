@@ -559,6 +559,169 @@ export function MontageEditor({
     setOutPoint(null);
   }, []);
 
+  // Supprimer la région entre In et Out (ripple delete)
+  const deleteInOutRegion = useCallback(async () => {
+    if (inPoint === null || outPoint === null || inPoint >= outPoint) {
+      console.log('[MontageEditor] Invalid In/Out points for delete');
+      return;
+    }
+
+    const regionStart = inPoint;
+    const regionEnd = outPoint;
+    const regionDuration = regionEnd - regionStart;
+
+    console.log('[MontageEditor] Deleting region from', regionStart.toFixed(2), 'to', regionEnd.toFixed(2));
+
+    // Pour chaque piste, traiter les clips affectés
+    for (const track of project.tracks) {
+      const clipsToProcess: Clip[] = [];
+      const clipsToDelete: string[] = [];
+      const clipsToAdd: Omit<Clip, 'id' | 'trackId'>[] = [];
+      const clipsToUpdate: { id: string; updates: Partial<Clip> }[] = [];
+
+      for (const clip of track.clips) {
+        const clipDuration = clip.outPoint - clip.inPoint;
+        const clipEnd = clip.startTime + clipDuration;
+
+        // Cas 1: Clip entièrement avant la région - pas affecté
+        if (clipEnd <= regionStart) {
+          continue;
+        }
+
+        // Cas 2: Clip entièrement après la région - décaler vers la gauche
+        if (clip.startTime >= regionEnd) {
+          clipsToUpdate.push({
+            id: clip.id,
+            updates: { startTime: clip.startTime - regionDuration }
+          });
+          continue;
+        }
+
+        // Cas 3: Clip entièrement dans la région - supprimer
+        if (clip.startTime >= regionStart && clipEnd <= regionEnd) {
+          clipsToDelete.push(clip.id);
+          continue;
+        }
+
+        // Cas 4: Clip chevauche le début de la région (clip commence avant, finit dans/après)
+        if (clip.startTime < regionStart && clipEnd > regionStart) {
+          // Partie avant la région
+          const cutPointInSource = regionStart - clip.startTime + clip.inPoint;
+
+          if (clipEnd <= regionEnd) {
+            // Le clip finit dans la région - garder seulement la partie avant
+            clipsToUpdate.push({
+              id: clip.id,
+              updates: { outPoint: cutPointInSource }
+            });
+          } else {
+            // Le clip traverse toute la région - diviser en deux et supprimer le milieu
+            // Garder la partie avant
+            clipsToUpdate.push({
+              id: clip.id,
+              updates: { outPoint: cutPointInSource }
+            });
+
+            // Créer la partie après (décalée)
+            const afterCutInSource = regionEnd - clip.startTime + clip.inPoint;
+            clipsToAdd.push({
+              name: clip.name,
+              mediaItemId: clip.mediaItemId,
+              sourceUrl: clip.sourceUrl,
+              sourceDuration: clip.sourceDuration,
+              startTime: regionStart, // Rejoint le point de coupe
+              inPoint: afterCutInSource,
+              outPoint: clip.outPoint,
+              volume: clip.volume,
+              fadeInDuration: 0,
+              fadeOutDuration: clip.fadeOutDuration,
+            });
+          }
+          continue;
+        }
+
+        // Cas 5: Clip commence dans la région mais finit après
+        if (clip.startTime >= regionStart && clip.startTime < regionEnd && clipEnd > regionEnd) {
+          // Couper le début et décaler
+          const cutPointInSource = regionEnd - clip.startTime + clip.inPoint;
+          clipsToUpdate.push({
+            id: clip.id,
+            updates: {
+              startTime: regionStart,
+              inPoint: cutPointInSource
+            }
+          });
+          continue;
+        }
+      }
+
+      // Appliquer les modifications
+      for (const clipId of clipsToDelete) {
+        await onDeleteClip(clipId);
+      }
+
+      for (const { id, updates } of clipsToUpdate) {
+        await onUpdateClip(id, updates);
+      }
+
+      for (const clipData of clipsToAdd) {
+        await onAddClip(track.id, clipData);
+      }
+    }
+
+    // Mettre à jour le state local
+    setProject((prev) => ({
+      ...prev,
+      tracks: prev.tracks.map((track) => {
+        let updatedClips = track.clips
+          .filter((clip) => {
+            const clipDuration = clip.outPoint - clip.inPoint;
+            const clipEnd = clip.startTime + clipDuration;
+            // Supprimer les clips entièrement dans la région
+            return !(clip.startTime >= regionStart && clipEnd <= regionEnd);
+          })
+          .map((clip) => {
+            const clipDuration = clip.outPoint - clip.inPoint;
+            const clipEnd = clip.startTime + clipDuration;
+
+            // Décaler les clips après la région
+            if (clip.startTime >= regionEnd) {
+              return { ...clip, startTime: clip.startTime - regionDuration };
+            }
+
+            // Tronquer les clips qui chevauchent le début
+            if (clip.startTime < regionStart && clipEnd > regionStart) {
+              const cutPointInSource = regionStart - clip.startTime + clip.inPoint;
+              if (clipEnd <= regionEnd) {
+                return { ...clip, outPoint: cutPointInSource };
+              }
+              // Pour les clips qui traversent - on garde juste la partie avant
+              // La partie après sera ajoutée séparément
+              return { ...clip, outPoint: cutPointInSource };
+            }
+
+            // Clips qui commencent dans la région mais finissent après
+            if (clip.startTime >= regionStart && clip.startTime < regionEnd && clipEnd > regionEnd) {
+              const cutPointInSource = regionEnd - clip.startTime + clip.inPoint;
+              return {
+                ...clip,
+                startTime: regionStart,
+                inPoint: cutPointInSource
+              };
+            }
+
+            return clip;
+          });
+
+        return { ...track, clips: updatedClips };
+      }),
+    }));
+
+    setHasUnsavedChanges(true);
+    clearInOutPoints();
+    console.log('[MontageEditor] Region deleted, clips shifted by', regionDuration.toFixed(2), 'seconds');
+  }, [inPoint, outPoint, project.tracks, onDeleteClip, onUpdateClip, onAddClip, clearInOutPoints]);
+
   // Couper un clip à la position de la playhead
   const cutAtPlayhead = useCallback(async () => {
     // Trouver le clip sous la playhead
@@ -900,9 +1063,13 @@ export function MontageEditor({
           console.log('[MontageEditor] Out point set at', currentTime.toFixed(2));
           break;
         case 'KeyX':
-          // Couper à la position de la playhead
+          // Couper : si In/Out définis, supprimer la région, sinon couper à la playhead
           e.preventDefault();
-          cutAtPlayhead();
+          if (inPoint !== null && outPoint !== null) {
+            deleteInOutRegion();
+          } else {
+            cutAtPlayhead();
+          }
           break;
         case 'KeyR':
           // Toggle mode rasoir
@@ -951,7 +1118,7 @@ export function MontageEditor({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, selectedClipId, currentTime, cutAtPlayhead, clearInOutPoints, project.tracks, handleClipVolumeChange]);
+  }, [isPlaying, selectedClipId, currentTime, inPoint, outPoint, cutAtPlayhead, deleteInOutRegion, clearInOutPoints, project.tracks, handleClipVolumeChange]);
 
   return (
     <DndProvider backend={HTML5Backend}>
@@ -1030,7 +1197,7 @@ export function MontageEditor({
           onSetInPoint={() => setInPoint(currentTime)}
           onSetOutPoint={() => setOutPoint(currentTime)}
           onClearInOutPoints={clearInOutPoints}
-          onCut={cutAtPlayhead}
+          onCut={inPoint !== null && outPoint !== null ? deleteInOutRegion : cutAtPlayhead}
           onImport={() => setIsImportDialogOpen(true)}
         />
 
