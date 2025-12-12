@@ -121,9 +121,33 @@ export const storyRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.db.story.delete({
+      // Vérifier si le story existe d'abord
+      const story = await ctx.db.story.findUnique({
         where: { id: input.id },
       });
+
+      if (!story) {
+        // Story déjà supprimé ou n'existe pas - pas d'erreur
+        return { success: true, alreadyDeleted: true };
+      }
+
+      // Vérifier que le story appartient à l'organisation
+      if (story.organizationId !== ctx.organizationId) {
+        throw new Error('Non autorisé');
+      }
+
+      // Dissocier le story des RundownItems (mettre storyId à null)
+      await ctx.db.rundownItem.updateMany({
+        where: { storyId: input.id },
+        data: { storyId: null },
+      });
+
+      // Supprimer le story (StoryMedia et Comments seront supprimés en cascade)
+      await ctx.db.story.delete({
+        where: { id: input.id },
+      });
+
+      return { success: true, alreadyDeleted: false };
     }),
 
   // Create story with Google Doc

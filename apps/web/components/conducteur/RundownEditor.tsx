@@ -18,11 +18,28 @@ import {
 } from '@dnd-kit/sortable';
 import { format, addSeconds, parse } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { Clock, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Clock, AlertTriangle, ChevronLeft, ChevronRight, Presentation, MoreHorizontal, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { RundownItem } from './RundownItem';
 import { AddItemDialog } from './AddItemDialog';
 import { GenerateScriptButton } from './GenerateScriptButton';
@@ -41,11 +58,28 @@ const statusColors = {
 };
 
 export function RundownEditor({ rundownId }: RundownEditorProps) {
-  const { data: rundown, isLoading } = trpc.rundown.get.useQuery({
-    id: rundownId,
-  });
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const router = useRouter();
+
+  const { data: rundown, isLoading } = trpc.rundown.get.useQuery(
+    { id: rundownId },
+    {
+      // Rafraichir toutes les 15 secondes pour voir les mises a jour
+      // des conducteurs imbriques (statut, contenu)
+      refetchInterval: 15000,
+    }
+  );
 
   const utils = trpc.useUtils();
+
+  const deleteRundown = trpc.rundown.delete.useMutation({
+    onSuccess: () => {
+      utils.rundown.list.invalidate();
+      // Recharger la page pour revenir à la liste
+      router.refresh();
+      window.location.reload();
+    },
+  });
 
   const reorderItems = trpc.rundown.reorderItems.useMutation({
     onSuccess: () => {
@@ -176,12 +210,37 @@ export function RundownEditor({ rundownId }: RundownEditorProps) {
               existingScriptUrl={rundown.scriptDocUrl}
               existingScriptGeneratedAt={rundown.scriptGeneratedAt}
             />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.open(`/prompteur/${rundownId}`, '_blank')}
+              title="Ouvrir le prompteur dans une nouvelle fenetre"
+            >
+              <Presentation className="h-4 w-4 mr-2" />
+              Prompteur
+            </Button>
             <Badge className={statusColors[rundown.status]}>
               {rundown.status === 'DRAFT' && 'Brouillon'}
               {rundown.status === 'READY' && 'Pret'}
               {rundown.status === 'ON_AIR' && 'A l\'antenne'}
               {rundown.status === 'ARCHIVED' && 'Archive'}
             </Badge>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon">
+                  <MoreHorizontal className="h-5 w-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  className="text-red-600 focus:text-red-600"
+                  onClick={() => setShowDeleteDialog(true)}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Supprimer ce conducteur
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -239,10 +298,13 @@ export function RundownEditor({ rundownId }: RundownEditorProps) {
                     key={item.id}
                     item={item}
                     startTime={timing.startTimes[item.id] || '--:--:--'}
+                    rundownId={rundownId}
+                    rundownDate={new Date(rundown.date)}
                     onDelete={() => handleDeleteItem(item.id)}
                     onStatusChange={(status) =>
                       handleStatusChange(item.id, status)
                     }
+                    onLinkChange={() => utils.rundown.get.invalidate({ id: rundownId })}
                   />
                 ))}
               </div>
@@ -255,6 +317,27 @@ export function RundownEditor({ rundownId }: RundownEditorProps) {
           </div>
         </div>
       </ScrollArea>
+
+      {/* Dialog de confirmation de suppression */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer ce conducteur ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette action est irreversible. Tous les elements du conducteur seront supprimes.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => deleteRundown.mutate({ id: rundownId })}
+            >
+              {deleteRundown.isPending ? 'Suppression...' : 'Supprimer'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -1,0 +1,756 @@
+import { z } from 'zod';
+import { router, protectedProcedure } from '../trpc';
+import { TRPCError } from '@trpc/server';
+
+// Enums Zod pour validation
+const ElectionTypeEnum = z.enum([
+  'MUNICIPALES',
+  'LEGISLATIVES',
+  'PRESIDENTIELLE',
+  'EUROPEENNES',
+  'REGIONALES',
+  'DEPARTEMENTALES',
+  'SENATORIALES',
+  'OTHER',
+]);
+
+const PoliticalFamilyEnum = z.enum([
+  'EXG',
+  'GAU',
+  'ECO',
+  'CEN',
+  'DRO',
+  'EXD',
+  'DIV',
+  'AUT',
+]);
+
+// Seuils pour les alertes
+const THRESHOLDS = {
+  WARNING_MAX: 30,
+  WARNING_MIN: 5,
+  DANGER_MAX: 40,
+  DANGER_MIN: 0,
+};
+
+export const politicsRouter = router({
+  // ============ GESTION DES TAGS POLITIQUES ============
+
+  // Créer un nouveau tag politique
+  createTag: protectedProcedure
+    .input(
+      z.object({
+        family: PoliticalFamilyEnum,
+        partyName: z.string().optional(),
+        candidateName: z.string().optional(),
+        electionType: ElectionTypeEnum.optional(),
+        electionYear: z.number().int().min(2000).max(2100).optional(),
+        constituency: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.organizationId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED' });
+      }
+
+      return ctx.db.politicalTag.create({
+        data: {
+          ...input,
+          organizationId: ctx.organizationId,
+        },
+      });
+    }),
+
+  // Lister les tags politiques de l'organisation
+  listTags: protectedProcedure
+    .input(
+      z.object({
+        electionType: ElectionTypeEnum.optional(),
+        electionYear: z.number().optional(),
+        family: PoliticalFamilyEnum.optional(),
+      }).optional()
+    )
+    .query(async ({ ctx, input }) => {
+      if (!ctx.organizationId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED' });
+      }
+
+      return ctx.db.politicalTag.findMany({
+        where: {
+          organizationId: ctx.organizationId,
+          ...(input?.electionType && { electionType: input.electionType }),
+          ...(input?.electionYear && { electionYear: input.electionYear }),
+          ...(input?.family && { family: input.family }),
+        },
+        orderBy: [
+          { family: 'asc' },
+          { partyName: 'asc' },
+        ],
+        include: {
+          _count: {
+            select: { stories: true },
+          },
+        },
+      });
+    }),
+
+  // Obtenir un tag politique par ID
+  getTag: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const tag = await ctx.db.politicalTag.findUnique({
+        where: { id: input.id },
+        include: {
+          stories: {
+            include: {
+              story: {
+                select: {
+                  id: true,
+                  title: true,
+                  createdAt: true,
+                  status: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!tag || tag.organizationId !== ctx.organizationId) {
+        throw new TRPCError({ code: 'NOT_FOUND' });
+      }
+
+      return tag;
+    }),
+
+  // Mettre à jour un tag politique
+  updateTag: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        family: PoliticalFamilyEnum.optional(),
+        partyName: z.string().optional(),
+        candidateName: z.string().optional(),
+        electionType: ElectionTypeEnum.optional(),
+        electionYear: z.number().int().min(2000).max(2100).optional(),
+        constituency: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+
+      const tag = await ctx.db.politicalTag.findUnique({
+        where: { id },
+      });
+
+      if (!tag || tag.organizationId !== ctx.organizationId) {
+        throw new TRPCError({ code: 'NOT_FOUND' });
+      }
+
+      return ctx.db.politicalTag.update({
+        where: { id },
+        data,
+      });
+    }),
+
+  // Supprimer un tag politique
+  deleteTag: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const tag = await ctx.db.politicalTag.findUnique({
+        where: { id: input.id },
+      });
+
+      if (!tag || tag.organizationId !== ctx.organizationId) {
+        throw new TRPCError({ code: 'NOT_FOUND' });
+      }
+
+      // Supprimer les associations puis le tag
+      await ctx.db.storyPoliticalTag.deleteMany({
+        where: { politicalTagId: input.id },
+      });
+
+      return ctx.db.politicalTag.delete({
+        where: { id: input.id },
+      });
+    }),
+
+  // ============ ASSOCIATION SUJETS <-> TAGS ============
+
+  // Taguer un sujet avec une étiquette politique
+  tagStory: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.string(),
+        politicalTagId: z.string(),
+        speakingTime: z.number().int().min(0).optional(),
+        isMainSubject: z.boolean().default(false),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Vérifier que le sujet appartient à l'organisation
+      const story = await ctx.db.story.findUnique({
+        where: { id: input.storyId },
+      });
+
+      if (!story || story.organizationId !== ctx.organizationId) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Sujet introuvable' });
+      }
+
+      // Vérifier que le tag appartient à l'organisation
+      const tag = await ctx.db.politicalTag.findUnique({
+        where: { id: input.politicalTagId },
+      });
+
+      if (!tag || tag.organizationId !== ctx.organizationId) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Tag politique introuvable' });
+      }
+
+      return ctx.db.storyPoliticalTag.upsert({
+        where: {
+          storyId_politicalTagId: {
+            storyId: input.storyId,
+            politicalTagId: input.politicalTagId,
+          },
+        },
+        create: {
+          storyId: input.storyId,
+          politicalTagId: input.politicalTagId,
+          speakingTime: input.speakingTime,
+          isMainSubject: input.isMainSubject,
+        },
+        update: {
+          speakingTime: input.speakingTime,
+          isMainSubject: input.isMainSubject,
+        },
+        include: {
+          politicalTag: true,
+        },
+      });
+    }),
+
+  // Retirer un tag d'un sujet
+  untagStory: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.string(),
+        politicalTagId: z.string(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Vérifier que le sujet appartient à l'organisation
+      const story = await ctx.db.story.findUnique({
+        where: { id: input.storyId },
+      });
+
+      if (!story || story.organizationId !== ctx.organizationId) {
+        throw new TRPCError({ code: 'NOT_FOUND' });
+      }
+
+      return ctx.db.storyPoliticalTag.delete({
+        where: {
+          storyId_politicalTagId: {
+            storyId: input.storyId,
+            politicalTagId: input.politicalTagId,
+          },
+        },
+      });
+    }),
+
+  // Obtenir les tags politiques d'un sujet
+  getStoryTags: protectedProcedure
+    .input(z.object({ storyId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const story = await ctx.db.story.findUnique({
+        where: { id: input.storyId },
+      });
+
+      if (!story || story.organizationId !== ctx.organizationId) {
+        throw new TRPCError({ code: 'NOT_FOUND' });
+      }
+
+      return ctx.db.storyPoliticalTag.findMany({
+        where: { storyId: input.storyId },
+        include: {
+          politicalTag: true,
+        },
+        orderBy: {
+          createdAt: 'asc',
+        },
+      });
+    }),
+
+  // Mettre à jour le type d'élection d'un sujet
+  setStoryElectionType: protectedProcedure
+    .input(
+      z.object({
+        storyId: z.string(),
+        electionType: ElectionTypeEnum.nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const story = await ctx.db.story.findUnique({
+        where: { id: input.storyId },
+      });
+
+      if (!story || story.organizationId !== ctx.organizationId) {
+        throw new TRPCError({ code: 'NOT_FOUND' });
+      }
+
+      return ctx.db.story.update({
+        where: { id: input.storyId },
+        data: { electionType: input.electionType },
+      });
+    }),
+
+  // ============ STATISTIQUES D'ÉQUILIBRE ============
+
+  // Obtenir les statistiques de répartition politique
+  getBalance: protectedProcedure
+    .input(
+      z.object({
+        startDate: z.date(),
+        endDate: z.date(),
+        electionType: ElectionTypeEnum.optional(),
+        constituency: z.string().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      if (!ctx.organizationId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED' });
+      }
+
+      // Récupérer tous les sujets avec leurs tags dans la période
+      const stories = await ctx.db.story.findMany({
+        where: {
+          organizationId: ctx.organizationId,
+          createdAt: {
+            gte: input.startDate,
+            lte: input.endDate,
+          },
+          ...(input.electionType && { electionType: input.electionType }),
+          politicalTags: {
+            some: {},
+          },
+        },
+        include: {
+          politicalTags: {
+            include: {
+              politicalTag: true,
+            },
+          },
+        },
+      });
+
+      // Calculer les statistiques par famille politique
+      const familyStats: Record<string, {
+        storyCount: number;
+        speakingTimeSeconds: number;
+        storyIds: string[];
+      }> = {};
+
+      // Initialiser toutes les familles
+      const families = ['EXG', 'GAU', 'ECO', 'CEN', 'DRO', 'EXD', 'DIV', 'AUT'];
+      families.forEach(f => {
+        familyStats[f] = { storyCount: 0, speakingTimeSeconds: 0, storyIds: [] };
+      });
+
+      // Filtrer par constituency si spécifié
+      let filteredStories = stories;
+      if (input.constituency) {
+        filteredStories = stories.filter(story =>
+          story.politicalTags.some(
+            pt => pt.politicalTag.constituency === input.constituency
+          )
+        );
+      }
+
+      // Agréger les données
+      let totalSpeakingTime = 0;
+      const uniqueStoryIds = new Set<string>();
+
+      for (const story of filteredStories) {
+        for (const storyTag of story.politicalTags) {
+          const family = storyTag.politicalTag.family;
+          const speakingTime = storyTag.speakingTime || 0;
+
+          // Filtrer par constituency
+          if (input.constituency && storyTag.politicalTag.constituency !== input.constituency) {
+            continue;
+          }
+
+          familyStats[family].speakingTimeSeconds += speakingTime;
+          totalSpeakingTime += speakingTime;
+
+          if (!familyStats[family].storyIds.includes(story.id)) {
+            familyStats[family].storyIds.push(story.id);
+            familyStats[family].storyCount++;
+          }
+
+          uniqueStoryIds.add(story.id);
+        }
+      }
+
+      const totalStories = uniqueStoryIds.size;
+
+      // Calculer les pourcentages et statuts
+      const representedFamilies = families.filter(f => familyStats[f].storyCount > 0);
+      const familyCount = representedFamilies.length;
+
+      const result = families.map(family => {
+        const stats = familyStats[family];
+        const percentage = totalSpeakingTime > 0
+          ? (stats.speakingTimeSeconds / totalSpeakingTime) * 100
+          : (totalStories > 0 ? (stats.storyCount / totalStories) * 100 : 0);
+
+        let status: 'ok' | 'warning' | 'danger' = 'ok';
+
+        if (stats.storyCount === 0 && familyCount > 0) {
+          status = 'danger';
+        } else if (percentage >= THRESHOLDS.DANGER_MAX) {
+          status = 'danger';
+        } else if (percentage >= THRESHOLDS.WARNING_MAX || percentage <= THRESHOLDS.WARNING_MIN) {
+          status = 'warning';
+        }
+
+        return {
+          family,
+          storyCount: stats.storyCount,
+          speakingTimeSeconds: stats.speakingTimeSeconds,
+          percentage: Math.round(percentage * 10) / 10,
+          status,
+        };
+      });
+
+      // Générer les alertes
+      const alerts: { type: 'warning' | 'danger'; message: string; family: string }[] = [];
+
+      for (const stat of result) {
+        if (stat.status === 'danger') {
+          if (stat.storyCount === 0) {
+            alerts.push({
+              type: 'danger',
+              message: `${stat.family} n'est pas représenté(e)`,
+              family: stat.family,
+            });
+          } else if (stat.percentage >= THRESHOLDS.DANGER_MAX) {
+            alerts.push({
+              type: 'danger',
+              message: `${stat.family} est surreprésenté(e) (${stat.percentage}%)`,
+              family: stat.family,
+            });
+          }
+        } else if (stat.status === 'warning') {
+          if (stat.percentage >= THRESHOLDS.WARNING_MAX) {
+            alerts.push({
+              type: 'warning',
+              message: `${stat.family} dépasse le seuil recommandé (${stat.percentage}%)`,
+              family: stat.family,
+            });
+          } else if (stat.percentage <= THRESHOLDS.WARNING_MIN && stat.storyCount > 0) {
+            alerts.push({
+              type: 'warning',
+              message: `${stat.family} est sous-représenté(e) (${stat.percentage}%)`,
+              family: stat.family,
+            });
+          }
+        }
+      }
+
+      const hasAlerts = alerts.some(a => a.type === 'danger') || alerts.length > 2;
+
+      return {
+        startDate: input.startDate,
+        endDate: input.endDate,
+        electionType: input.electionType,
+        totalStories,
+        totalSpeakingTime,
+        familyStats: result,
+        alerts,
+        isBalanced: !hasAlerts,
+      };
+    }),
+
+  // Obtenir les sujets par famille politique pour une période
+  getStoriesByFamily: protectedProcedure
+    .input(
+      z.object({
+        family: PoliticalFamilyEnum,
+        startDate: z.date(),
+        endDate: z.date(),
+        electionType: ElectionTypeEnum.optional(),
+        limit: z.number().int().min(1).max(100).default(50),
+        offset: z.number().int().min(0).default(0),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      if (!ctx.organizationId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED' });
+      }
+
+      const stories = await ctx.db.story.findMany({
+        where: {
+          organizationId: ctx.organizationId,
+          createdAt: {
+            gte: input.startDate,
+            lte: input.endDate,
+          },
+          ...(input.electionType && { electionType: input.electionType }),
+          politicalTags: {
+            some: {
+              politicalTag: {
+                family: input.family,
+              },
+            },
+          },
+        },
+        include: {
+          author: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+          politicalTags: {
+            where: {
+              politicalTag: {
+                family: input.family,
+              },
+            },
+            include: {
+              politicalTag: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        take: input.limit,
+        skip: input.offset,
+      });
+
+      const total = await ctx.db.story.count({
+        where: {
+          organizationId: ctx.organizationId,
+          createdAt: {
+            gte: input.startDate,
+            lte: input.endDate,
+          },
+          ...(input.electionType && { electionType: input.electionType }),
+          politicalTags: {
+            some: {
+              politicalTag: {
+                family: input.family,
+              },
+            },
+          },
+        },
+      });
+
+      return {
+        stories,
+        total,
+        hasMore: input.offset + stories.length < total,
+      };
+    }),
+
+  // Widget : Résumé rapide du pluralisme (pour sidebar)
+  getQuickSummary: protectedProcedure
+    .input(
+      z.object({
+        days: z.number().int().min(1).max(365).default(30),
+        electionType: ElectionTypeEnum.optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      if (!ctx.organizationId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED' });
+      }
+
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - input.days);
+
+      // Récupérer les stats agrégées
+      const storyTags = await ctx.db.storyPoliticalTag.findMany({
+        where: {
+          story: {
+            organizationId: ctx.organizationId,
+            createdAt: {
+              gte: startDate,
+              lte: endDate,
+            },
+            ...(input.electionType && { electionType: input.electionType }),
+          },
+        },
+        include: {
+          politicalTag: {
+            select: {
+              family: true,
+            },
+          },
+        },
+      });
+
+      // Agréger par famille
+      const familyCounts: Record<string, number> = {};
+      const families = ['EXG', 'GAU', 'ECO', 'CEN', 'DRO', 'EXD', 'DIV', 'AUT'];
+      families.forEach(f => { familyCounts[f] = 0; });
+
+      const uniqueStories = new Set<string>();
+      for (const st of storyTags) {
+        familyCounts[st.politicalTag.family]++;
+        uniqueStories.add(st.storyId);
+      }
+
+      const totalTags = storyTags.length;
+      const totalStories = uniqueStories.size;
+
+      // Calculer les alertes principales
+      const hasEmptyFamily = families.some(f => familyCounts[f] === 0);
+      const maxPercent = totalTags > 0
+        ? Math.max(...families.map(f => (familyCounts[f] / totalTags) * 100))
+        : 0;
+      const hasDangerPercent = maxPercent >= THRESHOLDS.DANGER_MAX;
+      const hasWarningPercent = maxPercent >= THRESHOLDS.WARNING_MAX;
+
+      let status: 'balanced' | 'warning' | 'danger' = 'balanced';
+      if (hasEmptyFamily || hasDangerPercent) {
+        status = 'danger';
+      } else if (hasWarningPercent) {
+        status = 'warning';
+      }
+
+      return {
+        period: {
+          startDate,
+          endDate,
+          days: input.days,
+        },
+        totalStories,
+        totalTags,
+        familyCounts,
+        status,
+        alertCount: families.filter(
+          f => familyCounts[f] === 0 || (totalTags > 0 && (familyCounts[f] / totalTags) * 100 >= THRESHOLDS.WARNING_MAX)
+        ).length,
+      };
+    }),
+
+  // Export des données pour rapport ARCOM (CSV/JSON)
+  exportReport: protectedProcedure
+    .input(
+      z.object({
+        startDate: z.date(),
+        endDate: z.date(),
+        electionType: ElectionTypeEnum.optional(),
+        format: z.enum(['json', 'csv']).default('json'),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.organizationId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED' });
+      }
+
+      // Récupérer toutes les données
+      const stories = await ctx.db.story.findMany({
+        where: {
+          organizationId: ctx.organizationId,
+          createdAt: {
+            gte: input.startDate,
+            lte: input.endDate,
+          },
+          ...(input.electionType && { electionType: input.electionType }),
+          politicalTags: {
+            some: {},
+          },
+        },
+        include: {
+          author: {
+            select: {
+              firstName: true,
+              lastName: true,
+            },
+          },
+          politicalTags: {
+            include: {
+              politicalTag: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'asc',
+        },
+      });
+
+      if (input.format === 'csv') {
+        // Générer CSV
+        const headers = [
+          'Date',
+          'Titre',
+          'Auteur',
+          'Type Election',
+          'Famille Politique',
+          'Parti',
+          'Candidat',
+          'Temps de Parole (s)',
+          'Sujet Principal',
+        ];
+
+        const rows = stories.flatMap(story =>
+          story.politicalTags.map(st => [
+            story.createdAt.toISOString().split('T')[0],
+            `"${story.title.replace(/"/g, '""')}"`,
+            `"${[story.author.firstName, story.author.lastName].filter(Boolean).join(' ')}"`,
+            story.electionType || '',
+            st.politicalTag.family,
+            st.politicalTag.partyName || '',
+            st.politicalTag.candidateName || '',
+            st.speakingTime?.toString() || '',
+            st.isMainSubject ? 'Oui' : 'Non',
+          ])
+        );
+
+        const csv = [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
+
+        return {
+          format: 'csv',
+          filename: `rapport-pluralisme-${input.startDate.toISOString().split('T')[0]}-${input.endDate.toISOString().split('T')[0]}.csv`,
+          content: csv,
+          mimeType: 'text/csv',
+        };
+      }
+
+      // Format JSON par défaut
+      return {
+        format: 'json',
+        filename: `rapport-pluralisme-${input.startDate.toISOString().split('T')[0]}-${input.endDate.toISOString().split('T')[0]}.json`,
+        content: JSON.stringify({
+          metadata: {
+            generatedAt: new Date().toISOString(),
+            period: {
+              start: input.startDate.toISOString(),
+              end: input.endDate.toISOString(),
+            },
+            electionType: input.electionType,
+          },
+          stories: stories.map(s => ({
+            id: s.id,
+            date: s.createdAt.toISOString(),
+            title: s.title,
+            author: [s.author.firstName, s.author.lastName].filter(Boolean).join(' '),
+            electionType: s.electionType,
+            politicalTags: s.politicalTags.map(pt => ({
+              family: pt.politicalTag.family,
+              party: pt.politicalTag.partyName,
+              candidate: pt.politicalTag.candidateName,
+              speakingTime: pt.speakingTime,
+              isMainSubject: pt.isMainSubject,
+            })),
+          })),
+        }, null, 2),
+        mimeType: 'application/json',
+      };
+    }),
+});

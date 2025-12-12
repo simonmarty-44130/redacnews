@@ -18,7 +18,12 @@ interface StoryEditorFullscreenProps {
 
 export function StoryEditorFullscreen({ storyId, onBack }: StoryEditorFullscreenProps) {
   const router = useRouter();
-  const { data: story, isLoading } = trpc.story.get.useQuery({ id: storyId });
+  const [isDeleting, setIsDeleting] = useState(false);
+  
+  const { data: story, isLoading } = trpc.story.get.useQuery(
+    { id: storyId },
+    { enabled: !isDeleting } // Désactiver la query pendant/après suppression
+  );
   const utils = trpc.useUtils();
 
   // Local state
@@ -39,7 +44,11 @@ export function StoryEditorFullscreen({ storyId, onBack }: StoryEditorFullscreen
 
   const deleteStory = trpc.story.delete.useMutation({
     onSuccess: () => {
+      utils.story.list.invalidate();
       router.push('/sujets');
+    },
+    onError: () => {
+      setIsDeleting(false);
     },
   });
 
@@ -63,6 +72,7 @@ export function StoryEditorFullscreen({ storyId, onBack }: StoryEditorFullscreen
 
   const handleDelete = () => {
     if (confirm('Etes-vous sur de vouloir supprimer ce sujet ?')) {
+      setIsDeleting(true); // Désactiver la query AVANT la mutation
       deleteStory.mutate({ id: storyId });
     }
   };

@@ -10,6 +10,7 @@ export interface RundownWithItems {
   show: {
     name: string;
     defaultDuration: number;
+    startTime?: string; // Format HH:mm
   };
   items: Array<{
     id: string;
@@ -18,6 +19,7 @@ export interface RundownWithItems {
     duration: number;
     position: number;
     notes: string | null;
+    script: string | null; // Texte a lire (prioritaire sur story.content)
     story: {
       title: string;
       content: string | null;
@@ -193,16 +195,22 @@ function buildScriptContent(rundown: RundownWithItems): docs_v1.Schema$Request[]
   fullText += headerTitle + headerSubtitle;
 
   // === ITEMS ===
-  // Calculer l'heure de debut (12h00 par defaut)
+  // Calculer l'heure de debut (utiliser startTime de l'emission ou 12h00 par defaut)
   let currentTime = new Date(rundown.date);
-  currentTime.setHours(12, 0, 0, 0);
+  const startTimeParts = (rundown.show.startTime || '12:00').split(':');
+  const startHour = parseInt(startTimeParts[0], 10) || 12;
+  const startMinute = parseInt(startTimeParts[1], 10) || 0;
+  currentTime.setHours(startHour, startMinute, 0, 0);
 
   for (const item of rundown.items) {
     const timeStr = formatTime(currentTime);
     const durationStr = formatDuration(item.duration);
 
-    if (item.type === 'STORY' && item.story?.content) {
-      // === SUJET AVEC TEXTE ===
+    // Priorite: script > story.content
+    const textContent = item.script || item.story?.content;
+
+    if (textContent) {
+      // === ELEMENT AVEC TEXTE A LIRE ===
 
       // Ligne separatrice
       const separator = `${'_'.repeat(60)}\n`;
@@ -219,13 +227,13 @@ function buildScriptContent(rundown: RundownWithItems): docs_v1.Schema$Request[]
         type: 'itemHeader',
       });
 
-      // Contenu du sujet
-      const storyContent = cleanContent(item.story.content) + '\n\n';
+      // Contenu (script ou contenu du sujet)
+      const content = cleanContent(textContent) + '\n\n';
       const contentStart = fullText.length + 1;
-      fullText += storyContent;
-      formatRanges.push({ start: contentStart, end: contentStart + storyContent.length, type: 'body' });
+      fullText += content;
+      formatRanges.push({ start: contentStart, end: contentStart + content.length, type: 'body' });
 
-      // Sons attaches au sujet
+      // Sons attaches
       for (const media of item.media) {
         const mediaText = buildMediaBoxText(media.mediaItem);
         const mediaStart = fullText.length + 1;

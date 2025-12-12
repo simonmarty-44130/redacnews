@@ -19,11 +19,14 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users       User[]
-  shows       Show[]
-  stories     Story[]
-  mediaItems  MediaItem[]
-  collections Collection[]
+  users            User[]
+  shows            Show[]
+  stories          Story[]
+  mediaItems       MediaItem[]
+  collections      Collection[]
+  montageProjects  MontageProject[]
+  rundownTemplates RundownTemplate[]
+  politicalTags    PoliticalTag[]
 }
 
 model User {
@@ -45,6 +48,8 @@ model User {
   rundownItems    RundownItem[]
   mediaItems      MediaItem[]
   comments        Comment[]
+  montageProjects MontageProject[]
+  sentGuestShares RundownGuestShare[] @relation("GuestShareSentBy")
 }
 
 enum UserRole {
@@ -57,18 +62,29 @@ enum UserRole {
 
 // ============ EMISSIONS & CONDUCTEURS ============
 
+enum ShowCategory {
+  FLASH       // Flash info (1-3 min)
+  JOURNAL     // Journal (6-12 min)
+  MAGAZINE    // Emission longue (1-2h)
+  CHRONIQUE   // Chronique courte
+  AUTRE
+}
+
 model Show {
-  id             String   @id @default(cuid())
+  id             String       @id @default(cuid())
   name           String
   description    String?
-  defaultDuration Int      @default(60) // minutes
-  color          String   @default("#3B82F6")
+  defaultDuration Int         @default(60) // minutes
+  color          String       @default("#3B82F6")
+  category       ShowCategory @default(MAGAZINE)
+  startTime      String       @default("12:00") // Format HH:mm - heure de debut par defaut
   organizationId String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id])
   rundowns     Rundown[]
+  templates    RundownTemplate[]
 }
 
 model Rundown {
@@ -78,16 +94,65 @@ model Rundown {
   status      RundownStatus @default(DRAFT)
   notes       String?
 
+  // Infos de production
+  title           String?       // Titre spécifique (ex: "Loroux Bottereau")
+  subtitle        String?       // Sous-titre (ex: "Paroisse Saint Barthélémy...")
+  startTime       String?       // Heure de début "07:00"
+  endTime         String?       // Heure de fin "09:00"
+  location        String?       // Nom du lieu
+  locationAddress String?       // Adresse complète
+
   // Script de conduite genere
   scriptDocId       String?   // ID du Google Doc script
   scriptDocUrl      String?   // URL du script
   scriptGeneratedAt DateTime? // Date de derniere generation
+
+  // Sync prompteur - ID de l'item en cours de lecture
+  currentItemId     String?
 
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
   show  Show          @relation(fields: [showId], references: [id])
   items RundownItem[]
+  team  RundownTeamMember[]
+
+  // Elements qui referencent ce conducteur comme imbrique
+  linkedFromItems RundownItem[] @relation("LinkedRundown")
+
+  // Partages avec les invites
+  guestShares RundownGuestShare[]
+}
+
+// ============ ÉQUIPE DE PRODUCTION ============
+
+model RundownTeamMember {
+  id         String   @id @default(cuid())
+  rundownId  String
+  role       TeamRole
+  name       String
+  phone      String?
+  email      String?
+  location   String?  // "sur place", "en studio"
+  notes      String?
+  position   Int      @default(0)  // Ordre d'affichage
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  rundown Rundown @relation(fields: [rundownId], references: [id], onDelete: Cascade)
+
+  @@index([rundownId])
+}
+
+enum TeamRole {
+  PRESENTER       // Présentateur principal
+  CO_PRESENTER    // Co-présentateur
+  STUDIO_HOST     // Animateur en studio
+  TECHNICIAN      // Technicien
+  JOURNALIST      // Journaliste
+  MAIN_GUEST      // Invité fil rouge (présent toute l'émission)
+  OTHER           // Autre
 }
 
 enum RundownStatus {
@@ -108,6 +173,20 @@ model RundownItem {
   notes       String?
   status      ItemStatus      @default(PENDING)
   assigneeId  String?
+
+  // Texte a lire pour cet element (optionnel)
+  // Si vide, le contenu du sujet lie sera utilise
+  script      String?         @db.Text
+
+  // Google Doc associe pour le script (edition collaborative)
+  googleDocId    String?   // ID du Google Doc
+  googleDocUrl   String?   // URL d'edition
+
+  // Conducteur imbrique (optionnel)
+  // Si defini, cet element represente un autre conducteur integre
+  linkedRundownId String?
+  linkedRundown   Rundown? @relation("LinkedRundown", fields: [linkedRundownId], references: [id])
+
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
@@ -115,6 +194,7 @@ model RundownItem {
   story    Story?   @relation(fields: [storyId], references: [id])
   assignee User?    @relation(fields: [assigneeId], references: [id])
   media    RundownItemMedia[]
+  guests   RundownItemGuest[]
 }
 
 enum RundownItemType {
@@ -166,13 +246,17 @@ model Story {
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
+  // Pluralisme politique
+  electionType   ElectionType?
+
   author       User          @relation("StoryAuthor", fields: [authorId], references: [id])
   assignee     User?         @relation("StoryAssignee", fields: [assigneeId], references: [id])
   organization Organization  @relation(fields: [organizationId], references: [id])
 
-  rundownItems RundownItem[]
-  media        StoryMedia[]
-  comments     Comment[]
+  rundownItems   RundownItem[]
+  media          StoryMedia[]
+  comments       Comment[]
+  politicalTags  StoryPoliticalTag[]
 }
 
 enum StoryStatus {
@@ -242,9 +326,10 @@ model MediaItem {
   uploadedBy   User         @relation(fields: [uploadedById], references: [id])
   organization Organization @relation(fields: [organizationId], references: [id])
 
-  collections     CollectionItem[]
-  storyMedia      StoryMedia[]
+  collections      CollectionItem[]
+  storyMedia       StoryMedia[]
   rundownItemMedia RundownItemMedia[]
+  montageClips     MontageClip[]
 }
 
 enum MediaType {
@@ -304,4 +389,226 @@ model Comment {
   author   User      @relation(fields: [authorId], references: [id])
   parent   Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
   replies  Comment[] @relation("CommentReplies")
+}
+
+// ============ MONTAGE MULTIPISTE ============
+
+model MontageProject {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  duration       Float    @default(0) // Duree totale en secondes
+  organizationId String
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  createdBy    User           @relation(fields: [createdById], references: [id])
+  tracks       MontageTrack[]
+
+  @@index([organizationId])
+  @@index([createdById])
+}
+
+model MontageTrack {
+  id        String  @id @default(cuid())
+  projectId String
+  name      String
+  color     String  @default("#3B82F6")
+  order     Int
+  volume    Float   @default(1)
+  pan       Float   @default(0)
+  muted     Boolean @default(false)
+  solo      Boolean @default(false)
+
+  project MontageProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  clips   MontageClip[]
+
+  @@index([projectId])
+}
+
+model MontageClip {
+  id      String @id @default(cuid())
+  trackId String
+  name    String
+
+  // Source audio (reference a MediaItem existant ou URL directe)
+  mediaItemId    String?
+  sourceUrl      String
+  sourceDuration Float
+
+  // Position sur la timeline
+  startTime Float // Debut du clip sur la timeline (secondes)
+
+  // Trim interne
+  inPoint  Float // Point d'entree dans le fichier source
+  outPoint Float // Point de sortie dans le fichier source
+
+  // Proprietes
+  volume          Float @default(1)
+  fadeInDuration  Float @default(0)
+  fadeOutDuration Float @default(0)
+
+  track     MontageTrack @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  mediaItem MediaItem?   @relation(fields: [mediaItemId], references: [id])
+
+  @@index([trackId])
+  @@index([mediaItemId])
+}
+
+// ============ TEMPLATES DE CONDUCTEUR ============
+
+model RundownTemplate {
+  id             String   @id @default(cuid())
+  name           String
+  description    String?
+  showId         String   // Émission associée
+  isDefault      Boolean  @default(false) // Template par défaut pour cette émission
+
+  // Variables configurables (JSON: [{name: "PAROISSE", label: "Nom de la paroisse", required: true}])
+  variables      Json?
+
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  show         Show                   @relation(fields: [showId], references: [id])
+  organization Organization           @relation(fields: [organizationId], references: [id])
+  items        RundownTemplateItem[]
+
+  @@index([showId])
+  @@index([organizationId])
+}
+
+model RundownTemplateItem {
+  id         String          @id @default(cuid())
+  templateId String
+  type       RundownItemType
+  title      String          // Peut contenir {{VARIABLE}}
+  duration   Int             // secondes
+  position   Int
+  notes      String?
+  script     String?         @db.Text // Texte à lire, peut contenir {{VARIABLE}}
+
+  template RundownTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
+}
+
+// ============ GESTION DES INVITÉS ============
+
+// Invité associé à un élément du conducteur
+model RundownItemGuest {
+  id            String   @id @default(cuid())
+  rundownItemId String
+
+  // Identité
+  name          String   // Nom complet
+
+  // Coordonnées
+  phone         String?
+  email         String?
+
+  // Contexte
+  title         String?  // Fonction (ex: "Économiste", "Adjoint à la Culture")
+  organization  String?  // Organisation (ex: "Mairie", "Association Dépan'épices")
+  description   String?  // Description/contexte détaillé
+  role          String?  // Rôle dans l'émission (gardé pour compatibilité)
+  notes         String?  // Notes internes (non partagées)
+
+  // Ordre d'affichage dans l'élément (si plusieurs invités)
+  position      Int      @default(0)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  rundownItem RundownItem @relation(fields: [rundownItemId], references: [id], onDelete: Cascade)
+
+  @@index([rundownItemId])
+  @@index([email])
+}
+
+// Historique des envois aux invités
+model RundownGuestShare {
+  id              String   @id @default(cuid())
+  rundownId       String
+  recipientEmail  String
+  recipientName   String?
+  highlightedItems String[] // IDs des RundownItems mis en surbrillance pour cet envoi
+  personalMessage String?
+  includedPdf     Boolean  @default(false)
+  sentAt          DateTime @default(now())
+  sentById        String
+
+  // Lien web sécurisé (optionnel)
+  accessToken     String?  @unique
+  tokenExpiresAt  DateTime?
+  viewedAt        DateTime? // Quand l'invité a consulté le lien
+
+  rundown  Rundown @relation(fields: [rundownId], references: [id], onDelete: Cascade)
+  sentBy   User    @relation("GuestShareSentBy", fields: [sentById], references: [id])
+
+  @@index([rundownId])
+  @@index([recipientEmail])
+  @@index([accessToken])
+}
+
+// ============ PLURALISME POLITIQUE (ARCOM) ============
+
+enum ElectionType {
+  MUNICIPALES
+  LEGISLATIVES
+  PRESIDENTIELLE
+  EUROPEENNES
+  REGIONALES
+  DEPARTEMENTALES
+  SENATORIALES
+  OTHER
+}
+
+enum PoliticalFamily {
+  EXG  // Extrême gauche
+  GAU  // Gauche
+  ECO  // Écologistes
+  CEN  // Centre
+  DRO  // Droite
+  EXD  // Extrême droite
+  DIV  // Divers / Sans étiquette
+  AUT  // Autres
+}
+
+model PoliticalTag {
+  id              String          @id @default(cuid())
+  family          PoliticalFamily
+  partyName       String?         // Ex: "Renaissance", "LR", "PS"
+  candidateName   String?         // Nom du candidat si applicable
+  electionType    ElectionType?
+  electionYear    Int?
+  constituency    String?         // Circonscription ou commune
+  organizationId  String
+  createdAt       DateTime        @default(now())
+
+  organization    Organization    @relation(fields: [organizationId], references: [id])
+  stories         StoryPoliticalTag[]
+
+  @@index([organizationId])
+  @@index([family])
+  @@index([electionType, electionYear])
+}
+
+model StoryPoliticalTag {
+  id              String        @id @default(cuid())
+  storyId         String
+  politicalTagId  String
+  speakingTime    Int?          // Temps de parole en secondes (pour interviews)
+  isMainSubject   Boolean       @default(false) // Sujet principal ou mention
+  createdAt       DateTime      @default(now())
+
+  story           Story         @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  politicalTag    PoliticalTag  @relation(fields: [politicalTagId], references: [id])
+
+  @@unique([storyId, politicalTagId])
+  @@index([storyId])
+  @@index([politicalTagId])
 }

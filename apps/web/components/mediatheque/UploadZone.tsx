@@ -20,6 +20,7 @@ interface UploadFile {
   progress: number;
   status: 'pending' | 'uploading' | 'done' | 'error';
   error?: string;
+  duration?: number; // Duree extraite pour les fichiers audio/video
 }
 
 interface UploadZoneProps {
@@ -31,6 +32,54 @@ function getMediaType(mimeType: string): 'AUDIO' | 'VIDEO' | 'IMAGE' | 'DOCUMENT
   if (mimeType.startsWith('video/')) return 'VIDEO';
   if (mimeType.startsWith('image/')) return 'IMAGE';
   return 'DOCUMENT';
+}
+
+/**
+ * Extrait la duree d'un fichier audio ou video
+ * Retourne la duree en secondes (arrondie) ou null si non disponible
+ */
+async function extractDuration(file: File): Promise<number | null> {
+  const mimeType = file.type.toLowerCase();
+
+  // Verifier si c'est un fichier audio ou video
+  if (!mimeType.startsWith('audio/') && !mimeType.startsWith('video/')) {
+    return null;
+  }
+
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const media = mimeType.startsWith('audio/')
+      ? new Audio()
+      : document.createElement('video');
+
+    const cleanup = () => {
+      URL.revokeObjectURL(url);
+    };
+
+    media.onloadedmetadata = () => {
+      const duration = media.duration;
+      cleanup();
+      // Verifier que la duree est valide (pas Infinity ou NaN)
+      if (duration && isFinite(duration) && duration > 0) {
+        resolve(Math.round(duration));
+      } else {
+        resolve(null);
+      }
+    };
+
+    media.onerror = () => {
+      cleanup();
+      resolve(null);
+    };
+
+    // Timeout de securite (5 secondes)
+    setTimeout(() => {
+      cleanup();
+      resolve(null);
+    }, 5000);
+
+    media.src = url;
+  });
 }
 
 export function UploadZone({ onUploadComplete }: UploadZoneProps) {
@@ -91,6 +140,7 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
           fileSize: uploadFile.file.size,
           s3Key: key,
           s3Url: publicUrl,
+          duration: uploadFile.duration, // Inclure la duree extraite
         });
 
         // Update status to done
@@ -115,13 +165,22 @@ export function UploadZone({ onUploadComplete }: UploadZoneProps) {
   );
 
   const handleFiles = useCallback(
-    (fileList: FileList) => {
-      const newFiles: UploadFile[] = Array.from(fileList).map((file) => ({
-        file,
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        progress: 0,
-        status: 'pending' as const,
-      }));
+    async (fileList: FileList) => {
+      const filesArray = Array.from(fileList);
+
+      // Creer les objets UploadFile avec extraction de duree pour audio/video
+      const newFiles: UploadFile[] = await Promise.all(
+        filesArray.map(async (file) => {
+          const duration = await extractDuration(file);
+          return {
+            file,
+            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            progress: 0,
+            status: 'pending' as const,
+            duration: duration ?? undefined,
+          };
+        })
+      );
 
       setFiles((prev) => [...prev, ...newFiles]);
 

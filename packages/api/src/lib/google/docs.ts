@@ -196,3 +196,27 @@ export function estimateReadingDuration(wordCount: number): number {
   const wordsPerMinute = 150;
   return Math.round((wordCount / wordsPerMinute) * 60); // Returns seconds
 }
+
+/**
+ * Inserts text content into an existing Google Doc
+ * Useful for populating docs from template content
+ */
+export async function insertTextInDoc(docId: string, content: string): Promise<void> {
+  const docs = getDocs();
+
+  if (!content) return;
+
+  await docs.documents.batchUpdate({
+    documentId: docId,
+    requestBody: {
+      requests: [
+        {
+          insertText: {
+            location: { index: 1 },
+            text: content,
+          },
+        },
+      ],
+    },
+  });
+}
