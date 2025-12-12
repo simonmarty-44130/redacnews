@@ -221,8 +221,19 @@ export function StoryEditorFullscreen({ storyId, onBack }: StoryEditorFullscreen
         </div>
       </header>
 
+      {/* TOOLBAR - Au-dessus du Google Doc */}
+      <StoryBottomBar
+        storyId={storyId}
+        status={status}
+        category={category}
+        mediaCount={story.media?.length || 0}
+        estimatedDuration={story.estimatedDuration}
+        onStatusChange={handleStatusChange}
+        onCategoryChange={handleCategoryChange}
+      />
+
       {/* MAIN CONTENT - Google Docs Full Screen */}
-      <main className="flex-1 p-4 min-h-0">
+      <main className="flex-1 p-4 pt-0 min-h-0">
         {story.googleDocId ? (
           <GoogleDocEmbed
             docId={story.googleDocId}
@@ -241,17 +252,6 @@ export function StoryEditorFullscreen({ storyId, onBack }: StoryEditorFullscreen
           </div>
         )}
       </main>
-
-      {/* BOTTOM BAR - Contextuelle */}
-      <StoryBottomBar
-        storyId={storyId}
-        status={status}
-        category={category}
-        mediaCount={story.media?.length || 0}
-        estimatedDuration={story.estimatedDuration}
-        onStatusChange={handleStatusChange}
-        onCategoryChange={handleCategoryChange}
-      />
     </div>
   );
 }
