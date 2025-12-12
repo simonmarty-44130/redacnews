@@ -17,6 +17,47 @@ interface MinimapProps {
 const MINIMAP_HEIGHT = 48;
 const TRACK_HEIGHT_MINI = 12;
 
+// Générateur pseudo-aléatoire déterministe basé sur une seed
+function seededRandom(seed: number): () => number {
+  return () => {
+    seed = (seed * 9301 + 49297) % 233280;
+    return seed / 233280;
+  };
+}
+
+// Convertir une string en nombre pour la seed
+function stringToSeed(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash);
+}
+
+// Générer des données de waveform stylisées pour un clip
+function generateMiniWaveform(clipId: string, numSamples: number): number[] {
+  const random = seededRandom(stringToSeed(clipId));
+  const samples: number[] = [];
+
+  // Créer une forme d'onde avec des variations naturelles
+  let currentAmplitude = 0.5;
+  for (let i = 0; i < numSamples; i++) {
+    // Variation lente (enveloppe)
+    const envelopeNoise = (random() - 0.5) * 0.1;
+    currentAmplitude = Math.max(0.2, Math.min(0.9, currentAmplitude + envelopeNoise));
+
+    // Variation rapide (détail)
+    const detail = random() * 0.3;
+    const sample = currentAmplitude * (0.7 + detail);
+
+    samples.push(sample);
+  }
+
+  return samples;
+}
+
 export function Minimap({
   tracks,
   duration,
@@ -82,16 +123,31 @@ export function Minimap({
       ctx.fillStyle = '#1a1a1a';
       ctx.fillRect(0, y, width, trackHeightMini);
 
-      // Dessiner chaque clip
+      // Dessiner chaque clip avec waveform
       track.clips.forEach((clip) => {
         const clipX = clip.startTime * pixelsPerSecond;
-        // Pour ClipWithComputed, duration est calculé comme outPoint - inPoint
         const clipDuration = clip.outPoint - clip.inPoint;
         const clipWidth = Math.max(clipDuration * pixelsPerSecond, 2);
 
-        // Utiliser la couleur de la piste
-        ctx.fillStyle = track.color;
+        // Fond du clip (plus sombre)
+        ctx.fillStyle = `${track.color}40`;
         ctx.fillRect(clipX, y + 1, clipWidth, trackHeightMini - 2);
+
+        // Dessiner la waveform
+        const numSamples = Math.max(Math.floor(clipWidth / 2), 4);
+        const waveformData = generateMiniWaveform(clip.id, numSamples);
+        const barWidth = clipWidth / numSamples;
+        const centerY = y + trackHeightMini / 2;
+        const maxAmplitude = (trackHeightMini - 4) / 2;
+
+        ctx.fillStyle = track.color;
+
+        waveformData.forEach((sample, i) => {
+          const barX = clipX + i * barWidth;
+          const barHeight = sample * maxAmplitude * 2;
+          const barY = centerY - barHeight / 2;
+          ctx.fillRect(barX, barY, Math.max(barWidth - 0.5, 1), barHeight);
+        });
       });
     });
 
@@ -164,9 +220,14 @@ export function Minimap({
 
       // Centrer le viewport sur le point cliqué
       const viewportDuration = viewportEnd - viewportStart;
-      const newViewportStart = Math.max(0, clampedTime - viewportDuration / 2);
-      const newScrollLeft = newViewportStart * zoom;
-      onScrollChange(newScrollLeft);
+      const newViewportStart = clampedTime - viewportDuration / 2;
+
+      // Calculer le max scroll basé sur la vraie largeur du viewport timeline
+      const viewportWidthPixels = viewportDuration * zoom;
+      const maxScrollLeft = Math.max(0, duration * zoom - viewportWidthPixels);
+      const clampedScrollLeft = Math.max(0, Math.min(maxScrollLeft, newViewportStart * zoom));
+
+      onScrollChange(clampedScrollLeft);
 
       // Seek à cette position
       onSeek(clampedTime);
@@ -188,12 +249,14 @@ export function Minimap({
     const deltaTime = deltaX / pixelsPerSecond;
     const newScrollLeft = dragStartRef.current.scrollLeft + deltaTime * zoom;
 
-    // Limiter aux bornes
-    const maxScroll = Math.max(0, duration * zoom - width);
-    const clampedScrollLeft = Math.max(0, Math.min(maxScroll, newScrollLeft));
+    // Calculer le max scroll basé sur la vraie largeur du viewport timeline
+    const viewportDuration = viewportEnd - viewportStart;
+    const viewportWidthPixels = viewportDuration * zoom;
+    const maxScrollLeft = Math.max(0, duration * zoom - viewportWidthPixels);
+    const clampedScrollLeft = Math.max(0, Math.min(maxScrollLeft, newScrollLeft));
 
     onScrollChange(clampedScrollLeft);
-  }, [isDraggingViewport, duration, zoom, onScrollChange]);
+  }, [isDraggingViewport, duration, zoom, viewportStart, viewportEnd, onScrollChange]);
 
   // Gestion du mouseup
   const handleMouseUp = useCallback(() => {
