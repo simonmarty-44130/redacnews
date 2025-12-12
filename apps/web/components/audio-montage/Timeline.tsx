@@ -4,7 +4,7 @@ import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { Plus, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TimelineRuler } from './TimelineRuler';
-import { Track } from './Track';
+import { Track, type DropPreview } from './Track';
 import {
   TRACK_CONTROLS_WIDTH,
   TRACK_HEIGHT,
@@ -86,6 +86,9 @@ export function Timeline({
 
   // État pour l'indicateur de snap (magnétisme)
   const [snapIndicator, setSnapIndicator] = useState<number | null>(null);
+
+  // État pour la prévisualisation de drop
+  const [dropPreview, setDropPreview] = useState<DropPreview | null>(null);
 
   // Collecter tous les clips de toutes les pistes pour le snap inter-pistes
   const allClips = useMemo(() => {
@@ -455,7 +458,9 @@ export function Timeline({
                     clipRefs={clipRefs}
                     editMode={editMode}
                     snapIndicator={snapIndicator}
+                    dropPreview={dropPreview}
                     onSnapIndicatorChange={setSnapIndicator}
+                    onDropPreviewChange={setDropPreview}
                     onSelectClip={onSelectClip}
                     onDeleteClip={onDeleteClip}
                     onMoveClip={onMoveClip}

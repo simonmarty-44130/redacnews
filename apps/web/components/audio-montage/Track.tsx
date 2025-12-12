@@ -94,6 +94,14 @@ function canPlaceClip(
   return true;
 }
 
+// Type pour la prévisualisation de drop
+export interface DropPreview {
+  trackId: string;
+  startTime: number;
+  duration: number;
+  canPlace: boolean;
+}
+
 interface TrackProps {
   track: Omit<TrackType, 'clips'> & { clips: ClipWithComputed[] };
   allClips: ClipWithComputed[]; // Tous les clips de toutes les pistes (pour snap inter-pistes)
@@ -103,7 +111,9 @@ interface TrackProps {
   clipRefs: Map<string, ClipRef | null>;
   editMode: 'select' | 'razor';
   snapIndicator: number | null; // Position du snap indicator à afficher
+  dropPreview: DropPreview | null; // Prévisualisation de drop
   onSnapIndicatorChange: (position: number | null) => void;
+  onDropPreviewChange: (preview: DropPreview | null) => void;
   onSelectClip: (clipId: string | null) => void;
   onDeleteClip: (clipId: string) => void;
   onMoveClip: (clipId: string, trackId: string, startTime: number) => void;
@@ -124,7 +134,9 @@ export function Track({
   clipRefs,
   editMode,
   snapIndicator,
+  dropPreview,
   onSnapIndicatorChange,
+  onDropPreviewChange,
   onSelectClip,
   onDeleteClip,
   onMoveClip,
@@ -142,7 +154,7 @@ export function Track({
     () => ({
       accept: ['CLIP', 'LIBRARY_ITEM'],
       hover: (item: DragItem, monitor) => {
-        // Calculer la position pendant le survol pour montrer le snap indicator
+        // Calculer la position pendant le survol pour montrer le snap indicator et la prévisualisation
         const clientOffset = monitor.getClientOffset();
         const initialClientOffset = monitor.getInitialClientOffset();
         const initialSourceOffset = monitor.getInitialSourceClientOffset();
@@ -150,6 +162,7 @@ export function Track({
 
         if (!clientOffset || !trackRect) {
           onSnapIndicatorChange(null);
+          onDropPreviewChange(null);
           return;
         }
 
@@ -165,7 +178,7 @@ export function Track({
         const clipDuration = item.duration || 0;
 
         // Trouver le point de snap
-        const { snapIndicator: indicator } = findSnapPoint(
+        const { snapIndicator: indicator, snappedTime } = findSnapPoint(
           rawTime,
           clipDuration,
           allClips,
@@ -173,7 +186,28 @@ export function Track({
           zoom
         );
 
+        // Calculer le temps final après snap
+        let finalTime = snappedTime;
+        if (Math.abs(finalTime - rawTime) < 0.001 && SNAP_TO_GRID > 0) {
+          finalTime = Math.round(rawTime / SNAP_TO_GRID) * SNAP_TO_GRID;
+        }
+        finalTime = Math.max(0, finalTime);
+
+        // Vérifier si le clip peut être placé
+        const canPlace = canPlaceClip(
+          track.clips,
+          finalTime,
+          clipDuration,
+          item.type === 'CLIP' ? item.id : undefined
+        );
+
         onSnapIndicatorChange(indicator);
+        onDropPreviewChange({
+          trackId: track.id,
+          startTime: finalTime,
+          duration: clipDuration,
+          canPlace,
+        });
       },
       drop: (item: DragItem, monitor) => {
         const clientOffset = monitor.getClientOffset();
@@ -181,8 +215,9 @@ export function Track({
         const initialSourceOffset = monitor.getInitialSourceClientOffset();
         const trackRect = trackRef.current?.getBoundingClientRect();
 
-        // Effacer l'indicateur de snap
+        // Effacer l'indicateur de snap et la prévisualisation
         onSnapIndicatorChange(null);
+        onDropPreviewChange(null);
 
         if (!clientOffset || !trackRect) return;
 
@@ -242,7 +277,7 @@ export function Track({
         canDrop: monitor.canDrop(),
       }),
     }),
-    [track.id, zoom, scrollLeft, allClips, onMoveClip, onAddClip, onSnapIndicatorChange]
+    [track.id, track.clips, zoom, scrollLeft, allClips, onMoveClip, onAddClip, onSnapIndicatorChange, onDropPreviewChange]
   );
 
   return (
@@ -303,8 +338,32 @@ export function Track({
         />
       ))}
 
-      {/* Indicateur de drop */}
-      {isOver && canDrop && (
+      {/* Prévisualisation de drop (fantôme du clip) */}
+      {dropPreview && dropPreview.trackId === track.id && dropPreview.duration > 0 && (
+        <div
+          className={cn(
+            'absolute top-1 bottom-1 rounded pointer-events-none transition-all duration-75',
+            dropPreview.canPlace
+              ? 'bg-[#3B82F6]/30 border-2 border-[#3B82F6] border-dashed'
+              : 'bg-red-500/30 border-2 border-red-500 border-dashed'
+          )}
+          style={{
+            left: dropPreview.startTime * zoom,
+            width: Math.max(dropPreview.duration * zoom, 20),
+          }}
+        >
+          {/* Ligne de position précise à gauche */}
+          <div
+            className={cn(
+              'absolute left-0 top-0 bottom-0 w-0.5',
+              dropPreview.canPlace ? 'bg-[#3B82F6]' : 'bg-red-500'
+            )}
+          />
+        </div>
+      )}
+
+      {/* Indicateur de drop global sur la piste */}
+      {isOver && canDrop && !dropPreview && (
         <div className="absolute inset-0 border-2 border-dashed border-[#3B82F6] rounded pointer-events-none bg-[#3B82F6]/5" />
       )}
     </div>
