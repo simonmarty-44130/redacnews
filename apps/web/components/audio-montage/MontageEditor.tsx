@@ -9,8 +9,10 @@ import { Button } from '@/components/ui/button';
 import { TransportBar } from './TransportBar';
 import { Toolbar } from './Toolbar';
 import { Timeline } from './Timeline';
-import { ClipLibrary } from './ClipLibrary';
+import { Minimap } from './Minimap';
+import { StatusBar } from './StatusBar';
 import { ExportDialog } from './ExportDialog';
+import { ImportDialog } from './ImportDialog';
 import { ClipDragLayer } from './ClipDragLayer';
 import { useAudioRecorder } from '@/hooks/useAudioRecorder';
 import type { ClipRef } from './Clip';
@@ -91,6 +93,7 @@ export function MontageEditor({
   // State de la timeline
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const [scrollLeft, setScrollLeft] = useState(0);
+  const [viewportWidth, setViewportWidth] = useState(800); // Largeur visible de la timeline
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
 
   // State pour les points In/Out et mode d'édition
@@ -104,11 +107,11 @@ export function MontageEditor({
   const recordingStartTimeRef = useRef<number>(0); // Position sur la timeline
   const recordingStartTimestampRef = useRef<number>(0); // Timestamp du début
 
-  // State de la bibliotheque
-  const [isLibraryCollapsed, setIsLibraryCollapsed] = useState(false);
-
   // State de l'export
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+
+  // State de l'import
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
 
   // Map pour stocker les refs de tous les clips WaveSurfer
   // Note: Maintenant les clips s'enregistrent eux-memes aupres du SyncEngine
@@ -770,6 +773,82 @@ export function MontageEditor({
     }
   }, [isRecording, recordingTrackId, stopRecording, onAddClip]);
 
+  // Gestion de l'import de fichier local
+  const handleImportFile = useCallback(async (file: File, fileDuration: number, trackId: string) => {
+    // Creer une URL temporaire pour le fichier
+    const url = URL.createObjectURL(file);
+
+    // Determiner la position de depart
+    // Si timeline vide, placer a 0, sinon a la position de la playhead
+    const timelineEmpty = isTimelineEmpty();
+    const startTime = timelineEmpty ? 0 : currentTime;
+
+    try {
+      const newClip = await onAddClip(trackId, {
+        name: file.name.replace(/\.[^/.]+$/, ''), // Nom sans extension
+        sourceUrl: url,
+        sourceDuration: fileDuration,
+        startTime,
+        inPoint: 0,
+        outPoint: fileDuration,
+        volume: 1,
+        fadeInDuration: 0,
+        fadeOutDuration: 0,
+      });
+
+      setProject((prev) => ({
+        ...prev,
+        tracks: prev.tracks.map((t) =>
+          t.id === trackId ? { ...t, clips: [...t.clips, newClip] } : t
+        ),
+      }));
+
+      setHasUnsavedChanges(true);
+      console.log('[MontageEditor] File imported:', file.name, 'on track:', trackId, 'duration:', fileDuration.toFixed(2));
+    } catch (error) {
+      console.error('[MontageEditor] Failed to import file:', error);
+      URL.revokeObjectURL(url);
+    }
+  }, [currentTime, isTimelineEmpty, onAddClip]);
+
+  // Gestion de l'import depuis la mediatheque
+  const handleImportFromLibrary = useCallback(async (
+    mediaItem: { id: string; title: string; duration: number | null; s3Url: string },
+    trackId: string
+  ) => {
+    // Determiner la position de depart
+    const timelineEmpty = isTimelineEmpty();
+    const startTime = timelineEmpty ? 0 : currentTime;
+    const itemDuration = mediaItem.duration || 0;
+
+    try {
+      const newClip = await onAddClip(trackId, {
+        name: mediaItem.title,
+        mediaItemId: mediaItem.id,
+        sourceUrl: mediaItem.s3Url,
+        sourceDuration: itemDuration,
+        startTime,
+        inPoint: 0,
+        outPoint: itemDuration,
+        volume: 1,
+        fadeInDuration: 0,
+        fadeOutDuration: 0,
+      });
+
+      setProject((prev) => ({
+        ...prev,
+        tracks: prev.tracks.map((t) =>
+          t.id === trackId ? { ...t, clips: [...t.clips, newClip] } : t
+        ),
+      }));
+
+      setHasUnsavedChanges(true);
+      console.log('[MontageEditor] Media imported:', mediaItem.title, 'on track:', trackId);
+    } catch (error) {
+      console.error('[MontageEditor] Failed to import from library:', error);
+    }
+  }, [currentTime, isTimelineEmpty, onAddClip]);
+
   // Raccourcis clavier
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -879,21 +958,47 @@ export function MontageEditor({
       {/* Layer de preview personnalise pour le drag des clips */}
       <ClipDragLayer />
 
-      <div className="h-screen flex flex-col bg-background">
-        {/* Header */}
-        <div className="flex items-center gap-4 px-4 py-2 border-b">
-          <Link href="/audio-montage">
-            <Button variant="ghost" size="icon">
-              <ArrowLeft className="h-4 w-4" />
+      <div className="h-screen flex flex-col bg-[#0a0a0a] text-white">
+        {/* Header minimaliste style DAW */}
+        <div className="flex items-center justify-between px-4 py-2 bg-[#111111] border-b border-[#2a2a2a]">
+          <div className="flex items-center gap-4">
+            <Link href="/audio-montage">
+              <Button variant="ghost" size="sm" className="gap-2 text-gray-300 hover:text-white hover:bg-[#2a2a2a]">
+                <ArrowLeft className="h-4 w-4" />
+                <span className="text-sm">Retour</span>
+              </Button>
+            </Link>
+            <div className="h-6 w-px bg-[#2a2a2a]" />
+            <div className="flex items-center gap-3">
+              <h1 className="text-base font-medium text-white">{project.name}</h1>
+              {hasUnsavedChanges ? (
+                <span className="text-xs text-amber-400 animate-pulse">
+                  ● Non sauvegardé
+                </span>
+              ) : (
+                <span className="text-xs text-green-500">
+                  ✓ Sauvegardé
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleSave}
+              disabled={isSaving}
+              className="gap-2 text-gray-300 hover:text-white hover:bg-[#2a2a2a]"
+            >
+              {isSaving ? 'Sauvegarde...' : 'Sauvegarder'}
             </Button>
-          </Link>
-          <div>
-            <h1 className="text-lg font-semibold">{project.name}</h1>
-            {hasUnsavedChanges && (
-              <span className="text-xs text-muted-foreground">
-                Modifications non sauvegardees
-              </span>
-            )}
+            <Button
+              size="sm"
+              onClick={() => setIsExportDialogOpen(true)}
+              className="gap-2 bg-[#3B82F6] hover:bg-[#2563EB] text-white"
+            >
+              Exporter
+            </Button>
           </div>
         </div>
 
@@ -926,6 +1031,19 @@ export function MontageEditor({
           onSetOutPoint={() => setOutPoint(currentTime)}
           onClearInOutPoints={clearInOutPoints}
           onCut={cutAtPlayhead}
+          onImport={() => setIsImportDialogOpen(true)}
+        />
+
+        {/* Minimap - vue d'ensemble */}
+        <Minimap
+          tracks={enrichedTracks}
+          duration={duration}
+          currentTime={currentTime}
+          viewportStart={scrollLeft / zoom}
+          viewportEnd={(scrollLeft + viewportWidth) / zoom}
+          zoom={zoom}
+          onSeek={handleSeek}
+          onScrollChange={setScrollLeft}
         />
 
         {/* Timeline */}
@@ -955,20 +1073,20 @@ export function MontageEditor({
           onSplitClip={splitClipAt}
           onDurationDetected={handleDurationDetected}
           onClipVolumeChange={handleClipVolumeChange}
+          onViewportWidthChange={setViewportWidth}
           isRecording={isRecording}
           recordingTrackId={recordingTrackId}
           onStartRecording={handleStartRecording}
         />
 
-        {/* Bibliotheque */}
-        <ClipLibrary
-          mediaItems={mediaItems}
-          isLoading={false}
-          isCollapsed={isLibraryCollapsed}
-          onToggleCollapse={() => setIsLibraryCollapsed(!isLibraryCollapsed)}
-          onImport={() => {
-            // TODO: Ouvrir dialog d'import
-          }}
+        {/* Barre de statut en bas */}
+        <StatusBar
+          currentTime={currentTime}
+          duration={duration}
+          trackCount={enrichedTracks.length}
+          clipCount={enrichedTracks.reduce((acc, t) => acc + t.clips.length, 0)}
+          editMode={editMode}
+          zoom={zoom}
         />
 
         {/* Dialog d'export */}
@@ -977,6 +1095,16 @@ export function MontageEditor({
           onOpenChange={setIsExportDialogOpen}
           project={project}
           duration={duration}
+        />
+
+        {/* Dialog d'import */}
+        <ImportDialog
+          open={isImportDialogOpen}
+          onOpenChange={setIsImportDialogOpen}
+          tracks={project.tracks}
+          mediaItems={mediaItems}
+          onImportFile={handleImportFile}
+          onImportFromLibrary={handleImportFromLibrary}
         />
       </div>
     </DndProvider>

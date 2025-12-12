@@ -220,10 +220,9 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
         drag(node);
       }}
       className={cn(
-        'absolute top-1 bottom-1 rounded overflow-hidden',
-        'border border-white/20',
-        'transition-shadow',
-        isSelected && 'ring-2 ring-white ring-offset-1 ring-offset-gray-900',
+        'absolute top-1 bottom-1 rounded-sm overflow-hidden',
+        'transition-all duration-100',
+        isSelected && 'ring-2 ring-white ring-offset-1 ring-offset-[#0a0a0a] z-20',
         editMode === 'razor' ? 'cursor-crosshair' : 'cursor-grab',
         isDragging && 'cursor-grabbing'
       )}
@@ -232,7 +231,8 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
         width,
         height: clipHeight,
         opacity,
-        // PAS de backgroundColor ici - on laisse ClipWaveform gerer le fond
+        backgroundColor: `${trackColor}20`, // Fond de région légèrement coloré
+        borderLeft: `3px solid ${trackColor}`,
       }}
       onWheel={handleWheel}
       onClick={(e) => {
@@ -273,8 +273,8 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
         />
       </div>
 
-      {/* Overlay semi-transparent pour le contenu */}
-      <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/40 pointer-events-none" />
+      {/* Overlay gradient subtil */}
+      <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/30 pointer-events-none" />
 
       {/* Fade in indicator */}
       {clip.fadeInDuration > 0 && (
@@ -293,12 +293,12 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
       )}
 
       {/* Contenu textuel - par-dessus la waveform */}
-      <div className="relative h-full flex flex-col p-1 pointer-events-none">
+      <div className="relative h-full flex flex-col p-1.5 pointer-events-none">
         {/* Header */}
         <div className="flex items-center justify-between text-white text-xs">
           <div className="flex items-center gap-1 min-w-0 pointer-events-auto">
-            <GripVertical className="h-3 w-3 opacity-70 shrink-0" />
-            <span className="truncate font-medium drop-shadow-md">{clip.name}</span>
+            <GripVertical className="h-3 w-3 opacity-50 shrink-0" />
+            <span className="truncate font-medium text-white/90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">{clip.name}</span>
           </div>
           <div className="flex items-center gap-1 shrink-0 pointer-events-auto">
             {/* Controle de volume */}
@@ -309,8 +309,8 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
             >
               <div
                 className={cn(
-                  'flex items-center gap-0.5 px-1 rounded cursor-pointer',
-                  clipVolume !== 1 ? 'bg-yellow-600/60 text-yellow-200' : 'hover:bg-white/20'
+                  'flex items-center gap-0.5 px-1 py-0.5 rounded cursor-pointer',
+                  clipVolume !== 1 ? 'bg-amber-500/80 text-black' : 'bg-black/30 hover:bg-black/50'
                 )}
                 onDoubleClick={handleVolumeDoubleClick}
                 title="Shift+molette pour ajuster, double-clic pour reset"
@@ -320,7 +320,7 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
                 ) : (
                   <Volume2 className="h-3 w-3" />
                 )}
-                <span className="text-[10px] font-mono w-8 text-right">
+                <span className="text-[10px] font-mono w-7 text-right">
                   {formatDb(clipVolume)}
                 </span>
               </div>
@@ -328,7 +328,7 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
               {/* Slider au hover */}
               {showVolumeSlider && (
                 <div
-                  className="absolute top-full right-0 mt-1 bg-gray-900/95 rounded-lg p-2 shadow-xl z-30 border border-white/20"
+                  className="absolute top-full right-0 mt-1 bg-[#1a1a1a] rounded-lg p-2 shadow-xl z-50 border border-[#2a2a2a]"
                   onMouseDown={() => setIsDraggingVolume(true)}
                   onMouseUp={() => setIsDraggingVolume(false)}
                   onMouseLeave={() => setIsDraggingVolume(false)}
@@ -341,9 +341,9 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
                     step="0.01"
                     value={clipVolume}
                     onChange={handleVolumeSliderChange}
-                    className="w-24 h-2 accent-blue-500 cursor-pointer"
+                    className="w-24 h-2 accent-[#3B82F6] cursor-pointer"
                   />
-                  <div className="flex justify-between text-[9px] text-gray-400 mt-1 px-0.5">
+                  <div className="flex justify-between text-[9px] text-gray-500 mt-1 px-0.5">
                     <span>-∞</span>
                     <span>0dB</span>
                     <span>+6</span>
@@ -355,7 +355,7 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
             {/* Bouton supprimer */}
             {isSelected && (
               <button
-                className="p-0.5 hover:bg-white/20 rounded"
+                className="p-0.5 bg-black/30 hover:bg-red-500/80 rounded transition-colors"
                 onClick={(e) => {
                   e.stopPropagation();
                   onDelete();
@@ -368,7 +368,7 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
         </div>
 
         {/* Duration - en bas */}
-        <div className="mt-auto text-white/80 text-[10px] font-medium drop-shadow-md">
+        <div className="mt-auto text-white/70 text-[10px] font-mono drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
           {formatDuration(clip.duration)}
         </div>
       </div>
@@ -377,21 +377,24 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
       <div
         className={cn(
           'absolute top-0 left-0 bottom-0 w-2 cursor-ew-resize z-10',
-          'hover:bg-white/30 active:bg-white/50',
+          'hover:bg-white/20 active:bg-white/40',
           'transition-colors',
-          isTrimming === 'left' && 'bg-white/50'
+          isTrimming === 'left' && 'bg-white/40'
         )}
         onMouseDown={(e) => handleTrimStart(e, 'left')}
       />
       <div
         className={cn(
           'absolute top-0 right-0 bottom-0 w-2 cursor-ew-resize z-10',
-          'hover:bg-white/30 active:bg-white/50',
+          'hover:bg-white/20 active:bg-white/40',
           'transition-colors',
-          isTrimming === 'right' && 'bg-white/50'
+          isTrimming === 'right' && 'bg-white/40'
         )}
         onMouseDown={(e) => handleTrimStart(e, 'right')}
       />
+
+      {/* Bordure subtile sur les côtés */}
+      <div className="absolute inset-y-0 right-0 w-px bg-white/10 pointer-events-none" />
     </div>
   );
 });

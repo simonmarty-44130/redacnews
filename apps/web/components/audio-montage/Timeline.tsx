@@ -1,11 +1,10 @@
 'use client';
 
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TimelineRuler } from './TimelineRuler';
 import { Track } from './Track';
-import { ZoomControls } from './ZoomControls';
 import {
   TRACK_CONTROLS_WIDTH,
   TRACK_HEIGHT,
@@ -45,6 +44,7 @@ interface TimelineProps {
   onSplitClip?: (clipId: string, globalTime: number) => void;
   onDurationDetected?: (clipId: string, realDuration: number) => void;
   onClipVolumeChange?: (clipId: string, volume: number) => void;
+  onViewportWidthChange?: (width: number) => void;
   isRecording?: boolean;
   recordingTrackId?: string | null;
   onStartRecording?: (trackId: string) => void;
@@ -76,6 +76,7 @@ export function Timeline({
   onSplitClip,
   onDurationDetected,
   onClipVolumeChange,
+  onViewportWidthChange,
   isRecording,
   recordingTrackId,
   onStartRecording,
@@ -94,10 +95,31 @@ export function Timeline({
   // Calculer la largeur de la timeline
   const timelineWidth = Math.max(duration * zoom + 500, 2000);
 
-  // Calculer la largeur du viewport
-  const viewportWidth = containerRef.current
-    ? containerRef.current.clientWidth - TRACK_CONTROLS_WIDTH
-    : 800;
+  // State pour la largeur du viewport
+  const [viewportWidth, setViewportWidth] = useState(800);
+
+  // Observer les changements de taille du container
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateViewportWidth = () => {
+      const newWidth = container.clientWidth - TRACK_CONTROLS_WIDTH;
+      if (newWidth !== viewportWidth) {
+        setViewportWidth(newWidth);
+        onViewportWidthChange?.(newWidth);
+      }
+    };
+
+    // Initial update
+    updateViewportWidth();
+
+    // Observer les changements de taille
+    const resizeObserver = new ResizeObserver(updateViewportWidth);
+    resizeObserver.observe(container);
+
+    return () => resizeObserver.disconnect();
+  }, [viewportWidth, onViewportWidthChange]);
 
   // Gerer le scroll horizontal avec la molette
   const handleWheel = useCallback(
@@ -135,8 +157,31 @@ export function Timeline({
     }
   };
 
-  // Suivre le curseur pendant la lecture
+  // Synchroniser le scroll DOM avec le state scrollLeft
+  // Ceci est nécessaire quand le scrollLeft est changé depuis la minimap
   useEffect(() => {
+    if (timelineRef.current && timelineRef.current.scrollLeft !== scrollLeft) {
+      timelineRef.current.scrollLeft = scrollLeft;
+    }
+  }, [scrollLeft]);
+
+  // Suivre le curseur pendant la lecture (auto-scroll)
+  // Utiliser un ref pour éviter de déclencher l'auto-scroll quand on drag la minimap
+  const autoScrollEnabledRef = useRef(true);
+
+  useEffect(() => {
+    // Désactiver temporairement l'auto-scroll après un changement manuel de scrollLeft
+    // (pour permettre de naviguer avec la minimap sans que l'auto-scroll interfère)
+    autoScrollEnabledRef.current = false;
+    const timeout = setTimeout(() => {
+      autoScrollEnabledRef.current = true;
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [scrollLeft]);
+
+  useEffect(() => {
+    if (!autoScrollEnabledRef.current) return;
+
     const cursorX = currentTime * zoom;
     const viewStart = scrollLeft;
     const viewEnd = scrollLeft + viewportWidth;
@@ -150,52 +195,69 @@ export function Timeline({
   }, [currentTime, zoom, scrollLeft, viewportWidth, onScrollChange]);
 
   return (
-    <div ref={containerRef} className="flex-1 flex flex-col overflow-hidden">
-      {/* Header avec zoom */}
-      <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">Timeline</span>
-          <span className="text-xs text-muted-foreground">
-            {tracks.length} piste{tracks.length > 1 ? 's' : ''}
-          </span>
-        </div>
-        <ZoomControls
-          zoom={zoom}
-          onZoomChange={onZoomChange}
-          onFitToView={handleFitToView}
-        />
-      </div>
-
+    <div ref={containerRef} className="flex-1 flex flex-col overflow-hidden bg-[#0a0a0a]">
       {/* Timeline - Structure: colonne fixe + zone scrollable */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Colonne des controles de piste (FIXE - en dehors du scroll) */}
+        {/* Colonne des controles de piste (FIXE - en dehors du scroll) - Fond gris foncé */}
         <div
-          className="flex-shrink-0 bg-background z-20 overflow-y-auto"
+          className="flex-shrink-0 bg-[#1a1a1a] z-20 overflow-y-auto border-r border-[#2a2a2a]"
           style={{ width: TRACK_CONTROLS_WIDTH }}
         >
-          {/* Espace pour la regle */}
+          {/* Header de la colonne avec zoom */}
           <div
-            className="border-b border-r bg-muted/30"
+            className="flex items-center justify-between px-2 border-b border-[#2a2a2a] bg-[#111111]"
             style={{ height: TIMELINE_RULER_HEIGHT }}
-          />
+          >
+            <span className="text-xs text-gray-400 font-medium">Pistes</span>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-gray-500 hover:text-white hover:bg-[#2a2a2a]"
+                onClick={() => onZoomChange(Math.max(10, zoom * 0.8))}
+              >
+                <ZoomOut className="h-3 w-3" />
+              </Button>
+              <span className="text-[10px] text-gray-500 font-mono w-8 text-center">
+                {Math.round(zoom)}px/s
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-gray-500 hover:text-white hover:bg-[#2a2a2a]"
+                onClick={() => onZoomChange(Math.min(200, zoom * 1.2))}
+              >
+                <ZoomIn className="h-3 w-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-gray-500 hover:text-white hover:bg-[#2a2a2a]"
+                onClick={handleFitToView}
+                title="Ajuster à la vue"
+              >
+                <Maximize2 className="h-3 w-3" />
+              </Button>
+            </div>
+          </div>
 
           {/* Controles des pistes */}
-          {tracks.map((track) => (
+          {tracks.map((track, index) => (
             <div
               key={track.id}
-              className="flex flex-col border-r border-b border-border bg-muted/30 p-2"
+              className="flex flex-col border-b border-[#2a2a2a] bg-[#1a1a1a] p-2"
               style={{ height: TRACK_HEIGHT }}
             >
               {/* Header avec nom et couleur */}
               <div className="flex items-center gap-2 mb-2">
                 <div
-                  className="w-3 h-3 rounded-full shrink-0"
+                  className="w-3 h-3 rounded-full shrink-0 ring-1 ring-white/20"
                   style={{ backgroundColor: track.color }}
                 />
                 {FIXED_TRACKS_MODE ? (
                   // En mode pistes fixes, afficher le nom sans possibilité de modification
                   <span
-                    className="text-sm font-medium flex-1 min-w-0 truncate"
+                    className="text-sm font-medium flex-1 min-w-0 truncate text-white"
                     title={track.name}
                   >
                     {track.name}
@@ -206,14 +268,14 @@ export function Timeline({
                     type="text"
                     value={track.name}
                     onChange={(e) => onUpdateTrack(track.id, { name: e.target.value })}
-                    className="text-sm font-medium bg-transparent border-none outline-none flex-1 min-w-0 truncate"
+                    className="text-sm font-medium bg-transparent border-none outline-none flex-1 min-w-0 truncate text-white focus:bg-[#2a2a2a] rounded px-1"
                     title={track.name}
                   />
                 )}
                 {/* Bouton de suppression masqué en mode pistes fixes */}
                 {!FIXED_TRACKS_MODE && (
                   <button
-                    className="h-6 w-6 text-muted-foreground hover:text-destructive shrink-0 flex items-center justify-center"
+                    className="h-6 w-6 text-gray-500 hover:text-red-400 shrink-0 flex items-center justify-center"
                     onClick={() => onDeleteTrack(track.id)}
                   >
                     <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -226,8 +288,10 @@ export function Timeline({
               {/* Boutons Mute / Solo / Rec */}
               <div className="flex gap-1 mb-2">
                 <button
-                  className={`h-6 px-2 text-xs font-medium border rounded ${
-                    track.muted ? 'bg-yellow-500 hover:bg-yellow-600 text-white border-yellow-500' : 'border-border hover:bg-muted'
+                  className={`h-6 px-2 text-xs font-bold rounded transition-colors ${
+                    track.muted
+                      ? 'bg-amber-500 text-black'
+                      : 'bg-[#2a2a2a] text-gray-400 hover:bg-[#333] hover:text-white'
                   }`}
                   onClick={() => onUpdateTrack(track.id, { muted: !track.muted })}
                   title="Mute (M)"
@@ -235,8 +299,10 @@ export function Timeline({
                   M
                 </button>
                 <button
-                  className={`h-6 px-2 text-xs font-medium border rounded ${
-                    track.solo ? 'bg-green-500 hover:bg-green-600 text-white border-green-500' : 'border-border hover:bg-muted'
+                  className={`h-6 px-2 text-xs font-bold rounded transition-colors ${
+                    track.solo
+                      ? 'bg-green-500 text-black'
+                      : 'bg-[#2a2a2a] text-gray-400 hover:bg-[#333] hover:text-white'
                   }`}
                   onClick={() => onUpdateTrack(track.id, { solo: !track.solo })}
                   title="Solo (S)"
@@ -245,10 +311,10 @@ export function Timeline({
                 </button>
                 {onStartRecording && (
                   <button
-                    className={`h-6 w-6 flex items-center justify-center border rounded transition-all ${
+                    className={`h-6 w-6 flex items-center justify-center rounded transition-all ${
                       isRecording && recordingTrackId === track.id
-                        ? 'bg-red-600 hover:bg-red-700 border-red-600 animate-pulse'
-                        : 'bg-red-500 hover:bg-red-600 border-red-500'
+                        ? 'bg-red-600 animate-pulse'
+                        : 'bg-[#2a2a2a] hover:bg-red-600'
                     }`}
                     onClick={() => onStartRecording(track.id)}
                     title={isRecording && recordingTrackId === track.id ? "Arreter l'enregistrement" : "Enregistrer"}
@@ -258,9 +324,9 @@ export function Timeline({
                 )}
               </div>
 
-              {/* Volume */}
-              <div className="flex items-center gap-2 mb-1">
-                <svg className="h-3 w-3 text-muted-foreground shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              {/* Volume - Style compact */}
+              <div className="flex items-center gap-2">
+                <svg className="h-3 w-3 text-gray-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
                 </svg>
                 <input
@@ -269,10 +335,10 @@ export function Timeline({
                   max="100"
                   value={track.volume * 100}
                   onChange={(e) => onUpdateTrack(track.id, { volume: Number(e.target.value) / 100 })}
-                  className="flex-1 h-1"
+                  className="flex-1 h-1 accent-[#3B82F6] bg-[#2a2a2a] rounded-full cursor-pointer"
                 />
-                <span className="text-xs text-muted-foreground w-8 text-right">
-                  {Math.round(track.volume * 100)}
+                <span className="text-[10px] text-gray-500 w-7 text-right font-mono">
+                  {Math.round(track.volume * 100)}%
                 </span>
               </div>
             </div>
@@ -280,12 +346,12 @@ export function Timeline({
 
           {/* Bouton ajouter piste - masqué en mode pistes fixes */}
           {!FIXED_TRACKS_MODE && tracks.length < MAX_TRACKS && (
-            <div className="p-2 border-r">
+            <div className="p-2">
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 onClick={onAddTrack}
-                className="w-full gap-2"
+                className="w-full gap-2 text-gray-400 hover:text-white hover:bg-[#2a2a2a] border border-dashed border-[#2a2a2a]"
               >
                 <Plus className="h-4 w-4" />
                 Ajouter une piste
@@ -294,10 +360,10 @@ export function Timeline({
           )}
         </div>
 
-        {/* Zone scrollable de la timeline (clips uniquement) */}
+        {/* Zone scrollable de la timeline (clips uniquement) - Fond noir */}
         <div
           ref={timelineRef}
-          className="flex-1 overflow-x-auto overflow-y-auto"
+          className="flex-1 overflow-x-auto overflow-y-auto bg-[#0a0a0a]"
           onScroll={(e) => onScrollChange(e.currentTarget.scrollLeft)}
         >
               <div style={{ width: timelineWidth }} className="relative">
@@ -314,7 +380,7 @@ export function Timeline({
                 {/* Zone In/Out (affichée si les deux points sont définis) */}
                 {inPoint !== null && outPoint !== null && inPoint < outPoint && (
                   <div
-                    className="absolute bg-blue-500/20 border-l-2 border-r-2 border-blue-500 pointer-events-none z-5"
+                    className="absolute bg-[#3B82F6]/20 border-l-2 border-r-2 border-[#3B82F6] pointer-events-none z-5"
                     style={{
                       left: inPoint * zoom,
                       width: (outPoint - inPoint) * zoom,
@@ -323,11 +389,11 @@ export function Timeline({
                     }}
                   >
                     {/* Indicateur In */}
-                    <div className="absolute -left-2 top-0 w-4 h-4 bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center">
+                    <div className="absolute -left-2 top-0 w-4 h-4 bg-[#3B82F6] text-white text-[10px] font-bold flex items-center justify-center">
                       I
                     </div>
                     {/* Indicateur Out */}
-                    <div className="absolute -right-2 top-0 w-4 h-4 bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center">
+                    <div className="absolute -right-2 top-0 w-4 h-4 bg-[#3B82F6] text-white text-[10px] font-bold flex items-center justify-center">
                       O
                     </div>
                   </div>
@@ -336,14 +402,14 @@ export function Timeline({
                 {/* Point In seul */}
                 {inPoint !== null && outPoint === null && (
                   <div
-                    className="absolute w-0.5 bg-blue-500 pointer-events-none z-5"
+                    className="absolute w-0.5 bg-[#3B82F6] pointer-events-none z-5"
                     style={{
                       left: inPoint * zoom,
                       top: TIMELINE_RULER_HEIGHT,
                       bottom: 0,
                     }}
                   >
-                    <div className="absolute -left-2 top-0 w-4 h-4 bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center">
+                    <div className="absolute -left-2 top-0 w-4 h-4 bg-[#3B82F6] text-white text-[10px] font-bold flex items-center justify-center">
                       I
                     </div>
                   </div>
@@ -352,14 +418,14 @@ export function Timeline({
                 {/* Point Out seul */}
                 {outPoint !== null && inPoint === null && (
                   <div
-                    className="absolute w-0.5 bg-blue-500 pointer-events-none z-5"
+                    className="absolute w-0.5 bg-[#3B82F6] pointer-events-none z-5"
                     style={{
                       left: outPoint * zoom,
                       top: TIMELINE_RULER_HEIGHT,
                       bottom: 0,
                     }}
                   >
-                    <div className="absolute -left-2 top-0 w-4 h-4 bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center">
+                    <div className="absolute -left-2 top-0 w-4 h-4 bg-[#3B82F6] text-white text-[10px] font-bold flex items-center justify-center">
                       O
                     </div>
                   </div>
@@ -405,7 +471,7 @@ export function Timeline({
                 {/* Zone vide pour drop si pas de pistes */}
                 {tracks.length === 0 && (
                   <div
-                    className="flex items-center justify-center text-muted-foreground"
+                    className="flex items-center justify-center text-gray-500"
                     style={{ height: TRACK_HEIGHT * 2 }}
                   >
                     <div className="text-center">
@@ -417,9 +483,9 @@ export function Timeline({
                   </div>
                 )}
 
-                {/* Curseur de lecture vertical */}
+                {/* Curseur de lecture vertical - Bleu vif */}
                 <div
-                  className="absolute top-0 bottom-0 w-0.5 bg-red-500 pointer-events-none z-10"
+                  className="absolute top-0 bottom-0 w-0.5 bg-[#3B82F6] pointer-events-none z-10 shadow-lg shadow-blue-500/50"
                   style={{
                     left: currentTime * zoom,
                     display:

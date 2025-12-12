@@ -14,3 +14,5 @@ export { TransportBar } from './TransportBar';
 export { Toolbar } from './Toolbar';
 export { ZoomControls } from './ZoomControls';
 export { ExportDialog } from './ExportDialog';
+export { Minimap } from './Minimap';
+export { StatusBar } from './StatusBar';

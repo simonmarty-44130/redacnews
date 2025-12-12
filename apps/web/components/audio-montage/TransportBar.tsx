@@ -7,8 +7,6 @@ import {
   SkipBack,
   SkipForward,
   Volume2,
-  Save,
-  Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
@@ -34,15 +32,11 @@ export function TransportBar({
   currentTime,
   duration,
   masterVolume,
-  isSaving,
-  hasUnsavedChanges,
   onPlay,
   onPause,
   onStop,
   onSeek,
   onMasterVolumeChange,
-  onSave,
-  onExport,
 }: TransportBarProps) {
   // Formater le temps
   const formatTime = (seconds: number): string => {
@@ -53,108 +47,84 @@ export function TransportBar({
   };
 
   return (
-    <div className="flex items-center gap-4 p-3 border-b bg-background">
+    <div className="flex items-center justify-center gap-6 px-4 py-3 bg-[#111111] border-b border-[#2a2a2a]">
       {/* Controles de lecture */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-2">
+        {/* Retour au début */}
         <Button
           variant="ghost"
           size="icon"
           onClick={() => onSeek(0)}
           title="Retour au debut"
+          className="h-8 w-8 text-gray-400 hover:text-white hover:bg-[#2a2a2a]"
         >
           <SkipBack className="h-4 w-4" />
         </Button>
 
-        {isPlaying ? (
-          <Button
-            variant="default"
-            size="icon"
-            onClick={onPause}
-            title="Pause"
-          >
-            <Pause className="h-4 w-4" />
-          </Button>
-        ) : (
-          <Button
-            variant="default"
-            size="icon"
-            onClick={onPlay}
-            title="Lecture"
-          >
-            <Play className="h-4 w-4" />
-          </Button>
-        )}
-
+        {/* Stop */}
         <Button
           variant="ghost"
           size="icon"
           onClick={onStop}
           title="Stop"
+          className="h-8 w-8 text-gray-400 hover:text-white hover:bg-[#2a2a2a]"
         >
           <Square className="h-4 w-4" />
         </Button>
 
+        {/* Bouton Play/Pause circulaire bleu */}
+        {isPlaying ? (
+          <Button
+            size="icon"
+            onClick={onPause}
+            title="Pause (Espace)"
+            className="h-12 w-12 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-white shadow-lg shadow-blue-500/30"
+          >
+            <Pause className="h-5 w-5" />
+          </Button>
+        ) : (
+          <Button
+            size="icon"
+            onClick={onPlay}
+            title="Lecture (Espace)"
+            className="h-12 w-12 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-white shadow-lg shadow-blue-500/30"
+          >
+            <Play className="h-5 w-5 ml-0.5" />
+          </Button>
+        )}
+
+        {/* Aller à la fin */}
         <Button
           variant="ghost"
           size="icon"
           onClick={() => onSeek(duration)}
           title="Aller a la fin"
+          className="h-8 w-8 text-gray-400 hover:text-white hover:bg-[#2a2a2a]"
         >
           <SkipForward className="h-4 w-4" />
         </Button>
       </div>
 
-      {/* Affichage du temps */}
-      <div className="flex items-center gap-2 font-mono text-sm">
-        <span className="text-foreground">{formatTime(currentTime)}</span>
-        <span className="text-muted-foreground">/</span>
-        <span className="text-muted-foreground">{formatTime(duration)}</span>
-      </div>
-
-      {/* Barre de progression */}
-      <div className="flex-1 px-4">
-        <Slider
-          value={[duration > 0 ? (currentTime / duration) * 100 : 0]}
-          onValueChange={([v]) => onSeek((v / 100) * duration)}
-          max={100}
-          step={0.1}
-          className="cursor-pointer"
-        />
+      {/* Affichage du temps - style timecode */}
+      <div className="flex items-center gap-3 bg-[#0a0a0a] px-4 py-2 rounded-lg border border-[#2a2a2a]">
+        <span className="font-mono text-xl text-white tracking-wider">{formatTime(currentTime)}</span>
+        <span className="text-gray-500">/</span>
+        <span className="font-mono text-xl text-gray-400 tracking-wider">{formatTime(duration)}</span>
       </div>
 
       {/* Volume master */}
-      <div className="flex items-center gap-2 w-32">
-        <Volume2 className="h-4 w-4 text-muted-foreground shrink-0" />
+      <div className="flex items-center gap-2 bg-[#1a1a1a] px-3 py-2 rounded-lg">
+        <Volume2 className="h-4 w-4 text-gray-400 shrink-0" />
         <Slider
           value={[masterVolume * 100]}
           onValueChange={([v]) => onMasterVolumeChange(v / 100)}
           max={100}
           step={1}
+          className="w-24 [&>span:first-child]:bg-[#2a2a2a] [&_[role=slider]]:bg-white [&_[role=slider]]:border-0 [&>span:first-child_span]:bg-[#3B82F6]"
         />
-      </div>
-
-      {/* Actions */}
-      <div className="flex items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onSave}
-          disabled={isSaving}
-          className="gap-2"
-        >
-          <Save className="h-4 w-4" />
-          {isSaving ? 'Sauvegarde...' : hasUnsavedChanges ? 'Sauvegarder*' : 'Sauvegarder'}
-        </Button>
-
-        <Button
-          variant="default"
-          size="sm"
-          onClick={onExport}
-          className="gap-2"
-        >
-          <Download className="h-4 w-4" />
-          Exporter
-        </Button>
+        <span className="text-xs text-gray-400 w-8 text-right font-mono">
+          {Math.round(masterVolume * 100)}%
+        </span>
       </div>
     </div>
   );

@@ -56,12 +56,12 @@ export function TimelineRuler({
     canvas.style.height = `${height}px`;
     ctx.scale(dpr, dpr);
 
-    // Clear
-    ctx.fillStyle = '#f8fafc';
+    // Fond noir
+    ctx.fillStyle = '#111111';
     ctx.fillRect(0, 0, width, height);
 
-    // Border bottom
-    ctx.strokeStyle = '#e2e8f0';
+    // Bordure en bas
+    ctx.strokeStyle = '#2a2a2a';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, height - 0.5);
@@ -74,7 +74,7 @@ export function TimelineRuler({
     const startTime = Math.floor(scrollLeft / zoom / minor) * minor;
     const endTime = Math.ceil((scrollLeft + viewportWidth) / zoom / minor) * minor;
 
-    ctx.font = '11px Inter, system-ui, sans-serif';
+    ctx.font = '10px "SF Mono", Monaco, monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
 
@@ -85,35 +85,37 @@ export function TimelineRuler({
 
       const isMajor = time % major === 0;
 
-      ctx.strokeStyle = isMajor ? '#94a3b8' : '#cbd5e1';
+      // Couleurs des ticks - gris pour thème sombre
+      ctx.strokeStyle = isMajor ? '#4a4a4a' : '#2a2a2a';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(x, isMajor ? 8 : 16);
+      ctx.moveTo(x, isMajor ? 12 : 20);
       ctx.lineTo(x, height);
       ctx.stroke();
 
       if (isMajor) {
-        ctx.fillStyle = '#64748b';
+        // Texte en gris clair
+        ctx.fillStyle = '#888888';
         ctx.fillText(formatTime(time), x, 2);
       }
     }
 
-    // Curseur de lecture
+    // Curseur de lecture - Bleu vif
     const cursorX = currentTime * zoom - scrollLeft;
     if (cursorX >= 0 && cursorX <= width) {
-      ctx.strokeStyle = '#ef4444';
+      ctx.strokeStyle = '#3B82F6';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(cursorX, 0);
       ctx.lineTo(cursorX, height);
       ctx.stroke();
 
-      // Triangle
-      ctx.fillStyle = '#ef4444';
+      // Triangle en haut - bleu
+      ctx.fillStyle = '#3B82F6';
       ctx.beginPath();
       ctx.moveTo(cursorX - 6, 0);
       ctx.lineTo(cursorX + 6, 0);
-      ctx.lineTo(cursorX, 8);
+      ctx.lineTo(cursorX, 10);
       ctx.closePath();
       ctx.fill();
     }
@@ -129,7 +131,7 @@ export function TimelineRuler({
   return (
     <canvas
       ref={canvasRef}
-      className="cursor-pointer"
+      className="cursor-pointer bg-[#111111]"
       onClick={handleClick}
       style={{ height: TIMELINE_RULER_HEIGHT }}
     />

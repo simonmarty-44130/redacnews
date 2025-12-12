@@ -252,24 +252,27 @@ export function Track({
         drop(node);
       }}
       className={cn(
-        'relative bg-muted/10 border-b border-border',
-        isOver && canDrop && 'bg-primary/10',
+        'relative bg-[#0a0a0a] border-b border-[#1a1a1a]',
+        isOver && canDrop && 'bg-[#1a1a1a]',
         track.muted && 'opacity-50'
       )}
       style={{ height: TRACK_HEIGHT }}
       onClick={() => onSelectClip(null)}
     >
-      {/* Grille de fond */}
+      {/* Grille de fond subtile */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
           backgroundImage: `
-            linear-gradient(to right, rgba(0,0,0,0.03) 1px, transparent 1px)
+            linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px)
           `,
           backgroundSize: `${zoom * 1}px 100%`,
           backgroundPosition: `${-scrollLeft % (zoom * 1)}px 0`,
         }}
       />
+
+      {/* Séparateur de piste subtil */}
+      <div className="absolute bottom-0 left-0 right-0 h-px bg-[#2a2a2a]" />
 
       {/* Clips */}
       {track.clips.map((clip) => (
@@ -302,7 +305,7 @@ export function Track({
 
       {/* Indicateur de drop */}
       {isOver && canDrop && (
-        <div className="absolute inset-0 border-2 border-dashed border-primary rounded pointer-events-none" />
+        <div className="absolute inset-0 border-2 border-dashed border-[#3B82F6] rounded pointer-events-none bg-[#3B82F6]/5" />
       )}
     </div>
   );
