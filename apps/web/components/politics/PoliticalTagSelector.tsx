@@ -40,6 +40,8 @@ interface PoliticalTagSelectorProps {
   electionType?: ElectionTypeCode | null;
   onElectionTypeChange?: (type: ElectionTypeCode | null) => void;
   className?: string;
+  /** Durée estimée de lecture du sujet (en secondes) */
+  estimatedDuration?: number | null;
 }
 
 export function PoliticalTagSelector({
@@ -47,6 +49,7 @@ export function PoliticalTagSelector({
   electionType,
   onElectionTypeChange,
   className,
+  estimatedDuration,
 }: PoliticalTagSelectorProps) {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [selectedFamily, setSelectedFamily] = useState<PoliticalFamilyCode | ''>('');
@@ -56,7 +59,6 @@ export function PoliticalTagSelector({
     constituency: '',
     electionYear: new Date().getFullYear(),
   });
-  const [speakingTimeInput, setSpeakingTimeInput] = useState('');
   const [isMainSubject, setIsMainSubject] = useState(false);
 
   const utils = trpc.useUtils();
@@ -71,6 +73,27 @@ export function PoliticalTagSelector({
     storyId,
   });
 
+  // Charger les médias attachés au sujet pour calculer la durée
+  const { data: storyMedia } = trpc.storyMedia.listByStory.useQuery(
+    { storyId },
+    { enabled: !!storyId }
+  );
+
+  // Calculer le temps de parole automatique
+  // Priorité : durée totale des sons attachés > durée estimée de lecture
+  const autoSpeakingTime = useMemo(() => {
+    // Calculer la durée totale des sons attachés
+    const audioMedia = storyMedia?.filter((m) => m.mediaItem.type === 'AUDIO') || [];
+    const totalAudioDuration = audioMedia.reduce((sum, m) => sum + (m.mediaItem.duration || 0), 0);
+
+    if (totalAudioDuration > 0) {
+      return totalAudioDuration;
+    }
+
+    // Sinon utiliser la durée estimée de lecture du sujet
+    return estimatedDuration || 0;
+  }, [storyMedia, estimatedDuration]);
+
   // Mutations
   const createTag = trpc.politics.createTag.useMutation({
     onSuccess: () => {
@@ -83,7 +106,6 @@ export function PoliticalTagSelector({
   const tagStory = trpc.politics.tagStory.useMutation({
     onSuccess: () => {
       utils.politics.getStoryTags.invalidate({ storyId });
-      setSpeakingTimeInput('');
       setIsMainSubject(false);
     },
   });
@@ -130,14 +152,10 @@ export function PoliticalTagSelector({
   }, [storyTags]);
 
   const handleAddTag = (tagId: string) => {
-    const speakingTime = speakingTimeInput
-      ? parseTimeToSeconds(speakingTimeInput)
-      : undefined;
-
     tagStory.mutate({
       storyId,
       politicalTagId: tagId,
-      speakingTime,
+      speakingTime: autoSpeakingTime > 0 ? autoSpeakingTime : undefined,
       isMainSubject,
     });
   };
@@ -169,17 +187,6 @@ export function PoliticalTagSelector({
       electionType: newType,
     });
     onElectionTypeChange?.(newType);
-  };
-
-  // Parse time string (MM:SS or M:SS or seconds) to seconds
-  const parseTimeToSeconds = (timeStr: string): number => {
-    if (timeStr.includes(':')) {
-      const parts = timeStr.split(':');
-      const mins = parseInt(parts[0], 10) || 0;
-      const secs = parseInt(parts[1], 10) || 0;
-      return mins * 60 + secs;
-    }
-    return parseInt(timeStr, 10) || 0;
   };
 
   if (loadingTags || loadingStoryTags) {
@@ -239,15 +246,18 @@ export function PoliticalTagSelector({
       <div className="mb-4 p-3 bg-gray-50 rounded-lg">
         <Label className="text-sm font-medium mb-2 block">Ajouter une étiquette</Label>
 
-        {/* Options de temps de parole */}
-        <div className="flex gap-2 mb-3">
-          <div className="flex-1">
-            <Input
-              placeholder="Temps de parole (ex: 2:30)"
-              value={speakingTimeInput}
-              onChange={(e) => setSpeakingTimeInput(e.target.value)}
-              className="text-sm"
-            />
+        {/* Temps de parole automatique */}
+        <div className="flex items-center justify-between mb-3 p-2 bg-white rounded border">
+          <div className="text-sm">
+            <span className="text-gray-500">Temps de parole : </span>
+            <span className="font-medium">
+              {autoSpeakingTime > 0 ? formatDuration(autoSpeakingTime) : '--:--'}
+            </span>
+            <span className="text-xs text-gray-400 ml-2">
+              {storyMedia?.some((m) => m.mediaItem.type === 'AUDIO')
+                ? '(durée des sons)'
+                : '(durée de lecture)'}
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <Checkbox

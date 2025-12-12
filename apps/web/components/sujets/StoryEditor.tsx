@@ -406,37 +406,20 @@ Chaque phrase devrait etre comprehensible independamment."
 
           <Separator />
 
-          {/* Section Pluralisme politique */}
-          {(category === 'Politique' || electionType) && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Vote className="h-4 w-4 text-gray-500" />
-                <Label>Pluralisme politique (ARCOM)</Label>
-              </div>
-              <div className="bg-blue-50 rounded-lg p-4">
-                <PoliticalTagSelector
-                  storyId={storyId}
-                  electionType={electionType}
-                  onElectionTypeChange={(type) => setElectionType(type)}
-                />
-              </div>
+          {/* Section Pluralisme politique - toujours visible */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Vote className="h-4 w-4 text-blue-600" />
+              <Label className="text-blue-700 font-medium">Pluralisme politique (ARCOM)</Label>
             </div>
-          )}
-
-          {/* Bouton pour afficher la section politique si categorie n'est pas Politique */}
-          {category !== 'Politique' && !electionType && (
-            <div className="text-center py-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setElectionType('OTHER')}
-                className="text-blue-600"
-              >
-                <Vote className="h-4 w-4 mr-2" />
-                Ajouter des etiquettes politiques
-              </Button>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <PoliticalTagSelector
+                storyId={storyId}
+                electionType={electionType}
+                onElectionTypeChange={(type) => setElectionType(type)}
+              />
             </div>
-          )}
+          </div>
         </div>
       </div>
     </div>

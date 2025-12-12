@@ -248,6 +248,7 @@ export function StoryEditorFullscreen({ storyId, onBack }: StoryEditorFullscreen
         status={status}
         category={category}
         mediaCount={story.media?.length || 0}
+        estimatedDuration={story.estimatedDuration}
         onStatusChange={handleStatusChange}
         onCategoryChange={handleCategoryChange}
       />
