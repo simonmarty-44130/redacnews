@@ -2,11 +2,13 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { FileText, Inbox } from 'lucide-react';
+import Link from 'next/link';
+import { FileText, Inbox, Vote } from 'lucide-react';
 import { trpc } from '@/lib/trpc/client';
 import { StoryCard, StoryFilters, CreateStoryDialog } from '@/components/sujets';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
 
 interface Filters {
   search: string;
@@ -46,7 +48,15 @@ export default function SujetsPage() {
               </span>
             )}
           </div>
-          <CreateStoryDialog />
+          <div className="flex items-center gap-2">
+            <Link href="/pluralisme">
+              <Button variant="outline" className="gap-2">
+                <Vote className="h-4 w-4" />
+                Pluralisme
+              </Button>
+            </Link>
+            <CreateStoryDialog />
+          </div>
         </div>
         <StoryFilters filters={filters} onFiltersChange={setFilters} />
       </div>

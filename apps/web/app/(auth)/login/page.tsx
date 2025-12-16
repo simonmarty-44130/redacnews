@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Radio } from 'lucide-react';
-import { login } from '@/lib/aws/auth';
+import { Radio, Loader2 } from 'lucide-react';
+import { login, getUser } from '@/lib/aws/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,6 +16,25 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  // Vérifier si l'utilisateur est déjà connecté au chargement
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const user = await getUser();
+        if (user) {
+          // Utilisateur déjà connecté, rediriger vers l'app
+          router.replace('/conducteur');
+          return;
+        }
+      } catch {
+        // Pas connecté, afficher le formulaire
+      }
+      setCheckingAuth(false);
+    };
+    checkAuth();
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,11 +47,25 @@ export default function LoginPage() {
         router.push('/conducteur');
       }
     } catch (err: any) {
+      // Si l'utilisateur est déjà connecté, rediriger
+      if (err.message?.includes('already a signed in user')) {
+        router.replace('/conducteur');
+        return;
+      }
       setError(err.message || 'Erreur de connexion');
     } finally {
       setLoading(false);
     }
   };
+
+  // Afficher un loader pendant la vérification
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
