@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'standalone',
   transpilePackages: ['@redacnews/db', '@redacnews/api', '@redacnews/types', '@redacnews/audio-editor'],
   images: {
     domains: [
