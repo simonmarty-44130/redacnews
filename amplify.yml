@@ -3,10 +3,6 @@ frontend:
   phases:
     preBuild:
       commands:
-        - echo "Current directory:" && pwd && ls -la
-        - echo "Parent directory:" && ls -la ../ 2>/dev/null || echo "No parent"
-        # If we're in apps/web, go to root first
-        - cd ../.. 2>/dev/null || true
         - npm ci --legacy-peer-deps
         - cd packages/db && npx prisma generate
     build:
