@@ -3,17 +3,17 @@ frontend:
   phases:
     preBuild:
       commands:
-        - cd ../.. && npm ci --legacy-peer-deps
-        - cd ../../packages/db && npx prisma generate
+        - npm ci --legacy-peer-deps
+        - cd packages/db && npx prisma generate
     build:
       commands:
         - export NODE_OPTIONS="--max-old-space-size=8192"
-        - npm run build
+        - cd apps/web && npm run build
   artifacts:
-    baseDirectory: .next
+    baseDirectory: apps/web/.next
     files:
       - '**/*'
   cache:
     paths:
-      - ../../node_modules/**/*
-      - .next/cache/**/*
+      - node_modules/**/*
+      - apps/web/.next/cache/**/*
