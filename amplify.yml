@@ -1,20 +1,22 @@
 version: 1
-frontend:
-  phases:
-    preBuild:
-      commands:
-        - npm ci --legacy-peer-deps
-        - cd packages/db && npx prisma generate && cd ../..
-    build:
-      commands:
-        - npm run build
-  artifacts:
-    baseDirectory: apps/web/.next
-    files:
-      - '**/*'
-  cache:
-    paths:
-      - node_modules/**/*
-      - apps/web/node_modules/**/*
-      - packages/db/node_modules/**/*
-      - packages/api/node_modules/**/*
+applications:
+  - appRoot: apps/web
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - npm ci --legacy-peer-deps
+            - npx prisma generate --schema=../../packages/db/prisma/schema.prisma
+        build:
+          commands:
+            - export NODE_OPTIONS="--max-old-space-size=8192"
+            - npm run build
+      artifacts:
+        baseDirectory: .next
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - ../../node_modules/**/*
+          - node_modules/**/*
+          - .next/cache/**/*
