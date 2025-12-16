@@ -3,13 +3,11 @@ import {
   SendEmailCommand,
   SendRawEmailCommand,
 } from '@aws-sdk/client-ses';
+import { awsConfig, sesConfig } from '../aws-config';
 
 const sesClient = new SESClient({
-  region: process.env.AWS_REGION || 'eu-west-3',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
+  region: awsConfig.region,
+  credentials: awsConfig.credentials,
 });
 
 export interface EmailAttachment {
@@ -32,7 +30,7 @@ export interface SendEmailOptions {
  */
 export async function sendEmail(options: SendEmailOptions): Promise<string> {
   const { to, subject, htmlBody, textBody, replyTo } = options;
-  const fromEmail = process.env.AWS_SES_FROM_EMAIL || 'noreply@redacnews.fr';
+  const fromEmail = sesConfig.fromEmail;
   const toAddresses = Array.isArray(to) ? to : [to];
 
   // If there are attachments, use raw email
@@ -77,7 +75,7 @@ export async function sendEmail(options: SendEmailOptions): Promise<string> {
  */
 async function sendRawEmail(options: SendEmailOptions): Promise<string> {
   const { to, subject, htmlBody, textBody, replyTo, attachments } = options;
-  const fromEmail = process.env.AWS_SES_FROM_EMAIL || 'noreply@redacnews.fr';
+  const fromEmail = sesConfig.fromEmail;
   const toAddresses = Array.isArray(to) ? to : [to];
   const boundary = `----=_Part_${Date.now().toString(36)}`;
 

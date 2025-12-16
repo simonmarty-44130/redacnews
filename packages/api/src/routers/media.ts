@@ -8,24 +8,19 @@ import {
   LanguageCode,
 } from '@aws-sdk/client-transcribe';
 import { router, protectedProcedure } from '../trpc';
+import { awsConfig, s3Config, cloudfrontConfig } from '../lib/aws-config';
 
 // Transcription job name storage (in production, store in DB)
 const transcriptionJobs = new Map<string, string>(); // mediaItemId -> jobName
 
 const s3Client = new S3Client({
-  region: process.env.AWS_REGION || 'eu-west-3',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
+  region: awsConfig.region,
+  credentials: awsConfig.credentials,
 });
 
 const transcribeClient = new TranscribeClient({
-  region: process.env.AWS_REGION || 'eu-west-3',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
+  region: awsConfig.region,
+  credentials: awsConfig.credentials,
 });
 
 // Supported audio/video formats for transcription
@@ -56,7 +51,7 @@ export const mediaRouter = router({
       const key = `${ctx.organizationId}/media/${Date.now()}-${input.filename}`;
 
       const command = new PutObjectCommand({
-        Bucket: process.env.AWS_S3_BUCKET || 'redacnews-media',
+        Bucket: s3Config.bucket,
         Key: key,
         ContentType: input.contentType,
       });
@@ -65,9 +60,9 @@ export const mediaRouter = router({
         expiresIn: 3600,
       });
 
-      const publicUrl = process.env.AWS_CLOUDFRONT_DOMAIN
-        ? `https://${process.env.AWS_CLOUDFRONT_DOMAIN}/${key}`
-        : `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+      const publicUrl = cloudfrontConfig.domain
+        ? `https://${cloudfrontConfig.domain}/${key}`
+        : `https://${s3Config.bucket}.s3.${s3Config.region}.amazonaws.com/${key}`;
 
       return {
         uploadUrl,
@@ -109,7 +104,7 @@ export const mediaRouter = router({
       });
 
       // Generer des URLs signees pour chaque media item
-      const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
+      const bucket = s3Config.bucket;
       const itemsWithPresignedUrls = await Promise.all(
         mediaItems.map(async (item) => {
           try {
@@ -150,7 +145,7 @@ export const mediaRouter = router({
       });
 
       // Generate presigned URLs for each item
-      const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
+      const bucket = s3Config.bucket;
       const itemsWithUrls = await Promise.all(
         mediaItems.map(async (item) => {
           const presignedUrl = await getSignedUrl(
@@ -186,7 +181,7 @@ export const mediaRouter = router({
       });
 
       // Generate presigned URL for accessing the file
-      const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
+      const bucket = s3Config.bucket;
       const presignedUrl = await getSignedUrl(
         s3Client,
         new GetObjectCommand({
@@ -210,11 +205,10 @@ export const mediaRouter = router({
         where: { id: input.id },
       });
 
-      const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
       const presignedUrl = await getSignedUrl(
         s3Client,
         new GetObjectCommand({
-          Bucket: bucket,
+          Bucket: s3Config.bucket,
           Key: mediaItem.s3Key,
         }),
         { expiresIn: 3600 } // 1 hour
@@ -378,7 +372,6 @@ export const mediaRouter = router({
         );
       }
 
-      const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
       const jobName = `redacnews-${input.mediaItemId}-${Date.now()}`;
 
       // Start transcription job
@@ -387,9 +380,9 @@ export const mediaRouter = router({
           TranscriptionJobName: jobName,
           LanguageCode: (input.languageCode as LanguageCode) || LanguageCode.FR_FR,
           Media: {
-            MediaFileUri: `s3://${bucket}/${mediaItem.s3Key}`,
+            MediaFileUri: `s3://${s3Config.bucket}/${mediaItem.s3Key}`,
           },
-          OutputBucketName: bucket,
+          OutputBucketName: s3Config.bucket,
           OutputKey: `transcriptions/${input.mediaItemId}.json`,
           Settings: {
             ShowSpeakerLabels: true,
@@ -456,23 +449,11 @@ export const mediaRouter = router({
 
         if (status === 'COMPLETED' && job?.Transcript?.TranscriptFileUri) {
           // Fetch transcription from S3
-          const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
           const outputKey = `transcriptions/${input.mediaItemId}.json`;
 
-          const { GetObjectCommand } = await import('@aws-sdk/client-s3');
-          const { S3Client } = await import('@aws-sdk/client-s3');
-
-          const s3 = new S3Client({
-            region: process.env.AWS_REGION || 'eu-west-3',
-            credentials: {
-              accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-              secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-            },
-          });
-
-          const s3Response = await s3.send(
+          const s3Response = await s3Client.send(
             new GetObjectCommand({
-              Bucket: bucket,
+              Bucket: s3Config.bucket,
               Key: outputKey,
             })
           );
@@ -568,13 +549,12 @@ export const mediaRouter = router({
       const extension = input.format === 'wav' ? 'wav' : 'mp3';
       const newKey = `${ctx.organizationId}/media/${timestamp}-edited-${mediaItem.title.replace(/[^a-zA-Z0-9]/g, '_')}.${extension}`;
 
-      const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
       const contentType = input.format === 'wav' ? 'audio/wav' : 'audio/mpeg';
 
       // Upload new file to S3
       await s3Client.send(
         new PutObjectCommand({
-          Bucket: bucket,
+          Bucket: s3Config.bucket,
           Key: newKey,
           Body: audioBuffer,
           ContentType: contentType,
@@ -582,9 +562,9 @@ export const mediaRouter = router({
       );
 
       // Generate public URL
-      const publicUrl = process.env.AWS_CLOUDFRONT_DOMAIN
-        ? `https://${process.env.AWS_CLOUDFRONT_DOMAIN}/${newKey}`
-        : `https://${bucket}.s3.${process.env.AWS_REGION}.amazonaws.com/${newKey}`;
+      const publicUrl = cloudfrontConfig.domain
+        ? `https://${cloudfrontConfig.domain}/${newKey}`
+        : `https://${s3Config.bucket}.s3.${s3Config.region}.amazonaws.com/${newKey}`;
 
       // Update media item with new file
       const updatedMedia = await ctx.db.mediaItem.update({

@@ -2,13 +2,11 @@ import { z } from 'zod';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { router, protectedProcedure } from '../trpc';
+import { awsConfig, s3Config } from '../lib/aws-config';
 
 const s3Client = new S3Client({
-  region: process.env.AWS_REGION || 'eu-west-3',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
+  region: awsConfig.region,
+  credentials: awsConfig.credentials,
 });
 
 export const storyMediaRouter = router({
@@ -152,13 +150,12 @@ export const storyMediaRouter = router({
       });
 
       // Generer des URLs presignees pour chaque media
-      const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
       const itemsWithUrls = await Promise.all(
         storyMediaItems.map(async (item) => {
           const presignedUrl = await getSignedUrl(
             s3Client,
             new GetObjectCommand({
-              Bucket: bucket,
+              Bucket: s3Config.bucket,
               Key: item.mediaItem.s3Key,
             }),
             { expiresIn: 3600 }

@@ -153,6 +153,67 @@ export const rundownRouter = router({
       });
     }),
 
+  // Update rundown info (extended fields)
+  updateInfo: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        title: z.string().optional(),
+        subtitle: z.string().optional(),
+        location: z.string().optional(),
+        locationAddress: z.string().optional(),
+        startTime: z.string().optional(),
+        endTime: z.string().optional(),
+        notes: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+      return ctx.db.rundown.update({
+        where: { id },
+        data,
+      });
+    }),
+
+  // Add team member to rundown
+  addTeamMember: protectedProcedure
+    .input(
+      z.object({
+        rundownId: z.string(),
+        role: z.enum([
+          'PRESENTER',
+          'CO_PRESENTER',
+          'STUDIO_HOST',
+          'TECHNICIAN',
+          'JOURNALIST',
+          'MAIN_GUEST',
+          'OTHER',
+        ]),
+        name: z.string(),
+        phone: z.string().optional(),
+        email: z.string().optional(),
+        location: z.string().optional(),
+        notes: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { rundownId, ...memberData } = input;
+
+      // Get the highest position
+      const lastMember = await ctx.db.rundownTeamMember.findFirst({
+        where: { rundownId },
+        orderBy: { position: 'desc' },
+      });
+
+      return ctx.db.rundownTeamMember.create({
+        data: {
+          rundownId,
+          ...memberData,
+          position: (lastMember?.position ?? -1) + 1,
+        },
+      });
+    }),
+
   // Delete rundown
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
@@ -738,5 +799,119 @@ export const rundownRouter = router({
         },
         orderBy: [{ date: 'asc' }, { show: { name: 'asc' } }],
       });
+    }),
+
+  // Create complete rundown with team and items
+  createComplete: protectedProcedure
+    .input(
+      z.object({
+        showId: z.string(),
+        date: z.date(),
+        startTime: z.string().optional(),
+        endTime: z.string().optional(),
+        title: z.string().optional(),
+        subtitle: z.string().optional(),
+        location: z.string().optional(),
+        locationAddress: z.string().optional(),
+        notes: z.string().optional(),
+        team: z.array(
+          z.object({
+            role: z.enum([
+              'PRESENTER',
+              'CO_PRESENTER',
+              'STUDIO_HOST',
+              'TECHNICIAN',
+              'JOURNALIST',
+              'MAIN_GUEST',
+              'OTHER',
+            ]),
+            name: z.string(),
+            phone: z.string().optional(),
+            email: z.string().optional(),
+            location: z.string().optional(),
+          })
+        ),
+        items: z.array(
+          z.object({
+            type: z.enum(['STORY', 'INTERVIEW', 'JINGLE', 'MUSIC', 'LIVE', 'BREAK', 'OTHER']),
+            title: z.string(),
+            duration: z.number(),
+            startTime: z.string().optional(),
+            notes: z.string().optional(),
+            guests: z
+              .array(
+                z.object({
+                  name: z.string(),
+                  phone: z.string().optional(),
+                  email: z.string().optional(),
+                  title: z.string().optional(),
+                  organization: z.string().optional(),
+                  description: z.string().optional(),
+                })
+              )
+              .optional(),
+          })
+        ),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { team, items, ...rundownData } = input;
+
+      // Create the rundown
+      const rundown = await ctx.db.rundown.create({
+        data: rundownData,
+      });
+
+      // Create team members
+      if (team && team.length > 0) {
+        await ctx.db.rundownTeamMember.createMany({
+          data: team
+            .filter((m) => m.name.trim())
+            .map((member, index) => ({
+              rundownId: rundown.id,
+              role: member.role,
+              name: member.name,
+              phone: member.phone || null,
+              email: member.email || null,
+              location: member.location || null,
+              position: index,
+            })),
+        });
+      }
+
+      // Create items with guests
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const createdItem = await ctx.db.rundownItem.create({
+          data: {
+            rundownId: rundown.id,
+            type: item.type,
+            title: item.title,
+            duration: item.duration,
+            position: i,
+            notes: item.notes || null,
+          },
+        });
+
+        // Create guests for this item
+        if (item.guests && item.guests.length > 0) {
+          await ctx.db.rundownItemGuest.createMany({
+            data: item.guests
+              .filter((g) => g.name.trim())
+              .map((guest, gIndex) => ({
+                rundownItemId: createdItem.id,
+                name: guest.name,
+                phone: guest.phone || null,
+                email: guest.email || null,
+                title: guest.title || null,
+                organization: guest.organization || null,
+                description: guest.description || null,
+                position: gIndex,
+              })),
+          });
+        }
+      }
+
+      return rundown;
     }),
 });

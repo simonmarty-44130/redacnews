@@ -7,21 +7,16 @@ import {
   LanguageCode,
 } from '@aws-sdk/client-transcribe';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { awsConfig, s3Config } from '../aws-config';
 
 const transcribeClient = new TranscribeClient({
-  region: process.env.AWS_REGION || 'eu-west-3',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
+  region: awsConfig.region,
+  credentials: awsConfig.credentials,
 });
 
 const s3Client = new S3Client({
-  region: process.env.AWS_REGION || 'eu-west-3',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
+  region: awsConfig.region,
+  credentials: awsConfig.credentials,
 });
 
 export interface TranscriptionResult {
@@ -39,7 +34,6 @@ export async function startTranscription(
   s3Key: string,
   languageCode: LanguageCode = LanguageCode.FR_FR
 ): Promise<string> {
-  const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
   const jobName = `redacnews-${mediaItemId}-${Date.now()}`;
 
   await transcribeClient.send(
@@ -47,9 +41,9 @@ export async function startTranscription(
       TranscriptionJobName: jobName,
       LanguageCode: languageCode,
       Media: {
-        MediaFileUri: `s3://${bucket}/${s3Key}`,
+        MediaFileUri: `s3://${s3Config.bucket}/${s3Key}`,
       },
-      OutputBucketName: bucket,
+      OutputBucketName: s3Config.bucket,
       OutputKey: `transcriptions/${mediaItemId}.json`,
       Settings: {
         ShowSpeakerLabels: true,
@@ -110,10 +104,8 @@ export async function getTranscriptionStatus(
  * Gets the transcription text from the S3 output file
  */
 async function getTranscriptionText(job: TranscriptionJob): Promise<string> {
-  const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
-
   // Extract the output key from the job
-  const outputKey = job.Transcript?.TranscriptFileUri?.split(`${bucket}/`)[1];
+  const outputKey = job.Transcript?.TranscriptFileUri?.split(`${s3Config.bucket}/`)[1];
 
   if (!outputKey) {
     throw new Error('Could not determine transcription output location');
@@ -121,7 +113,7 @@ async function getTranscriptionText(job: TranscriptionJob): Promise<string> {
 
   const response = await s3Client.send(
     new GetObjectCommand({
-      Bucket: bucket,
+      Bucket: s3Config.bucket,
       Key: outputKey,
     })
   );
@@ -173,8 +165,7 @@ export async function getTranscriptionWithSpeakers(
     return [];
   }
 
-  const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
-  const outputKey = job.Transcript?.TranscriptFileUri?.split(`${bucket}/`)[1];
+  const outputKey = job.Transcript?.TranscriptFileUri?.split(`${s3Config.bucket}/`)[1];
 
   if (!outputKey) {
     return [];
@@ -182,7 +173,7 @@ export async function getTranscriptionWithSpeakers(
 
   const s3Response = await s3Client.send(
     new GetObjectCommand({
-      Bucket: bucket,
+      Bucket: s3Config.bucket,
       Key: outputKey,
     })
   );

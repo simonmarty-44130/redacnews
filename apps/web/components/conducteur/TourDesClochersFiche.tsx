@@ -303,8 +303,8 @@ export function TourDesClochersFiche({ showId, onClose, onSuccess }: TourDesCloc
         startTime: '07:00',
         endTime: '09:00',
         location: data.commune,
-        locationAddress: data.adresse || null,
-        notes: data.notes || null,
+        locationAddress: data.adresse || undefined,
+        notes: data.notes || undefined,
       });
 
       // ============ ÉTAPE 3 : Ajouter l'invité fil rouge ============
