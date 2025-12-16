@@ -1,22 +1,67 @@
 version: 1
-applications:
-  - appRoot: apps/web
-    frontend:
-      phases:
-        preBuild:
-          commands:
-            - npm ci --legacy-peer-deps
-            - npx prisma generate --schema=../../packages/db/prisma/schema.prisma
-        build:
-          commands:
-            - export NODE_OPTIONS="--max-old-space-size=8192"
-            - npm run build
-      artifacts:
-        baseDirectory: .next
-        files:
-          - '**/*'
-      cache:
-        paths:
-          - ../../node_modules/**/*
-          - node_modules/**/*
-          - .next/cache/**/*
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - npm ci --legacy-peer-deps
+        - cd packages/db && npx prisma generate
+    build:
+      commands:
+        - export NODE_OPTIONS="--max-old-space-size=8192"
+        - cd apps/web && npm run build
+        - mkdir -p apps/web/.amplify-hosting/compute/default
+        - cp -r apps/web/.next/standalone/. apps/web/.amplify-hosting/compute/default/
+        - cp -r apps/web/.next/static apps/web/.amplify-hosting/compute/default/.next/
+        - cp -r apps/web/public apps/web/.amplify-hosting/compute/default/ 2>/dev/null || true
+        - mkdir -p apps/web/.amplify-hosting/static
+        - cp -r apps/web/.next/static/. apps/web/.amplify-hosting/static/_next/static/
+        - |
+          cat > apps/web/.amplify-hosting/deploy-manifest.json << 'MANIFEST'
+          {
+            "version": 1,
+            "routes": [
+              {
+                "path": "/_next/static/*",
+                "target": {
+                  "kind": "Static"
+                }
+              },
+              {
+                "path": "/*.*",
+                "target": {
+                  "kind": "Static"
+                },
+                "fallback": {
+                  "kind": "Compute",
+                  "src": "default"
+                }
+              },
+              {
+                "path": "/*",
+                "target": {
+                  "kind": "Compute",
+                  "src": "default"
+                }
+              }
+            ],
+            "computeResources": [
+              {
+                "name": "default",
+                "entrypoint": "server.js",
+                "runtime": "nodejs18.x"
+              }
+            ],
+            "framework": {
+              "name": "next",
+              "version": "14.0.4"
+            }
+          }
+          MANIFEST
+  artifacts:
+    baseDirectory: apps/web/.amplify-hosting
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - node_modules/**/*
+      - apps/web/.next/cache/**/*
