@@ -41,17 +41,26 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('Form submitted with:', { email, password: '***' });
     setError('');
     setLoading(true);
 
     try {
+      console.log('Calling login...');
       const result = await login(email, password);
+      console.log('Login result:', result);
+
       if (result.isSignedIn) {
+        console.log('User signed in, redirecting...');
         router.push('/conducteur');
       } else if (result.nextStep?.signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED') {
+        console.log('New password required');
         setRequireNewPassword(true);
+      } else {
+        console.log('Unexpected nextStep:', result.nextStep);
       }
     } catch (err: any) {
+      console.error('Login error:', err);
       // Si l'utilisateur est déjà connecté, rediriger
       if (err.message?.includes('already a signed in user')) {
         router.replace('/conducteur');
