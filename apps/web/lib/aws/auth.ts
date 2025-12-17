@@ -3,6 +3,7 @@ import {
   signUp,
   signOut,
   confirmSignUp,
+  confirmSignIn,
   getCurrentUser,
   fetchAuthSession,
   resendSignUpCode,
@@ -19,6 +20,18 @@ export async function login(email: string, password: string) {
     return { isSignedIn, nextStep };
   } catch (error) {
     console.error('Login error:', error);
+    throw error;
+  }
+}
+
+export async function completeNewPassword(newPassword: string) {
+  try {
+    const { isSignedIn, nextStep } = await confirmSignIn({
+      challengeResponse: newPassword,
+    });
+    return { isSignedIn, nextStep };
+  } catch (error) {
+    console.error('Complete new password error:', error);
     throw error;
   }
 }
