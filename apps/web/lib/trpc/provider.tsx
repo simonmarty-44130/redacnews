@@ -7,6 +7,9 @@ import superjson from 'superjson';
 import { getCurrentUser } from 'aws-amplify/auth';
 import { trpc } from './client';
 
+// Ensure Amplify is configured before any auth calls
+import '@/lib/aws/amplify-config';
+
 function getBaseUrl() {
   if (typeof window !== 'undefined') return '';
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
@@ -17,8 +20,10 @@ function getBaseUrl() {
 async function getCognitoId(): Promise<string | null> {
   try {
     const user = await getCurrentUser();
+    console.log('[tRPC] Got user from Amplify:', user.userId);
     return user.userId; // This is the Cognito sub
-  } catch {
+  } catch (error) {
+    console.log('[tRPC] Failed to get user from Amplify:', error);
     return null;
   }
 }
