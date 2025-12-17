@@ -9,26 +9,25 @@ frontend:
       commands:
         - export NODE_OPTIONS="--max-old-space-size=8192"
         # Create .env.production with runtime env vars for Next.js SSR
-        - |
-          cat > apps/web/.env.production << EOF
-          DATABASE_URL=${DATABASE_URL}
-          GOOGLE_SERVICE_ACCOUNT_KEY=${GOOGLE_SERVICE_ACCOUNT_KEY}
-          GOOGLE_DRIVE_FOLDER_ID=${GOOGLE_DRIVE_FOLDER_ID}
-          GOOGLE_IMPERSONATE_EMAIL=${GOOGLE_IMPERSONATE_EMAIL}
-          MY_AWS_ACCESS_KEY_ID=${MY_AWS_ACCESS_KEY_ID}
-          MY_AWS_SECRET_ACCESS_KEY=${MY_AWS_SECRET_ACCESS_KEY}
-          MY_AWS_REGION=${MY_AWS_REGION}
-          S3_BUCKET=${S3_BUCKET}
-          S3_BUCKET_REGION=${S3_BUCKET_REGION}
-          CLOUDFRONT_DOMAIN=${CLOUDFRONT_DOMAIN}
-          SES_FROM_EMAIL=${SES_FROM_EMAIL}
-          NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
-          NEXT_PUBLIC_COGNITO_USER_POOL_ID=${NEXT_PUBLIC_COGNITO_USER_POOL_ID}
-          NEXT_PUBLIC_COGNITO_CLIENT_ID=${NEXT_PUBLIC_COGNITO_CLIENT_ID}
-          EOF
-        - cd apps/web && npm run build
+        - echo "DATABASE_URL=$DATABASE_URL" > apps/web/.env.production
+        - echo "GOOGLE_SERVICE_ACCOUNT_KEY=$GOOGLE_SERVICE_ACCOUNT_KEY" >> apps/web/.env.production
+        - echo "GOOGLE_DRIVE_FOLDER_ID=$GOOGLE_DRIVE_FOLDER_ID" >> apps/web/.env.production
+        - echo "GOOGLE_IMPERSONATE_EMAIL=$GOOGLE_IMPERSONATE_EMAIL" >> apps/web/.env.production
+        - echo "MY_AWS_ACCESS_KEY_ID=$MY_AWS_ACCESS_KEY_ID" >> apps/web/.env.production
+        - echo "MY_AWS_SECRET_ACCESS_KEY=$MY_AWS_SECRET_ACCESS_KEY" >> apps/web/.env.production
+        - echo "MY_AWS_REGION=$MY_AWS_REGION" >> apps/web/.env.production
+        - echo "S3_BUCKET=$S3_BUCKET" >> apps/web/.env.production
+        - echo "S3_BUCKET_REGION=$S3_BUCKET_REGION" >> apps/web/.env.production
+        - echo "CLOUDFRONT_DOMAIN=$CLOUDFRONT_DOMAIN" >> apps/web/.env.production
+        - echo "SES_FROM_EMAIL=$SES_FROM_EMAIL" >> apps/web/.env.production
+        - echo "NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL" >> apps/web/.env.production
+        - echo "NEXT_PUBLIC_COGNITO_USER_POOL_ID=$NEXT_PUBLIC_COGNITO_USER_POOL_ID" >> apps/web/.env.production
+        - echo "NEXT_PUBLIC_COGNITO_CLIENT_ID=$NEXT_PUBLIC_COGNITO_CLIENT_ID" >> apps/web/.env.production
+        - echo "=== .env.production created ===" && head -2 apps/web/.env.production
+        - npm run build --prefix apps/web
         # Copy .env.production to standalone for runtime
         - cp apps/web/.env.production apps/web/.next/standalone/apps/web/.env.production
+        - echo "=== .env.production copied to standalone ==="
   artifacts:
     baseDirectory: apps/web/.next
     files:
