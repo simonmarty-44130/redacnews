@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { seedShows } from './seed-shows';
 
 const prisma = new PrismaClient();
 
@@ -35,21 +36,8 @@ async function main() {
 
   console.log('Utilisateur cree:', user);
 
-  // Creer une emission par defaut
-  const show = await prisma.show.upsert({
-    where: { id: 'default-show' },
-    update: {},
-    create: {
-      id: 'default-show',
-      name: 'Journal du Midi',
-      description: 'Le journal quotidien de 12h',
-      defaultDuration: 30,
-      color: '#3B82F6',
-      organizationId: organization.id,
-    },
-  });
-
-  console.log('Emission creee:', show);
+  // Seed des emissions Radio Fidelite
+  await seedShows(organization.id);
 
   console.log('Seed completed!');
 }

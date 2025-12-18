@@ -3,13 +3,30 @@
 import { useState } from 'react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { LayoutDashboard, Inbox, Calendar, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Inbox, Calendar, ChevronRight, MoreHorizontal, Trash2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc/client';
 import { RundownEditor, CreateRundownDialog } from '@/components/conducteur';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { cn } from '@/lib/utils';
 import type { RouterOutputs } from '@redacnews/api';
 
@@ -31,8 +48,21 @@ const statusLabels = {
 
 export default function ConducteurPage() {
   const [selectedRundownId, setSelectedRundownId] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const { data: rundowns, isLoading } = trpc.rundown.list.useQuery({});
+  const utils = trpc.useUtils();
+
+  const deleteRundown = trpc.rundown.delete.useMutation({
+    onSuccess: () => {
+      utils.rundown.list.invalidate();
+      // Si on supprime le conducteur actuellement sélectionné, désélectionner
+      if (deleteId === selectedRundownId) {
+        setSelectedRundownId(null);
+      }
+      setDeleteId(null);
+    },
+  });
 
   const handleRundownCreated = (rundownId: string) => {
     setSelectedRundownId(rundownId);
@@ -111,7 +141,25 @@ export default function ConducteurPage() {
                           </span>
                         </div>
                       </div>
-                      <ChevronRight className="h-5 w-5 text-gray-400" />
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            className="text-red-600 focus:text-red-600"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteId(rundown.id);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Supprimer
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </Card>
                 ))
@@ -143,6 +191,27 @@ export default function ConducteurPage() {
           )}
         </div>
       </div>
+
+      {/* Dialog de confirmation de suppression */}
+      <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer ce conducteur ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette action est irreversible. Tous les elements du conducteur seront supprimes.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => deleteId && deleteRundown.mutate({ id: deleteId })}
+            >
+              {deleteRundown.isPending ? 'Suppression...' : 'Supprimer'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

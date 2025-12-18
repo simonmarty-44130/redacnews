@@ -50,7 +50,12 @@ interface StoryEditorProps {
 }
 
 export function StoryEditor({ storyId, onClose, onDelete }: StoryEditorProps) {
-  const { data: story, isLoading } = trpc.story.get.useQuery({ id: storyId });
+  const [isDeleting, setIsDeleting] = useState(false);
+  
+  const { data: story, isLoading } = trpc.story.get.useQuery(
+    { id: storyId },
+    { enabled: !isDeleting } // Désactiver la query pendant/après suppression
+  );
   const utils = trpc.useUtils();
 
   const [title, setTitle] = useState('');
@@ -71,7 +76,12 @@ export function StoryEditor({ storyId, onClose, onDelete }: StoryEditorProps) {
   const deleteStory = trpc.story.delete.useMutation({
     onSuccess: () => {
       utils.story.list.invalidate();
+      // Ne pas invalider story.get pour éviter le re-fetch
       onDelete?.();
+    },
+    onError: () => {
+      // Réactiver si erreur
+      setIsDeleting(false);
     },
   });
 
@@ -122,6 +132,7 @@ export function StoryEditor({ storyId, onClose, onDelete }: StoryEditorProps) {
 
   const handleDelete = () => {
     if (confirm('Etes-vous sur de vouloir supprimer ce sujet ?')) {
+      setIsDeleting(true); // Désactiver la query AVANT la mutation
       deleteStory.mutate({ id: storyId });
     }
   };

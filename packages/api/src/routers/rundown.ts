@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
 
 export const rundownRouter = router({
@@ -61,7 +62,60 @@ export const rundownRouter = router({
               },
               assignee: true,
               media: { include: { mediaItem: true } },
+              // Conducteur lie (imbrique) avec infos pour l'indicateur de statut
+              linkedRundown: {
+                select: {
+                  id: true,
+                  status: true,
+                  show: {
+                    select: {
+                      id: true,
+                      name: true,
+                      color: true,
+                    },
+                  },
+                  items: {
+                    select: {
+                      id: true,
+                      script: true,
+                      googleDocId: true,
+                    },
+                  },
+                },
+              },
             },
+          },
+        },
+      });
+    }),
+
+  // Get single rundown item with script
+  getItem: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.db.rundownItem.findUniqueOrThrow({
+        where: { id: input.id },
+        include: {
+          story: {
+            select: {
+              id: true,
+              title: true,
+              content: true,
+            },
+          },
+          media: {
+            include: {
+              mediaItem: {
+                select: {
+                  id: true,
+                  title: true,
+                  type: true,
+                  duration: true,
+                  s3Url: true,
+                },
+              },
+            },
+            orderBy: { position: 'asc' },
           },
         },
       });
@@ -97,6 +151,28 @@ export const rundownRouter = router({
         where: { id },
         data,
       });
+    }),
+
+  // Delete rundown
+  delete: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // Vérifier que le conducteur appartient à l'organisation
+      const rundown = await ctx.db.rundown.findUniqueOrThrow({
+        where: { id: input.id },
+        include: { show: true },
+      });
+
+      if (rundown.show.organizationId !== ctx.organizationId) {
+        throw new TRPCError({ code: 'FORBIDDEN' });
+      }
+
+      // Supprimer le conducteur (cascade supprime les items)
+      await ctx.db.rundown.delete({
+        where: { id: input.id },
+      });
+
+      return { success: true };
     }),
 
   // Reorder items
@@ -147,13 +223,41 @@ export const rundownRouter = router({
         orderBy: { position: 'desc' },
       });
 
-      return ctx.db.rundownItem.create({
+      // Creer l'item
+      const item = await ctx.db.rundownItem.create({
         data: {
           ...data,
           rundownId,
           position: position ?? (lastItem?.position ?? 0) + 1,
         },
+        include: { rundown: { include: { show: true } } },
       });
+
+      // Si c'est un type avec texte, creer automatiquement un Google Doc
+      const typesWithScript = ['STORY', 'INTERVIEW', 'LIVE', 'OTHER'];
+      if (typesWithScript.includes(input.type)) {
+        try {
+          const { createStoryDoc } = await import('../lib/google/docs');
+          const docTitle = `${item.rundown.show.name} - ${item.title}`;
+          const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+          const doc = await createStoryDoc(docTitle, folderId);
+
+          const updatedItem = await ctx.db.rundownItem.update({
+            where: { id: item.id },
+            data: {
+              googleDocId: doc.id,
+              googleDocUrl: doc.url,
+            },
+          });
+
+          return updatedItem;
+        } catch (error) {
+          console.error('Failed to create Google Doc for new item:', error);
+          // Continuer meme si la creation echoue - l'utilisateur pourra creer le doc plus tard
+        }
+      }
+
+      return item;
     }),
 
   // Delete item
@@ -174,6 +278,7 @@ export const rundownRouter = router({
         duration: z.number().optional(),
         status: z.enum(['PENDING', 'IN_PROGRESS', 'READY', 'ON_AIR', 'DONE']).optional(),
         notes: z.string().optional(),
+        script: z.string().nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -200,6 +305,8 @@ export const rundownRouter = router({
         description: z.string().optional(),
         defaultDuration: z.number().optional(),
         color: z.string().optional(),
+        category: z.enum(['FLASH', 'JOURNAL', 'MAGAZINE', 'CHRONIQUE', 'AUTRE']).optional(),
+        startTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(), // Format HH:mm
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -208,6 +315,27 @@ export const rundownRouter = router({
           ...input,
           organizationId: ctx.organizationId!,
         },
+      });
+    }),
+
+  // Update show
+  updateShow: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        name: z.string().optional(),
+        description: z.string().optional(),
+        defaultDuration: z.number().optional(),
+        color: z.string().optional(),
+        category: z.enum(['FLASH', 'JOURNAL', 'MAGAZINE', 'CHRONIQUE', 'AUTRE']).optional(),
+        startTime: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(), // Format HH:mm
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+      return ctx.db.show.update({
+        where: { id },
+        data,
       });
     }),
 
@@ -393,5 +521,222 @@ export const rundownRouter = router({
       });
 
       return { success: true };
+    }),
+
+  // Create/link a Google Doc for a rundown item script
+  createItemDoc: protectedProcedure
+    .input(
+      z.object({
+        itemId: z.string(),
+        initialContent: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const item = await ctx.db.rundownItem.findUniqueOrThrow({
+        where: { id: input.itemId },
+        include: { rundown: { include: { show: true } } },
+      });
+
+      // If a doc already exists, return it
+      if (item.googleDocId) {
+        return {
+          googleDocId: item.googleDocId,
+          googleDocUrl: item.googleDocUrl,
+          isNew: false,
+        };
+      }
+
+      // Create the Google Doc
+      const { createStoryDoc, insertTextInDoc } = await import('../lib/google/docs');
+
+      const docTitle = `${item.rundown.show.name} - ${item.title}`;
+      const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+
+      const doc = await createStoryDoc(docTitle, folderId);
+
+      // If initial content provided (from template), insert it into the doc
+      if (input.initialContent) {
+        await insertTextInDoc(doc.id, input.initialContent);
+      }
+
+      // Save the reference
+      const updated = await ctx.db.rundownItem.update({
+        where: { id: input.itemId },
+        data: {
+          googleDocId: doc.id,
+          googleDocUrl: doc.url,
+        },
+      });
+
+      return {
+        googleDocId: updated.googleDocId,
+        googleDocUrl: updated.googleDocUrl,
+        isNew: true,
+      };
+    }),
+
+  // Sync Google Doc content to script field (for backup/prompter)
+  syncItemDoc: protectedProcedure
+    .input(z.object({ itemId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const item = await ctx.db.rundownItem.findUniqueOrThrow({
+        where: { id: input.itemId },
+      });
+
+      if (!item.googleDocId) {
+        throw new Error('Pas de Google Doc associe');
+      }
+
+      const { getDocContent } = await import('../lib/google/docs');
+      const content = await getDocContent(item.googleDocId);
+
+      return ctx.db.rundownItem.update({
+        where: { id: input.itemId },
+        data: { script: content },
+      });
+    }),
+
+  // === CONDUCTEURS IMBRIQUES ===
+
+  // Lier un conducteur existant a un element
+  linkRundownToItem: protectedProcedure
+    .input(
+      z.object({
+        itemId: z.string(),
+        linkedRundownId: z.string().nullable(), // null pour supprimer le lien
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Si on lie un conducteur, verifier qu'il existe et appartient a la meme organisation
+      if (input.linkedRundownId) {
+        const linkedRundown = await ctx.db.rundown.findUniqueOrThrow({
+          where: { id: input.linkedRundownId },
+          include: { show: true },
+        });
+
+        // Verifier que le conducteur lie est dans la meme organisation
+        if (linkedRundown.show.organizationId !== ctx.organizationId) {
+          throw new Error('Le conducteur doit appartenir a la meme organisation');
+        }
+
+        // Verifier qu'on ne cree pas de boucle (l'element ne peut pas pointer vers son propre conducteur)
+        const item = await ctx.db.rundownItem.findUniqueOrThrow({
+          where: { id: input.itemId },
+        });
+
+        if (item.rundownId === input.linkedRundownId) {
+          throw new Error('Un element ne peut pas pointer vers son propre conducteur');
+        }
+      }
+
+      // Mettre a jour l'element
+      return ctx.db.rundownItem.update({
+        where: { id: input.itemId },
+        data: { linkedRundownId: input.linkedRundownId },
+        include: {
+          linkedRundown: {
+            include: {
+              show: true,
+            },
+          },
+        },
+      });
+    }),
+
+  // Creer un conducteur enfant et le lier automatiquement a un element
+  createLinkedRundown: protectedProcedure
+    .input(
+      z.object({
+        parentItemId: z.string(), // L'element parent qui contiendra le lien
+        showId: z.string(), // L'emission du conducteur enfant (ex: Flash Info)
+        date: z.date(),
+        templateId: z.string().optional(), // Optionnel: creer depuis un template
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verifier que l'emission existe et appartient a l'organisation
+      const show = await ctx.db.show.findUniqueOrThrow({
+        where: { id: input.showId },
+      });
+
+      if (show.organizationId !== ctx.organizationId) {
+        throw new Error("L'emission doit appartenir a votre organisation");
+      }
+
+      // Creer le conducteur enfant
+      let childRundown;
+
+      if (input.templateId) {
+        // Importer les utils de template
+        const { applyTemplate } = await import('../lib/template-utils');
+
+        // Recuperer le template
+        const template = await ctx.db.rundownTemplate.findUniqueOrThrow({
+          where: { id: input.templateId },
+          include: { items: { orderBy: { position: 'asc' } } },
+        });
+
+        // Creer le conducteur
+        childRundown = await ctx.db.rundown.create({
+          data: {
+            showId: input.showId,
+            date: input.date,
+          },
+        });
+
+        // Appliquer le template
+        const variables: Record<string, string> = {};
+        await applyTemplate(ctx.db, childRundown.id, template, variables);
+      } else {
+        // Creer un conducteur vide
+        childRundown = await ctx.db.rundown.create({
+          data: {
+            showId: input.showId,
+            date: input.date,
+          },
+        });
+      }
+
+      // Lier au parent
+      await ctx.db.rundownItem.update({
+        where: { id: input.parentItemId },
+        data: { linkedRundownId: childRundown.id },
+      });
+
+      return ctx.db.rundown.findUniqueOrThrow({
+        where: { id: childRundown.id },
+        include: { show: true },
+      });
+    }),
+
+  // Liste des conducteurs disponibles pour liaison (meme date +/- 1 jour)
+  listAvailableForLinking: protectedProcedure
+    .input(
+      z.object({
+        currentRundownId: z.string(), // Pour exclure le conducteur actuel
+        date: z.date(), // Date de reference
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      // Calculer la plage de dates (+/- 1 jour)
+      const dateFrom = new Date(input.date);
+      dateFrom.setDate(dateFrom.getDate() - 1);
+      const dateTo = new Date(input.date);
+      dateTo.setDate(dateTo.getDate() + 1);
+
+      return ctx.db.rundown.findMany({
+        where: {
+          show: { organizationId: ctx.organizationId! },
+          id: { not: input.currentRundownId },
+          date: {
+            gte: dateFrom,
+            lte: dateTo,
+          },
+        },
+        include: {
+          show: true,
+        },
+        orderBy: [{ date: 'asc' }, { show: { name: 'asc' } }],
+      });
     }),
 });

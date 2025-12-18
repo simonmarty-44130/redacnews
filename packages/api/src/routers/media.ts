@@ -85,7 +85,7 @@ export const mediaRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      return ctx.db.mediaItem.findMany({
+      const mediaItems = await ctx.db.mediaItem.findMany({
         where: {
           organizationId: ctx.organizationId!,
           ...(input.type && { type: input.type }),
@@ -107,6 +107,32 @@ export const mediaRouter = router({
         },
         orderBy: { createdAt: 'desc' },
       });
+
+      // Generer des URLs signees pour chaque media item
+      const bucket = process.env.AWS_S3_BUCKET || 'redacnews-media';
+      const itemsWithPresignedUrls = await Promise.all(
+        mediaItems.map(async (item) => {
+          try {
+            const presignedUrl = await getSignedUrl(
+              s3Client,
+              new GetObjectCommand({
+                Bucket: bucket,
+                Key: item.s3Key,
+              }),
+              { expiresIn: 3600 }
+            );
+            return {
+              ...item,
+              s3Url: presignedUrl, // Remplacer s3Url par l'URL signee
+            };
+          } catch (error) {
+            console.error(`Error generating presigned URL for ${item.id}:`, error);
+            return item; // Retourner l'item original en cas d'erreur
+          }
+        })
+      );
+
+      return itemsWithPresignedUrls;
     }),
 
   // Get multiple media items by IDs
@@ -231,6 +257,7 @@ export const mediaRouter = router({
         id: z.string(),
         title: z.string().optional(),
         description: z.string().optional(),
+        duration: z.number().optional(), // Permet de mettre a jour la duree
         tags: z.array(z.string()).optional(),
         transcription: z.string().optional(),
         transcriptionStatus: z

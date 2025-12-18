@@ -17,6 +17,10 @@ import {
   ChevronDown,
   ChevronRight,
   Volume2,
+  ScrollText,
+  Link2,
+  Unlink,
+  Loader2,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -26,7 +30,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { LinkRundownDialog } from './LinkRundownDialog';
+import { trpc } from '@/lib/trpc/client';
+import { toast } from 'sonner';
 
 interface StoryMediaItem {
   id: string;
@@ -39,6 +52,49 @@ interface StoryMediaItem {
   };
 }
 
+interface LinkedRundownInfo {
+  id: string;
+  status: string;
+  show: {
+    id: string;
+    name: string;
+    color: string;
+  };
+  items: Array<{
+    id: string;
+    script: string | null;
+    googleDocId: string | null;
+  }>;
+}
+
+type LinkedRundownState = 'empty' | 'draft' | 'ready';
+
+/**
+ * Calcule l'etat d'un conducteur imbrique pour l'indicateur visuel
+ */
+function getLinkedRundownState(linkedRundown: LinkedRundownInfo): LinkedRundownState {
+  // Si marque READY ou ON_AIR → vert
+  if (linkedRundown.status === 'READY' || linkedRundown.status === 'ON_AIR') {
+    return 'ready';
+  }
+
+  // Calculer le taux de remplissage
+  const total = linkedRundown.items.length;
+  if (total === 0) return 'empty';
+
+  const filled = linkedRundown.items.filter(
+    (item) => item.script || item.googleDocId
+  ).length;
+
+  const fillRate = filled / total;
+
+  // < 30% rempli → rouge
+  if (fillRate < 0.3) return 'empty';
+
+  // Sinon → orange (en cours)
+  return 'draft';
+}
+
 interface RundownItemData {
   id: string;
   type: 'STORY' | 'INTERVIEW' | 'JINGLE' | 'MUSIC' | 'LIVE' | 'BREAK' | 'OTHER';
@@ -47,11 +103,17 @@ interface RundownItemData {
   position: number;
   status: 'PENDING' | 'IN_PROGRESS' | 'READY' | 'ON_AIR' | 'DONE';
   notes?: string | null;
+  script?: string | null;
+  googleDocId?: string | null;
+  googleDocUrl?: string | null;
   storyId?: string | null;
   assigneeId?: string | null;
+  linkedRundownId?: string | null;
+  linkedRundown?: LinkedRundownInfo | null;
   story?: {
     id: string;
     title: string;
+    content?: string | null;
     media?: StoryMediaItem[];
   } | null;
   assignee?: { id: string; firstName?: string | null; lastName?: string | null } | null;
@@ -64,10 +126,13 @@ interface RundownItemData {
 interface RundownItemProps {
   item: RundownItemData;
   startTime: string;
+  rundownId: string;
+  rundownDate: Date;
   onDelete?: () => void;
   onStatusChange?: (status: RundownItemData['status']) => void;
   onFocus?: () => void; // For collaborative cursor tracking
   onBlur?: () => void;
+  onLinkChange?: () => void;
 }
 
 const typeConfig = {
@@ -97,10 +162,13 @@ function formatDuration(seconds: number): string {
 export function RundownItem({
   item,
   startTime,
+  rundownId,
+  rundownDate,
   onDelete,
   onStatusChange,
   onFocus,
   onBlur,
+  onLinkChange,
 }: RundownItemProps) {
   const [mediaExpanded, setMediaExpanded] = useState(false);
   const {
@@ -111,6 +179,37 @@ export function RundownItem({
     transition,
     isDragging,
   } = useSortable({ id: item.id });
+
+  const utils = trpc.useUtils();
+
+  // Mutation pour creer un Google Doc pour l'item
+  const createItemDoc = trpc.rundown.createItemDoc.useMutation({
+    onSuccess: (data) => {
+      // Ouvrir le Google Doc cree dans un nouvel onglet
+      if (data.googleDocUrl) {
+        window.open(data.googleDocUrl, '_blank');
+      }
+      // Rafraichir les donnees
+      utils.rundown.get.invalidate();
+    },
+    onError: () => {
+      toast.error('Erreur lors de la creation du document');
+    },
+  });
+
+  // Handler pour ouvrir ou creer le script
+  const handleOpenScript = () => {
+    if (item.googleDocUrl) {
+      // Google Doc existe → l'ouvrir directement
+      window.open(item.googleDocUrl, '_blank');
+    } else {
+      // Pas de Google Doc → le creer puis l'ouvrir
+      createItemDoc.mutate({
+        itemId: item.id,
+        initialContent: item.script || item.story?.content || '',
+      });
+    }
+  };
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -195,11 +294,128 @@ export function RundownItem({
         )}
       </div>
 
+      {/* Linked rundown indicator with status */}
+      {item.linkedRundown && (() => {
+        const state = getLinkedRundownState(item.linkedRundown);
+        return (
+          <div
+            className={cn(
+              'flex items-center gap-2 px-3 py-2 rounded-lg border-2 col-span-full ml-14',
+              state === 'ready' && 'border-green-500 bg-green-50',
+              state === 'draft' && 'border-orange-500 bg-orange-50',
+              state === 'empty' && 'border-red-500 bg-red-50'
+            )}
+          >
+            <Link2
+              className={cn(
+                'h-4 w-4',
+                state === 'ready' && 'text-green-600',
+                state === 'draft' && 'text-orange-600',
+                state === 'empty' && 'text-red-600'
+              )}
+            />
+
+            <span className="text-sm font-medium">
+              {item.linkedRundown.show.name}
+            </span>
+
+            <span
+              className={cn(
+                'text-xs px-2 py-0.5 rounded-full',
+                state === 'ready' && 'bg-green-200 text-green-800',
+                state === 'draft' && 'bg-orange-200 text-orange-800',
+                state === 'empty' && 'bg-red-200 text-red-800'
+              )}
+            >
+              {state === 'ready' && 'Pret'}
+              {state === 'draft' && 'En cours...'}
+              {state === 'empty' && 'A remplir'}
+            </span>
+
+            <Link
+              href={`/conducteur?id=${item.linkedRundown.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-auto text-xs text-blue-600 hover:underline flex items-center gap-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Ouvrir
+              <ExternalLink className="h-3 w-3" />
+            </Link>
+          </div>
+        );
+      })()}
+
       {/* Duration */}
       <div className="flex items-center gap-1 text-sm text-gray-600">
         <Clock className="h-4 w-4" />
         {formatDuration(item.duration)}
       </div>
+
+      {/* Script button - Ouvre directement le Google Doc */}
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleOpenScript}
+              disabled={createItemDoc.isPending}
+              className={cn(
+                'h-8 w-8',
+                item.googleDocUrl
+                  ? 'text-green-600' // Google Doc existe
+                  : item.script
+                    ? 'text-blue-600' // Script texte simple
+                    : 'text-gray-400' // Pas de script
+              )}
+            >
+              {createItemDoc.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+              ) : (
+                <ScrollText className="h-4 w-4" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {createItemDoc.isPending
+              ? 'Creation en cours...'
+              : item.googleDocUrl
+                ? 'Ouvrir le script'
+                : 'Creer le script'
+            }
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+
+      {/* Link rundown button */}
+      <LinkRundownDialog
+        itemId={item.id}
+        itemTitle={item.title}
+        rundownId={rundownId}
+        rundownDate={rundownDate}
+        linkedRundown={item.linkedRundown}
+        onSuccess={onLinkChange}
+        trigger={
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn(
+              'h-8 w-8',
+              item.linkedRundown
+                ? 'text-purple-600' // Conducteur lie
+                : 'text-gray-400' // Pas de lien
+            )}
+            title={
+              item.linkedRundown
+                ? `Conducteur lie: ${item.linkedRundown.show.name}`
+                : 'Lier un conducteur imbrique'
+            }
+          >
+            <Link2 className="h-4 w-4" />
+          </Button>
+        }
+      />
 
       {/* Status */}
       <Badge className={cn('text-xs', statusInfo.color)}>{statusInfo.label}</Badge>
