@@ -156,8 +156,6 @@ export function Track({
       hover: (item: DragItem, monitor) => {
         // Calculer la position pendant le survol pour montrer le snap indicator et la prévisualisation
         const clientOffset = monitor.getClientOffset();
-        const initialClientOffset = monitor.getInitialClientOffset();
-        const initialSourceOffset = monitor.getInitialSourceClientOffset();
         const trackRect = trackRef.current?.getBoundingClientRect();
 
         if (!clientOffset || !trackRect) {
@@ -166,15 +164,35 @@ export function Track({
           return;
         }
 
-        // Pour les clips existants, calculer le decalage entre le point de saisie et le bord gauche du clip
-        // Cela permet de deposer le clip exactement ou on le lache, pas ou on l'a saisi
-        let dragOffsetX = 0;
-        if (item.type === 'CLIP' && initialClientOffset && initialSourceOffset) {
-          dragOffsetX = initialClientOffset.x - initialSourceOffset.x;
+        // Calculer où le curseur se trouve dans la timeline (en tenant compte du scroll)
+        // clientOffset.x = position du curseur à l'écran
+        // trackRect.left = position du bord gauche de la piste à l'écran
+        // scrollLeft = défilement horizontal de la timeline
+        const cursorInTimeline = clientOffset.x - trackRect.left + scrollLeft;
+
+        // Pour les clips existants, on veut que le clip suive le curseur de façon intuitive
+        // On utilise la position initiale du clip (startTime) stockée dans l'item
+        // et le décalage depuis le début du drag
+        let targetClipLeft: number;
+        if (item.type === 'CLIP' && item.startTime !== undefined) {
+          // Calculer le delta de déplacement en pixels depuis le début du drag
+          const initialDrag = monitor.getInitialClientOffset();
+          if (initialDrag) {
+            const deltaX = clientOffset.x - initialDrag.x;
+            // La nouvelle position = position originale + delta converti en temps puis en pixels
+            const originalLeft = item.startTime * zoom;
+            targetClipLeft = originalLeft + deltaX;
+          } else {
+            // Fallback: placer le bord gauche du clip au curseur
+            targetClipLeft = cursorInTimeline;
+          }
+        } else {
+          // Nouvel item depuis la bibliothèque: placer au curseur
+          targetClipLeft = cursorInTimeline;
         }
 
-        const x = clientOffset.x - trackRect.left + scrollLeft - dragOffsetX;
-        let rawTime = x / zoom;
+        // Convertir en temps
+        let rawTime = targetClipLeft / zoom;
         const clipDuration = item.duration || 0;
 
         // Trouver le point de snap
@@ -211,8 +229,6 @@ export function Track({
       },
       drop: (item: DragItem, monitor) => {
         const clientOffset = monitor.getClientOffset();
-        const initialClientOffset = monitor.getInitialClientOffset();
-        const initialSourceOffset = monitor.getInitialSourceClientOffset();
         const trackRect = trackRef.current?.getBoundingClientRect();
 
         // Effacer l'indicateur de snap et la prévisualisation
@@ -221,15 +237,25 @@ export function Track({
 
         if (!clientOffset || !trackRect) return;
 
-        // Pour les clips existants, calculer le decalage entre le point de saisie et le bord gauche du clip
-        let dragOffsetX = 0;
-        if (item.type === 'CLIP' && initialClientOffset && initialSourceOffset) {
-          dragOffsetX = initialClientOffset.x - initialSourceOffset.x;
+        // Calculer où le curseur se trouve dans la timeline (en tenant compte du scroll)
+        const cursorInTimeline = clientOffset.x - trackRect.left + scrollLeft;
+
+        // Pour les clips existants, on utilise le delta de déplacement depuis la position originale
+        let targetClipLeft: number;
+        if (item.type === 'CLIP' && item.startTime !== undefined) {
+          const initialDrag = monitor.getInitialClientOffset();
+          if (initialDrag) {
+            const deltaX = clientOffset.x - initialDrag.x;
+            const originalLeft = item.startTime * zoom;
+            targetClipLeft = originalLeft + deltaX;
+          } else {
+            targetClipLeft = cursorInTimeline;
+          }
+        } else {
+          targetClipLeft = cursorInTimeline;
         }
 
-        // Calculer le temps de drop en tenant compte du decalage
-        const x = clientOffset.x - trackRect.left + scrollLeft - dragOffsetX;
-        let rawTime = x / zoom;
+        let rawTime = targetClipLeft / zoom;
         const clipDuration = item.duration || 0;
 
         // Appliquer le magnétisme vers les autres clips

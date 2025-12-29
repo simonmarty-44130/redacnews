@@ -76,6 +76,9 @@ export interface DragItem {
   sourceUrl: string;
   duration: number;
   mediaItemId?: string;
+  // Pour les clips existants (type === 'CLIP')
+  trackId?: string;
+  startTime?: number;
 }
 
 // Evenements / Actions
