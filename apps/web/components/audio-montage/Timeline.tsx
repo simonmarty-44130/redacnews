@@ -454,6 +454,7 @@ export function Timeline({
                     allClips={allClips}
                     zoom={zoom}
                     scrollLeft={scrollLeft}
+                    viewportWidth={viewportWidth}
                     selectedClipId={selectedClipId}
                     clipRefs={clipRefs}
                     editMode={editMode}
@@ -461,6 +462,7 @@ export function Timeline({
                     dropPreview={dropPreview}
                     onSnapIndicatorChange={setSnapIndicator}
                     onDropPreviewChange={setDropPreview}
+                    onScrollChange={onScrollChange}
                     onSelectClip={onSelectClip}
                     onDeleteClip={onDeleteClip}
                     onMoveClip={onMoveClip}

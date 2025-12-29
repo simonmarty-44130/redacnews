@@ -1,9 +1,13 @@
 'use client';
 
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { useDrop } from 'react-dnd';
 import { cn } from '@/lib/utils';
 import { TRACK_HEIGHT, SNAP_TO_GRID, SNAP_THRESHOLD_PX } from '@/lib/audio-montage/constants';
+
+// Constantes pour l'auto-scroll pendant le drag
+const AUTO_SCROLL_ZONE = 80; // Zone en pixels depuis le bord qui déclenche l'auto-scroll
+const AUTO_SCROLL_SPEED = 15; // Pixels par frame
 import { Clip, type ClipRef } from './Clip';
 import type { Track as TrackType, ClipWithComputed, DragItem } from '@/lib/audio-montage/types';
 
@@ -107,6 +111,7 @@ interface TrackProps {
   allClips: ClipWithComputed[]; // Tous les clips de toutes les pistes (pour snap inter-pistes)
   zoom: number;
   scrollLeft: number;
+  viewportWidth: number; // Largeur visible de la timeline
   selectedClipId: string | null;
   clipRefs: Map<string, ClipRef | null>;
   editMode: 'select' | 'razor';
@@ -114,6 +119,7 @@ interface TrackProps {
   dropPreview: DropPreview | null; // Prévisualisation de drop
   onSnapIndicatorChange: (position: number | null) => void;
   onDropPreviewChange: (preview: DropPreview | null) => void;
+  onScrollChange: (scrollLeft: number) => void; // Pour l'auto-scroll pendant le drag
   onSelectClip: (clipId: string | null) => void;
   onDeleteClip: (clipId: string) => void;
   onMoveClip: (clipId: string, trackId: string, startTime: number) => void;
@@ -130,6 +136,7 @@ export function Track({
   allClips,
   zoom,
   scrollLeft,
+  viewportWidth,
   selectedClipId,
   clipRefs,
   editMode,
@@ -137,6 +144,7 @@ export function Track({
   dropPreview,
   onSnapIndicatorChange,
   onDropPreviewChange,
+  onScrollChange,
   onSelectClip,
   onDeleteClip,
   onMoveClip,
@@ -148,6 +156,73 @@ export function Track({
   onClipVolumeChange,
 }: TrackProps) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const autoScrollRef = useRef<number | null>(null);
+  const scrollDirectionRef = useRef<'left' | 'right' | null>(null);
+  const scrollLeftRef = useRef(scrollLeft);
+
+  // Garder scrollLeft à jour dans le ref pour l'animation
+  useEffect(() => {
+    scrollLeftRef.current = scrollLeft;
+  }, [scrollLeft]);
+
+  // Fonction pour démarrer l'auto-scroll
+  const startAutoScroll = useCallback((direction: 'left' | 'right') => {
+    if (autoScrollRef.current !== null && scrollDirectionRef.current === direction) {
+      return; // Déjà en cours dans cette direction
+    }
+
+    // Arrêter l'auto-scroll précédent
+    if (autoScrollRef.current !== null) {
+      cancelAnimationFrame(autoScrollRef.current);
+    }
+
+    scrollDirectionRef.current = direction;
+
+    const scroll = () => {
+      const currentScroll = scrollLeftRef.current;
+      let newScroll: number;
+
+      if (direction === 'left') {
+        newScroll = Math.max(0, currentScroll - AUTO_SCROLL_SPEED);
+      } else {
+        newScroll = currentScroll + AUTO_SCROLL_SPEED;
+      }
+
+      if (newScroll !== currentScroll) {
+        onScrollChange(newScroll);
+      }
+
+      // Continuer l'animation si on n'a pas atteint la limite
+      if (direction === 'left' && newScroll > 0) {
+        autoScrollRef.current = requestAnimationFrame(scroll);
+      } else if (direction === 'right') {
+        autoScrollRef.current = requestAnimationFrame(scroll);
+      } else {
+        autoScrollRef.current = null;
+        scrollDirectionRef.current = null;
+      }
+    };
+
+    autoScrollRef.current = requestAnimationFrame(scroll);
+  }, [onScrollChange]);
+
+  // Fonction pour arrêter l'auto-scroll
+  const stopAutoScroll = useCallback(() => {
+    if (autoScrollRef.current !== null) {
+      cancelAnimationFrame(autoScrollRef.current);
+      autoScrollRef.current = null;
+      scrollDirectionRef.current = null;
+    }
+  }, []);
+
+  // Nettoyer l'auto-scroll au démontage
+  useEffect(() => {
+    return () => {
+      if (autoScrollRef.current !== null) {
+        cancelAnimationFrame(autoScrollRef.current);
+      }
+    };
+  }, []);
 
   // Configuration du drop
   const [{ isOver, canDrop }, drop] = useDrop(
@@ -161,7 +236,21 @@ export function Track({
         if (!clientOffset || !trackRect) {
           onSnapIndicatorChange(null);
           onDropPreviewChange(null);
+          stopAutoScroll();
           return;
+        }
+
+        // Auto-scroll: détecter si le curseur est près des bords de la zone visible
+        const cursorXInTrack = clientOffset.x - trackRect.left;
+        if (cursorXInTrack < AUTO_SCROLL_ZONE && scrollLeft > 0) {
+          // Proche du bord gauche et pas encore au début -> scroll vers la gauche
+          startAutoScroll('left');
+        } else if (cursorXInTrack > viewportWidth - AUTO_SCROLL_ZONE) {
+          // Proche du bord droit -> scroll vers la droite
+          startAutoScroll('right');
+        } else {
+          // Au milieu -> arrêter l'auto-scroll
+          stopAutoScroll();
         }
 
         // Calculer où le curseur se trouve dans la timeline (en tenant compte du scroll)
@@ -228,6 +317,9 @@ export function Track({
         });
       },
       drop: (item: DragItem, monitor) => {
+        // Arrêter l'auto-scroll
+        stopAutoScroll();
+
         const clientOffset = monitor.getClientOffset();
         const trackRect = trackRef.current?.getBoundingClientRect();
 
@@ -303,7 +395,7 @@ export function Track({
         canDrop: monitor.canDrop(),
       }),
     }),
-    [track.id, track.clips, zoom, scrollLeft, allClips, onMoveClip, onAddClip, onSnapIndicatorChange, onDropPreviewChange]
+    [track.id, track.clips, zoom, scrollLeft, viewportWidth, allClips, onMoveClip, onAddClip, onSnapIndicatorChange, onDropPreviewChange, startAutoScroll, stopAutoScroll]
   );
 
   return (
