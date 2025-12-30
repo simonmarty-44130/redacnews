@@ -159,6 +159,7 @@ export function Track({
   const autoScrollRef = useRef<number | null>(null);
   const scrollDirectionRef = useRef<'left' | 'right' | null>(null);
   const scrollLeftRef = useRef(scrollLeft);
+  const initialScrollLeftRef = useRef<number | null>(null); // Scroll au début du drag
 
   // Garder scrollLeft à jour dans le ref pour l'animation
   useEffect(() => {
@@ -206,13 +207,15 @@ export function Track({
     autoScrollRef.current = requestAnimationFrame(scroll);
   }, [onScrollChange]);
 
-  // Fonction pour arrêter l'auto-scroll
+  // Fonction pour arrêter l'auto-scroll et réinitialiser l'état du drag
   const stopAutoScroll = useCallback(() => {
     if (autoScrollRef.current !== null) {
       cancelAnimationFrame(autoScrollRef.current);
       autoScrollRef.current = null;
       scrollDirectionRef.current = null;
     }
+    // Réinitialiser le scroll initial du drag
+    initialScrollLeftRef.current = null;
   }, []);
 
   // Nettoyer l'auto-scroll au démontage
@@ -261,16 +264,25 @@ export function Track({
 
         // Pour les clips existants, on veut que le clip suive le curseur de façon intuitive
         // On utilise la position initiale du clip (startTime) stockée dans l'item
-        // et le décalage depuis le début du drag
+        // et le décalage depuis le début du drag + le défilement qui s'est produit
         let targetClipLeft: number;
         if (item.type === 'CLIP' && item.startTime !== undefined) {
+          // Mémoriser le scroll au début du drag si pas encore fait
+          if (initialScrollLeftRef.current === null) {
+            initialScrollLeftRef.current = scrollLeft;
+          }
+
           // Calculer le delta de déplacement en pixels depuis le début du drag
           const initialDrag = monitor.getInitialClientOffset();
           if (initialDrag) {
             const deltaX = clientOffset.x - initialDrag.x;
-            // La nouvelle position = position originale + delta converti en temps puis en pixels
+            // Calculer le delta de scroll depuis le début du drag
+            const scrollDelta = scrollLeft - initialScrollLeftRef.current;
+            // La nouvelle position = position originale + delta curseur - delta scroll
+            // (on soustrait le scrollDelta car quand on scrolle vers la gauche, scrollLeft diminue,
+            // et le clip doit aller plus tôt sur la timeline)
             const originalLeft = item.startTime * zoom;
-            targetClipLeft = originalLeft + deltaX;
+            targetClipLeft = originalLeft + deltaX - scrollDelta;
           } else {
             // Fallback: placer le bord gauche du clip au curseur
             targetClipLeft = cursorInTimeline;
@@ -333,19 +345,28 @@ export function Track({
         const cursorInTimeline = clientOffset.x - trackRect.left + scrollLeft;
 
         // Pour les clips existants, on utilise le delta de déplacement depuis la position originale
+        // en tenant compte du scroll qui s'est produit pendant le drag
         let targetClipLeft: number;
         if (item.type === 'CLIP' && item.startTime !== undefined) {
           const initialDrag = monitor.getInitialClientOffset();
           if (initialDrag) {
             const deltaX = clientOffset.x - initialDrag.x;
+            // Calculer le delta de scroll depuis le début du drag
+            const scrollDelta = initialScrollLeftRef.current !== null
+              ? scrollLeft - initialScrollLeftRef.current
+              : 0;
+            // La nouvelle position = position originale + delta curseur - delta scroll
             const originalLeft = item.startTime * zoom;
-            targetClipLeft = originalLeft + deltaX;
+            targetClipLeft = originalLeft + deltaX - scrollDelta;
           } else {
             targetClipLeft = cursorInTimeline;
           }
         } else {
           targetClipLeft = cursorInTimeline;
         }
+
+        // Réinitialiser le ref de scroll initial
+        initialScrollLeftRef.current = null;
 
         let rawTime = targetClipLeft / zoom;
         const clipDuration = item.duration || 0;
