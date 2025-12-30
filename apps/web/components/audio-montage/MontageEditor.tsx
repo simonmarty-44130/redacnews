@@ -572,9 +572,11 @@ export function MontageEditor({
 
     console.log('[MontageEditor] Deleting region from', regionStart.toFixed(2), 'to', regionEnd.toFixed(2));
 
+    // Collecter tous les nouveaux clips créés pour les ajouter au state local
+    const newClipsMap: Map<string, Clip[]> = new Map(); // trackId -> nouveaux clips
+
     // Pour chaque piste, traiter les clips affectés
     for (const track of project.tracks) {
-      const clipsToProcess: Clip[] = [];
       const clipsToDelete: string[] = [];
       const clipsToAdd: Omit<Clip, 'id' | 'trackId'>[] = [];
       const clipsToUpdate: { id: string; updates: Partial<Clip> }[] = [];
@@ -622,14 +624,14 @@ export function MontageEditor({
               updates: { outPoint: cutPointInSource }
             });
 
-            // Créer la partie après (décalée)
+            // Créer la partie après (décalée) - collée juste après la partie avant
             const afterCutInSource = regionEnd - clip.startTime + clip.inPoint;
             clipsToAdd.push({
               name: clip.name,
               mediaItemId: clip.mediaItemId,
               sourceUrl: clip.sourceUrl,
               sourceDuration: clip.sourceDuration,
-              startTime: regionStart, // Rejoint le point de coupe
+              startTime: regionStart, // Collé juste après la partie tronquée
               inPoint: afterCutInSource,
               outPoint: clip.outPoint,
               volume: clip.volume,
@@ -664,12 +666,18 @@ export function MontageEditor({
         await onUpdateClip(id, updates);
       }
 
+      // Créer les nouveaux clips et les stocker
+      const createdClips: Clip[] = [];
       for (const clipData of clipsToAdd) {
-        await onAddClip(track.id, clipData);
+        const newClip = await onAddClip(track.id, clipData);
+        createdClips.push(newClip);
+      }
+      if (createdClips.length > 0) {
+        newClipsMap.set(track.id, createdClips);
       }
     }
 
-    // Mettre à jour le state local
+    // Mettre à jour le state local avec toutes les modifications
     setProject((prev) => ({
       ...prev,
       tracks: prev.tracks.map((track) => {
@@ -692,11 +700,7 @@ export function MontageEditor({
             // Tronquer les clips qui chevauchent le début
             if (clip.startTime < regionStart && clipEnd > regionStart) {
               const cutPointInSource = regionStart - clip.startTime + clip.inPoint;
-              if (clipEnd <= regionEnd) {
-                return { ...clip, outPoint: cutPointInSource };
-              }
-              // Pour les clips qui traversent - on garde juste la partie avant
-              // La partie après sera ajoutée séparément
+              // Tronquer le clip (la partie avant)
               return { ...clip, outPoint: cutPointInSource };
             }
 
@@ -712,6 +716,10 @@ export function MontageEditor({
 
             return clip;
           });
+
+        // Ajouter les nouveaux clips créés pour cette piste
+        const newClips = newClipsMap.get(track.id) || [];
+        updatedClips = [...updatedClips, ...newClips];
 
         return { ...track, clips: updatedClips };
       }),
