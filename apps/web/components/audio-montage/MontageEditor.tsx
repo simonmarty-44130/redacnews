@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { TransportBar } from './TransportBar';
 import { Toolbar } from './Toolbar';
 import { Timeline } from './Timeline';
+import type { CrossfadeInfo } from './Track';
 import { Minimap } from './Minimap';
 import { StatusBar } from './StatusBar';
 import { ExportDialog } from './ExportDialog';
@@ -288,6 +289,71 @@ export function MontageEditor({
         ),
       })),
     }));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  // Callback pour changer les fades d'un clip
+  const handleClipFadeChange = useCallback((clipId: string, fadeInDuration: number, fadeOutDuration: number) => {
+    setProject((prev) => ({
+      ...prev,
+      tracks: prev.tracks.map((track) => ({
+        ...track,
+        clips: track.clips.map((clip) =>
+          clip.id === clipId ? { ...clip, fadeInDuration, fadeOutDuration } : clip
+        ),
+      })),
+    }));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  // Callback pour appliquer un crossfade automatique lors d'un chevauchement de clips
+  const handleCrossfade = useCallback((crossfadeInfo: CrossfadeInfo) => {
+    const { existingClipId, newClipId, overlapDuration, position } = crossfadeInfo;
+    console.log('[MontageEditor] Applying crossfade:', crossfadeInfo);
+
+    setProject((prev) => {
+      // Si newClipId est 'NEW_CLIP', on doit trouver le dernier clip ajouté
+      // Pour l'instant, on ne gère que le cas où les deux clips sont identifiables
+      const updates = new Map<string, { fadeInDuration?: number; fadeOutDuration?: number }>();
+
+      // Si le clip existant est AVANT le nouveau clip:
+      // - Le clip existant a besoin d'un fade out (sa fin chevauche le début du nouveau)
+      // - Le nouveau clip a besoin d'un fade in (son début chevauche la fin de l'existant)
+      if (position === 'before') {
+        // Clip existant: ajouter/étendre le fade out
+        updates.set(existingClipId, { fadeOutDuration: overlapDuration });
+        // Nouveau clip: ajouter/étendre le fade in
+        if (newClipId !== 'NEW_CLIP') {
+          updates.set(newClipId, { fadeInDuration: overlapDuration });
+        }
+      } else {
+        // Si le clip existant est APRÈS le nouveau clip:
+        // - Le clip existant a besoin d'un fade in (son début chevauche la fin du nouveau)
+        // - Le nouveau clip a besoin d'un fade out (sa fin chevauche le début de l'existant)
+        updates.set(existingClipId, { fadeInDuration: overlapDuration });
+        if (newClipId !== 'NEW_CLIP') {
+          updates.set(newClipId, { fadeOutDuration: overlapDuration });
+        }
+      }
+
+      return {
+        ...prev,
+        tracks: prev.tracks.map((track) => ({
+          ...track,
+          clips: track.clips.map((clip) => {
+            const update = updates.get(clip.id);
+            if (update) {
+              return {
+                ...clip,
+                fadeInDuration: update.fadeInDuration ?? clip.fadeInDuration,
+                fadeOutDuration: update.fadeOutDuration ?? clip.fadeOutDuration,
+              };
+            }
+            return clip;
+          }),
+        })),
+      };
+    });
     setHasUnsavedChanges(true);
   }, []);
 
@@ -1248,6 +1314,8 @@ export function MontageEditor({
           onSplitClip={splitClipAt}
           onDurationDetected={handleDurationDetected}
           onClipVolumeChange={handleClipVolumeChange}
+          onClipFadeChange={handleClipFadeChange}
+          onCrossfade={handleCrossfade}
           onViewportWidthChange={setViewportWidth}
           isRecording={isRecording}
           recordingTrackId={recordingTrackId}

@@ -73,14 +73,25 @@ function findSnapPoint(
   return { snappedTime: dragTime, snapIndicator: null };
 }
 
-// Fonction pour vérifier si un clip peut être placé sans chevauchement
-function canPlaceClip(
+// Constante pour la durée maximale de crossfade autorisée (en secondes)
+const MAX_CROSSFADE_DURATION = 5;
+
+// Type pour les informations de chevauchement
+interface OverlapInfo {
+  clipId: string;
+  overlapDuration: number; // Durée du chevauchement
+  position: 'before' | 'after'; // Le clip existant est avant ou après le nouveau
+}
+
+// Fonction pour vérifier si un clip peut être placé et détecter les chevauchements
+function checkClipPlacement(
   trackClips: ClipWithComputed[],
   startTime: number,
   duration: number,
   excludeClipId?: string
-): boolean {
+): { canPlace: boolean; overlaps: OverlapInfo[] } {
   const endTime = startTime + duration;
+  const overlaps: OverlapInfo[] = [];
 
   for (const clip of trackClips) {
     if (clip.id === excludeClipId) continue;
@@ -88,14 +99,42 @@ function canPlaceClip(
     const clipEnd = clip.startTime + clip.duration;
 
     // Vérifier le chevauchement
-    const overlaps = startTime < clipEnd && endTime > clip.startTime;
+    const hasOverlap = startTime < clipEnd && endTime > clip.startTime;
 
-    if (overlaps) {
-      return false;
+    if (hasOverlap) {
+      // Calculer la durée du chevauchement
+      const overlapStart = Math.max(startTime, clip.startTime);
+      const overlapEnd = Math.min(endTime, clipEnd);
+      const overlapDuration = overlapEnd - overlapStart;
+
+      // Déterminer si le clip existant est avant ou après
+      const position: 'before' | 'after' = clip.startTime < startTime ? 'before' : 'after';
+
+      overlaps.push({
+        clipId: clip.id,
+        overlapDuration,
+        position,
+      });
     }
   }
 
-  return true;
+  // Permettre le placement si:
+  // - Pas de chevauchement, OU
+  // - Chevauchement avec un seul clip ET durée <= MAX_CROSSFADE_DURATION
+  const canPlace = overlaps.length === 0 ||
+    (overlaps.length === 1 && overlaps[0].overlapDuration <= MAX_CROSSFADE_DURATION);
+
+  return { canPlace, overlaps };
+}
+
+// Version simplifiée pour la compatibilité
+function canPlaceClip(
+  trackClips: ClipWithComputed[],
+  startTime: number,
+  duration: number,
+  excludeClipId?: string
+): boolean {
+  return checkClipPlacement(trackClips, startTime, duration, excludeClipId).canPlace;
 }
 
 // Type pour la prévisualisation de drop
@@ -104,6 +143,14 @@ export interface DropPreview {
   startTime: number;
   duration: number;
   canPlace: boolean;
+}
+
+// Type pour les informations de crossfade
+export interface CrossfadeInfo {
+  existingClipId: string;
+  newClipId: string; // Peut être temporaire pour les nouveaux clips
+  overlapDuration: number;
+  position: 'before' | 'after'; // Le clip existant est avant ou après le nouveau
 }
 
 interface TrackProps {
@@ -129,6 +176,8 @@ interface TrackProps {
   onSplitClip?: (clipId: string, globalTime: number) => void;
   onDurationDetected?: (clipId: string, realDuration: number) => void;
   onClipVolumeChange?: (clipId: string, volume: number) => void;
+  onClipFadeChange?: (clipId: string, fadeInDuration: number, fadeOutDuration: number) => void;
+  onCrossfade?: (crossfadeInfo: CrossfadeInfo) => void; // Callback pour appliquer le crossfade automatique
 }
 
 export function Track({
@@ -154,6 +203,8 @@ export function Track({
   onSplitClip,
   onDurationDetected,
   onClipVolumeChange,
+  onClipFadeChange,
+  onCrossfade,
 }: TrackProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef<number | null>(null);
@@ -390,7 +441,7 @@ export function Track({
         startTime = Math.max(0, startTime);
 
         // Vérifier le chevauchement sur cette piste
-        const canPlace = canPlaceClip(
+        const { canPlace, overlaps } = checkClipPlacement(
           track.clips,
           startTime,
           clipDuration,
@@ -398,11 +449,12 @@ export function Track({
         );
 
         if (!canPlace) {
-          // Ne pas placer le clip s'il y a chevauchement
-          console.log('[Track] Cannot place clip: overlap detected');
+          // Ne pas placer le clip s'il y a chevauchement trop important
+          console.log('[Track] Cannot place clip: overlap too large or multiple overlaps');
           return;
         }
 
+        // D'abord, déplacer ou ajouter le clip
         if (item.type === 'CLIP') {
           // Deplacement d'un clip existant
           onMoveClip(item.id, track.id, startTime);
@@ -410,13 +462,28 @@ export function Track({
           // Ajout d'un nouvel item depuis la bibliotheque
           onAddClip(track.id, item, startTime);
         }
+
+        // Ensuite, si il y a un chevauchement autorisé (crossfade), appliquer les fades
+        if (overlaps.length === 1 && onCrossfade) {
+          const overlap = overlaps[0];
+          console.log('[Track] Applying crossfade:', overlap);
+
+          // Le newClipId sera l'ID du clip déplacé ou un ID temporaire pour le nouveau clip
+          // Le MontageEditor devra gérer le cas où c'est un nouveau clip
+          onCrossfade({
+            existingClipId: overlap.clipId,
+            newClipId: item.type === 'CLIP' ? item.id : 'NEW_CLIP', // Marqueur spécial pour les nouveaux clips
+            overlapDuration: overlap.overlapDuration,
+            position: overlap.position,
+          });
+        }
       },
       collect: (monitor) => ({
         isOver: monitor.isOver(),
         canDrop: monitor.canDrop(),
       }),
     }),
-    [track.id, track.clips, zoom, scrollLeft, viewportWidth, allClips, onMoveClip, onAddClip, onSnapIndicatorChange, onDropPreviewChange, startAutoScroll, stopAutoScroll]
+    [track.id, track.clips, zoom, scrollLeft, viewportWidth, allClips, onMoveClip, onAddClip, onSnapIndicatorChange, onDropPreviewChange, startAutoScroll, stopAutoScroll, onCrossfade]
   );
 
   return (
@@ -474,6 +541,7 @@ export function Track({
           onSplit={onSplitClip ? (globalTime) => onSplitClip(clip.id, globalTime) : undefined}
           onDurationDetected={onDurationDetected}
           onVolumeChange={onClipVolumeChange}
+          onFadeChange={onClipFadeChange}
         />
       ))}
 

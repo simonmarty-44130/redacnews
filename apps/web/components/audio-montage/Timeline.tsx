@@ -4,7 +4,7 @@ import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { Plus, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TimelineRuler } from './TimelineRuler';
-import { Track, type DropPreview } from './Track';
+import { Track, type DropPreview, type CrossfadeInfo } from './Track';
 import {
   TRACK_CONTROLS_WIDTH,
   TRACK_HEIGHT,
@@ -44,6 +44,8 @@ interface TimelineProps {
   onSplitClip?: (clipId: string, globalTime: number) => void;
   onDurationDetected?: (clipId: string, realDuration: number) => void;
   onClipVolumeChange?: (clipId: string, volume: number) => void;
+  onClipFadeChange?: (clipId: string, fadeInDuration: number, fadeOutDuration: number) => void;
+  onCrossfade?: (crossfadeInfo: CrossfadeInfo) => void;
   onViewportWidthChange?: (width: number) => void;
   isRecording?: boolean;
   recordingTrackId?: string | null;
@@ -76,6 +78,8 @@ export function Timeline({
   onSplitClip,
   onDurationDetected,
   onClipVolumeChange,
+  onClipFadeChange,
+  onCrossfade,
   onViewportWidthChange,
   isRecording,
   recordingTrackId,
@@ -472,6 +476,8 @@ export function Timeline({
                     onSplitClip={onSplitClip}
                     onDurationDetected={onDurationDetected}
                     onClipVolumeChange={onClipVolumeChange}
+                    onClipFadeChange={onClipFadeChange}
+                    onCrossfade={onCrossfade}
                   />
                 ))}
 

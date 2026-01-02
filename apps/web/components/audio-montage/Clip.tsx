@@ -35,6 +35,7 @@ interface ClipProps {
   onMove: (startTime: number) => void;
   onTrim: (inPoint: number, outPoint: number) => void;
   onVolumeChange?: (clipId: string, volume: number) => void;
+  onFadeChange?: (clipId: string, fadeInDuration: number, fadeOutDuration: number) => void;
   onClipReady?: (clipId: string) => void;
   onSplit?: (globalTime: number) => void;
   onDurationDetected?: (clipId: string, realDuration: number) => void;
@@ -66,6 +67,7 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
   onDelete,
   onTrim,
   onVolumeChange,
+  onFadeChange,
   onClipReady,
   onSplit,
   onDurationDetected,
@@ -75,6 +77,8 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
   const [isDragging, setIsDragging] = useState(false);
   const [isTrimming, setIsTrimming] = useState<'left' | 'right' | null>(null);
   const [trimStart, setTrimStart] = useState({ x: 0, inPoint: 0, outPoint: 0 });
+  const [isFading, setIsFading] = useState<'fadeIn' | 'fadeOut' | null>(null);
+  const [fadeStart, setFadeStart] = useState({ x: 0, fadeIn: 0, fadeOut: 0 });
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
   const [isDraggingVolume, setIsDraggingVolume] = useState(false);
 
@@ -144,6 +148,21 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
     });
   };
 
+  // Gestion du fade
+  const handleFadeStart = (
+    e: React.MouseEvent,
+    type: 'fadeIn' | 'fadeOut'
+  ) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setIsFading(type);
+    setFadeStart({
+      x: e.clientX,
+      fadeIn: clip.fadeInDuration,
+      fadeOut: clip.fadeOutDuration,
+    });
+  };
+
   useEffect(() => {
     if (!isTrimming) return;
 
@@ -178,6 +197,41 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
       window.removeEventListener('mouseup', handleMouseUp);
     };
   }, [isTrimming, trimStart, zoom, clip.sourceDuration, onTrim]);
+
+  // Gestion du drag pour les fades
+  useEffect(() => {
+    if (!isFading || !onFadeChange) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const deltaX = e.clientX - fadeStart.x;
+      const deltaSec = Math.abs(deltaX / zoom);
+      const clipDuration = clip.duration;
+      // Maximum fade = 50% de la durée du clip
+      const maxFade = clipDuration * 0.5;
+
+      if (isFading === 'fadeIn') {
+        // Fade in : on drag vers la droite pour augmenter
+        const newFadeIn = Math.max(0, Math.min(maxFade, fadeStart.fadeIn + (deltaX > 0 ? deltaSec : -deltaSec)));
+        onFadeChange(clip.id, newFadeIn, fadeStart.fadeOut);
+      } else {
+        // Fade out : on drag vers la gauche pour augmenter
+        const newFadeOut = Math.max(0, Math.min(maxFade, fadeStart.fadeOut + (deltaX < 0 ? deltaSec : -deltaSec)));
+        onFadeChange(clip.id, fadeStart.fadeIn, newFadeOut);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsFading(null);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isFading, fadeStart, zoom, clip.duration, clip.id, onFadeChange]);
 
   // Formater la duree
   const formatDuration = (sec: number): string => {
@@ -265,6 +319,8 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
           outPoint={clip.outPoint}
           volume={effectiveVolume}
           clipVolume={clipVolume}
+          fadeInDuration={clip.fadeInDuration}
+          fadeOutDuration={clip.fadeOutDuration}
           color={trackColor}
           pixelsPerSecond={zoom}
           height={clipHeight}
@@ -276,16 +332,94 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
       {/* Overlay gradient subtil */}
       <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/30 pointer-events-none" />
 
-      {/* Fade in indicator */}
-      {clip.fadeInDuration > 0 && (
+      {/* Fade in zone - toujours visible au survol quand sélectionné */}
+      {isSelected && onFadeChange && (
+        <div
+          className={cn(
+            'absolute top-0 left-0 bottom-0 cursor-ew-resize z-20',
+            'group/fadeIn'
+          )}
+          style={{ width: Math.max(clip.fadeInDuration * zoom, 16) }}
+          onMouseDown={(e) => handleFadeStart(e, 'fadeIn')}
+        >
+          {/* Zone de gradient fade in */}
+          {clip.fadeInDuration > 0 && (
+            <div
+              className="absolute inset-0 bg-gradient-to-r from-black/60 to-transparent pointer-events-none"
+            />
+          )}
+          {/* Poignée fade in triangulaire dans le coin supérieur gauche */}
+          <div
+            className={cn(
+              'absolute top-0 left-0 w-4 h-4 transition-opacity',
+              clip.fadeInDuration > 0 ? 'opacity-100' : 'opacity-0 group-hover/fadeIn:opacity-60',
+              isFading === 'fadeIn' && 'opacity-100'
+            )}
+            style={{
+              background: 'linear-gradient(135deg, rgba(255,255,255,0.8) 50%, transparent 50%)',
+            }}
+          />
+          {/* Ligne diagonale du fade */}
+          {clip.fadeInDuration > 0 && (
+            <div
+              className="absolute bottom-0 left-0 w-px bg-white/50 origin-bottom-left pointer-events-none"
+              style={{
+                height: clipHeight,
+                transform: `rotate(-${Math.atan(clipHeight / (clip.fadeInDuration * zoom)) * 180 / Math.PI}deg)`,
+              }}
+            />
+          )}
+        </div>
+      )}
+      {/* Fade in indicator - quand pas sélectionné */}
+      {(!isSelected || !onFadeChange) && clip.fadeInDuration > 0 && (
         <div
           className="absolute top-0 left-0 bottom-0 bg-gradient-to-r from-black/60 to-transparent pointer-events-none"
           style={{ width: Math.max(clip.fadeInDuration * zoom, 8) }}
         />
       )}
 
-      {/* Fade out indicator */}
-      {clip.fadeOutDuration > 0 && (
+      {/* Fade out zone - toujours visible au survol quand sélectionné */}
+      {isSelected && onFadeChange && (
+        <div
+          className={cn(
+            'absolute top-0 right-0 bottom-0 cursor-ew-resize z-20',
+            'group/fadeOut'
+          )}
+          style={{ width: Math.max(clip.fadeOutDuration * zoom, 16) }}
+          onMouseDown={(e) => handleFadeStart(e, 'fadeOut')}
+        >
+          {/* Zone de gradient fade out */}
+          {clip.fadeOutDuration > 0 && (
+            <div
+              className="absolute inset-0 bg-gradient-to-l from-black/60 to-transparent pointer-events-none"
+            />
+          )}
+          {/* Poignée fade out triangulaire dans le coin supérieur droit */}
+          <div
+            className={cn(
+              'absolute top-0 right-0 w-4 h-4 transition-opacity',
+              clip.fadeOutDuration > 0 ? 'opacity-100' : 'opacity-0 group-hover/fadeOut:opacity-60',
+              isFading === 'fadeOut' && 'opacity-100'
+            )}
+            style={{
+              background: 'linear-gradient(-135deg, rgba(255,255,255,0.8) 50%, transparent 50%)',
+            }}
+          />
+          {/* Ligne diagonale du fade */}
+          {clip.fadeOutDuration > 0 && (
+            <div
+              className="absolute bottom-0 right-0 w-px bg-white/50 origin-bottom-right pointer-events-none"
+              style={{
+                height: clipHeight,
+                transform: `rotate(${Math.atan(clipHeight / (clip.fadeOutDuration * zoom)) * 180 / Math.PI}deg)`,
+              }}
+            />
+          )}
+        </div>
+      )}
+      {/* Fade out indicator - quand pas sélectionné */}
+      {(!isSelected || !onFadeChange) && clip.fadeOutDuration > 0 && (
         <div
           className="absolute top-0 right-0 bottom-0 bg-gradient-to-l from-black/60 to-transparent pointer-events-none"
           style={{ width: Math.max(clip.fadeOutDuration * zoom, 8) }}

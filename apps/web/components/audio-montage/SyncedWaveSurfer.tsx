@@ -36,6 +36,8 @@ interface SyncedWaveSurferProps {
   outPoint: number; // Point de sortie dans le fichier source (secondes)
   volume: number; // 0 a 2 (0 = mute, 1 = 0dB, 2 = +6dB)
   clipVolume: number; // Volume du clip (pour affichage visuel de la waveform)
+  fadeInDuration?: number; // Duree du fade in (secondes)
+  fadeOutDuration?: number; // Duree du fade out (secondes)
   color: string; // Couleur de la waveform
   pixelsPerSecond: number; // Zoom de la timeline
   height?: number;
@@ -64,6 +66,8 @@ const SyncedWaveSurfer = memo(
         outPoint,
         volume,
         clipVolume,
+        fadeInDuration = 0,
+        fadeOutDuration = 0,
         color,
         pixelsPerSecond,
         height = 60,
@@ -94,11 +98,66 @@ const SyncedWaveSurfer = memo(
         inPoint,
         outPoint,
         clipId,
+        fadeInDuration,
+        fadeOutDuration,
+        volume,
       });
-      propsRef.current = { startTime, inPoint, outPoint, clipId };
+      propsRef.current = { startTime, inPoint, outPoint, clipId, fadeInDuration, fadeOutDuration, volume };
+
+      // Ref pour l'intervalle de fade
+      const fadeIntervalRef = useRef<number | null>(null);
 
       // Duree visible du clip
       const clipDuration = outPoint - inPoint;
+
+      // Fonction pour calculer le multiplicateur de volume basé sur la position dans le clip
+      const calculateFadeMultiplier = (currentLocalTime: number): number => {
+        const { inPoint: ip, outPoint: op, fadeInDuration: fadeIn, fadeOutDuration: fadeOut } = propsRef.current;
+        const clipDur = op - ip;
+        const positionInClip = currentLocalTime - ip; // Position relative au début du clip
+
+        let multiplier = 1;
+
+        // Fade in: de 0 à 1 pendant fadeInDuration
+        if (fadeIn > 0 && positionInClip < fadeIn) {
+          multiplier = Math.max(0, positionInClip / fadeIn);
+        }
+
+        // Fade out: de 1 à 0 pendant fadeOutDuration
+        if (fadeOut > 0 && positionInClip > clipDur - fadeOut) {
+          const fadeOutPosition = clipDur - positionInClip;
+          multiplier = Math.min(multiplier, Math.max(0, fadeOutPosition / fadeOut));
+        }
+
+        return multiplier;
+      };
+
+      // Fonction pour mettre à jour le volume avec fade
+      const updateVolumeWithFade = () => {
+        if (!wavesurferRef.current || !isReadyRef.current) return;
+
+        const currentTime = wavesurferRef.current.getCurrentTime();
+        const fadeMultiplier = calculateFadeMultiplier(currentTime);
+        const baseVolume = propsRef.current.volume;
+        const finalVolume = baseVolume * fadeMultiplier;
+
+        wavesurferRef.current.setVolume(finalVolume);
+      };
+
+      // Démarrer/arrêter l'intervalle de fade selon l'état de lecture
+      const startFadeInterval = () => {
+        if (fadeIntervalRef.current) return;
+        // Mettre à jour le volume toutes les 50ms pour un fade fluide
+        fadeIntervalRef.current = window.setInterval(updateVolumeWithFade, 50);
+        updateVolumeWithFade(); // Mise à jour immédiate
+      };
+
+      const stopFadeInterval = () => {
+        if (fadeIntervalRef.current) {
+          clearInterval(fadeIntervalRef.current);
+          fadeIntervalRef.current = null;
+        }
+      };
 
       // Stocker la duree reelle du fichier source une fois chargee
       const [actualSourceDuration, setActualSourceDuration] = useState<number>(sourceDuration || 0);
@@ -183,6 +242,10 @@ const SyncedWaveSurfer = memo(
           if (isMountedRef.current && instanceIdRef.current === currentInstanceId) {
             isPlayingRef.current = true;
             setIsPlaying(true);
+            // Démarrer l'intervalle de fade si des fades sont définis
+            if (propsRef.current.fadeInDuration > 0 || propsRef.current.fadeOutDuration > 0) {
+              startFadeInterval();
+            }
           }
         });
 
@@ -190,6 +253,7 @@ const SyncedWaveSurfer = memo(
           if (isMountedRef.current && instanceIdRef.current === currentInstanceId) {
             isPlayingRef.current = false;
             setIsPlaying(false);
+            stopFadeInterval();
           }
         });
 
@@ -197,6 +261,7 @@ const SyncedWaveSurfer = memo(
           if (isMountedRef.current && instanceIdRef.current === currentInstanceId) {
             isPlayingRef.current = false;
             setIsPlaying(false);
+            stopFadeInterval();
           }
         });
 
@@ -210,6 +275,7 @@ const SyncedWaveSurfer = memo(
 
         return () => {
           isMountedRef.current = false;
+          stopFadeInterval();
           const wsToDestroy = wavesurferRef.current;
           wavesurferRef.current = null;
 
