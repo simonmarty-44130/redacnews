@@ -24,26 +24,7 @@ import { PoliticalTagSelector } from '@/components/politics';
 import { trpc } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
 import type { ElectionTypeCode } from '@/lib/politics/config';
-
-const CATEGORIES = [
-  'Actualite',
-  'Politique',
-  'Economie',
-  'Societe',
-  'Culture',
-  'Sport',
-  'Meteo',
-  'International',
-  'Local',
-];
-
-const STATUS_OPTIONS = [
-  { value: 'DRAFT', label: 'Brouillon' },
-  { value: 'IN_REVIEW', label: 'En revision' },
-  { value: 'APPROVED', label: 'Valide' },
-  { value: 'PUBLISHED', label: 'Publie' },
-  { value: 'ARCHIVED', label: 'Archive' },
-];
+import { STORY_CATEGORIES, STORY_STATUS_OPTIONS } from '@/lib/stories/config';
 
 interface StoryEditorProps {
   storyId: string;
@@ -250,7 +231,7 @@ export function StoryEditor({ storyId, onClose, onDelete }: StoryEditorProps) {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {STATUS_OPTIONS.map((opt) => (
+                      {STORY_STATUS_OPTIONS.map((opt) => (
                         <SelectItem key={opt.value} value={opt.value}>
                           {opt.label}
                         </SelectItem>
@@ -272,7 +253,7 @@ export function StoryEditor({ storyId, onClose, onDelete }: StoryEditorProps) {
                       <SelectValue placeholder="Selectionner" />
                     </SelectTrigger>
                     <SelectContent>
-                      {CATEGORIES.map((cat) => (
+                      {STORY_CATEGORIES.map((cat) => (
                         <SelectItem key={cat} value={cat}>
                           {cat}
                         </SelectItem>

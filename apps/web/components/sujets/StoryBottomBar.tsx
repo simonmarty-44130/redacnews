@@ -22,6 +22,7 @@ import { MediaPicker } from './MediaPicker';
 import { PoliticalTagSelector } from '@/components/politics';
 import { trpc } from '@/lib/trpc/client';
 import type { ElectionTypeCode } from '@/lib/politics/config';
+import { STORY_CATEGORIES } from '@/lib/stories/config';
 
 const STATUS_OPTIONS = [
   { value: 'DRAFT', label: 'Brouillon', color: 'bg-gray-500' },
@@ -29,18 +30,6 @@ const STATUS_OPTIONS = [
   { value: 'APPROVED', label: 'Valide', color: 'bg-green-500' },
   { value: 'PUBLISHED', label: 'Publie', color: 'bg-blue-500' },
   { value: 'ARCHIVED', label: 'Archive', color: 'bg-gray-400' },
-];
-
-const CATEGORIES = [
-  'Actualite',
-  'Politique',
-  'Economie',
-  'Societe',
-  'Culture',
-  'Sport',
-  'Meteo',
-  'International',
-  'Local',
 ];
 
 interface StoryBottomBarProps {
@@ -121,7 +110,7 @@ export function StoryBottomBar({
               <SelectValue placeholder="Categorie" />
             </SelectTrigger>
             <SelectContent>
-              {CATEGORIES.map((cat) => (
+              {STORY_CATEGORIES.map((cat) => (
                 <SelectItem key={cat} value={cat}>
                   {cat}
                 </SelectItem>

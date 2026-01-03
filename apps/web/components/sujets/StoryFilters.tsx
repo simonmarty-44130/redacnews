@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { STORY_CATEGORIES_WITH_ALL } from '@/lib/stories/config';
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'Tous les statuts' },
@@ -18,19 +19,6 @@ const STATUS_OPTIONS = [
   { value: 'APPROVED', label: 'Valide' },
   { value: 'PUBLISHED', label: 'Publie' },
   { value: 'ARCHIVED', label: 'Archive' },
-];
-
-const CATEGORIES = [
-  { value: 'all', label: 'Toutes les categories' },
-  { value: 'Actualite', label: 'Actualite' },
-  { value: 'Politique', label: 'Politique' },
-  { value: 'Economie', label: 'Economie' },
-  { value: 'Societe', label: 'Societe' },
-  { value: 'Culture', label: 'Culture' },
-  { value: 'Sport', label: 'Sport' },
-  { value: 'Meteo', label: 'Meteo' },
-  { value: 'International', label: 'International' },
-  { value: 'Local', label: 'Local' },
 ];
 
 interface Filters {
@@ -98,7 +86,7 @@ export function StoryFilters({ filters, onFiltersChange }: StoryFiltersProps) {
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {CATEGORIES.map((cat) => (
+          {STORY_CATEGORIES_WITH_ALL.map((cat) => (
             <SelectItem key={cat.value} value={cat.value}>
               {cat.label}
             </SelectItem>

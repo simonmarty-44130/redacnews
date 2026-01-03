@@ -24,18 +24,7 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { trpc } from '@/lib/trpc/client';
-
-const CATEGORIES = [
-  'Actualite',
-  'Politique',
-  'Economie',
-  'Societe',
-  'Culture',
-  'Sport',
-  'Meteo',
-  'International',
-  'Local',
-];
+import { STORY_CATEGORIES } from '@/lib/stories/config';
 
 interface CreateStoryDialogProps {
   onSuccess?: (storyId: string) => void;
@@ -130,7 +119,7 @@ export function CreateStoryDialog({ onSuccess }: CreateStoryDialogProps) {
                   <SelectValue placeholder="Selectionner une categorie" />
                 </SelectTrigger>
                 <SelectContent>
-                  {CATEGORIES.map((cat) => (
+                  {STORY_CATEGORIES.map((cat) => (
                     <SelectItem key={cat} value={cat}>
                       {cat}
                     </SelectItem>
