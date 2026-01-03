@@ -15,6 +15,7 @@ model Organization {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   collections      Collection[]
+  constituencies   Constituency[]
   mediaItems       MediaItem[]
   montageProjects  MontageProject[]
   politicalTags    PoliticalTag[]
@@ -22,6 +23,20 @@ model Organization {
   shows            Show[]
   stories          Story[]
   users            User[]
+}
+
+model Constituency {
+  id             String       @id @default(cuid())
+  name           String
+  department     String?
+  isActive       Boolean      @default(true)
+  organizationId String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
 }
 
 model User {

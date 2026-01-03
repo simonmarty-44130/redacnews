@@ -18,6 +18,7 @@ import {
 } from '@/components/politics';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -36,6 +37,13 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 
 type PeriodPreset = '7d' | '30d' | '90d' | 'custom';
 
@@ -43,6 +51,10 @@ export default function PluralismePage() {
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('30d');
   const [electionType, setElectionType] = useState<ElectionTypeCode | undefined>();
   const [selectedFamily, setSelectedFamily] = useState<PoliticalFamilyCode | undefined>();
+  const [selectedConstituency, setSelectedConstituency] = useState<string | undefined>();
+  const [showAddCityDialog, setShowAddCityDialog] = useState(false);
+  const [newCityName, setNewCityName] = useState('');
+  const [activeTab, setActiveTab] = useState<'global' | 'by-city'>('global');
 
   // Calculer les dates en fonction de la période
   const { startDate, endDate } = useMemo(() => {
@@ -66,11 +78,33 @@ export default function PluralismePage() {
     return { startDate: start, endDate: end };
   }, [periodPreset]);
 
-  // Récupérer les statistiques d'équilibre
+  const utils = trpc.useUtils();
+
+  // Récupérer les villes/circonscriptions
+  const { data: constituencies } = trpc.politics.listConstituencies.useQuery();
+
+  // Récupérer les statistiques d'équilibre (global ou par ville)
   const { data: balanceData, isLoading: loadingBalance } = trpc.politics.getBalance.useQuery({
     startDate,
     endDate,
     electionType,
+    constituency: selectedConstituency,
+  });
+
+  // Récupérer les statistiques par ville
+  const { data: balanceByCity, isLoading: loadingBalanceByCity } = trpc.politics.getBalanceByConstituency.useQuery({
+    startDate,
+    endDate,
+    electionType,
+  });
+
+  // Mutation pour ajouter une ville
+  const createConstituency = trpc.politics.createConstituency.useMutation({
+    onSuccess: () => {
+      utils.politics.listConstituencies.invalidate();
+      setShowAddCityDialog(false);
+      setNewCityName('');
+    },
   });
 
   // Récupérer les sujets d'une famille sélectionnée
@@ -191,6 +225,65 @@ export default function PluralismePage() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            {/* Filtre par ville */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">Ville:</span>
+              <Select
+                value={selectedConstituency || 'all'}
+                onValueChange={(v) =>
+                  setSelectedConstituency(v === 'all' ? undefined : v)
+                }
+              >
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Toutes les villes" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Toutes les villes</SelectItem>
+                  {constituencies?.map((c) => (
+                    <SelectItem key={c.id} value={c.name}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Dialog open={showAddCityDialog} onOpenChange={setShowAddCityDialog}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    + Ville
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Ajouter une ville</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 pt-4">
+                    <Input
+                      placeholder="Nom de la ville"
+                      value={newCityName}
+                      onChange={(e) => setNewCityName(e.target.value)}
+                    />
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setShowAddCityDialog(false);
+                          setNewCityName('');
+                        }}
+                      >
+                        Annuler
+                      </Button>
+                      <Button
+                        onClick={() => createConstituency.mutate({ name: newCityName, department: 'Loire-Atlantique' })}
+                        disabled={!newCityName.trim() || createConstituency.isPending}
+                      >
+                        {createConstituency.isPending ? 'Ajout...' : 'Ajouter'}
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
             </div>
 
             {/* Dates affichées */}
@@ -485,10 +578,106 @@ export default function PluralismePage() {
         </Card>
       )}
 
+      {/* Synthèse par ville */}
+      {balanceByCity && balanceByCity.constituencies.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Équilibre par ville</CardTitle>
+              <div className="flex items-center gap-4 text-sm">
+                <span className="flex items-center gap-1">
+                  <span className="w-3 h-3 rounded-full bg-green-500" />
+                  {balanceByCity.summary.balancedCount} équilibré{balanceByCity.summary.balancedCount > 1 ? 's' : ''}
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-3 h-3 rounded-full bg-amber-500" />
+                  {balanceByCity.summary.warningCount} attention
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-3 h-3 rounded-full bg-red-500" />
+                  {balanceByCity.summary.dangerCount} alerte{balanceByCity.summary.dangerCount > 1 ? 's' : ''}
+                </span>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {balanceByCity.constituencies.map((cityData) => (
+                <Card
+                  key={cityData.constituency.id}
+                  className={`cursor-pointer transition-all hover:shadow-md ${
+                    cityData.status === 'danger'
+                      ? 'border-red-300 bg-red-50'
+                      : cityData.status === 'warning'
+                        ? 'border-amber-300 bg-amber-50'
+                        : 'border-green-200 bg-green-50'
+                  }`}
+                  onClick={() => setSelectedConstituency(cityData.constituency.name)}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="font-semibold">{cityData.constituency.name}</h3>
+                      <Badge
+                        variant={
+                          cityData.status === 'danger'
+                            ? 'destructive'
+                            : cityData.status === 'warning'
+                              ? 'outline'
+                              : 'outline'
+                        }
+                        className={
+                          cityData.status === 'balanced'
+                            ? 'bg-green-100 text-green-700 border-green-300'
+                            : cityData.status === 'warning'
+                              ? 'bg-amber-100 text-amber-700 border-amber-300'
+                              : ''
+                        }
+                      >
+                        {cityData.status === 'balanced' && 'OK'}
+                        {cityData.status === 'warning' && 'Attention'}
+                        {cityData.status === 'danger' && 'Alerte'}
+                      </Badge>
+                    </div>
+
+                    <div className="text-xs text-gray-600 mb-2">
+                      {cityData.totalStories} sujet{cityData.totalStories > 1 ? 's' : ''} •{' '}
+                      {formatDurationLong(cityData.totalSpeakingTime)}
+                    </div>
+
+                    {/* Mini barre de répartition */}
+                    <PoliticalBalanceBar
+                      stats={cityData.familyStats.map((s) => ({
+                        family: s.family as PoliticalFamilyCode,
+                        percentage: s.percentage,
+                      }))}
+                      height="sm"
+                    />
+
+                    {/* Alertes */}
+                    {cityData.alertCount > 0 && (
+                      <div className="mt-2 text-xs text-red-600">
+                        {cityData.alertCount} alerte{cityData.alertCount > 1 ? 's' : ''}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Tableau récapitulatif */}
       <Card>
         <CardHeader>
-          <CardTitle>Tableau récapitulatif</CardTitle>
+          <CardTitle>
+            Tableau récapitulatif
+            {selectedConstituency && (
+              <span className="text-sm font-normal text-gray-500 ml-2">
+                — {selectedConstituency}
+              </span>
+            )}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <Table>

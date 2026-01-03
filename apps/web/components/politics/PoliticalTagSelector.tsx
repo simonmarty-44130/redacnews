@@ -53,6 +53,7 @@ export function PoliticalTagSelector({
 }: PoliticalTagSelectorProps) {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [selectedFamily, setSelectedFamily] = useState<PoliticalFamilyCode | ''>('');
+  const [selectedConstituency, setSelectedConstituency] = useState<string | ''>('');
   const [newTagData, setNewTagData] = useState({
     partyName: '',
     candidateName: '',
@@ -63,9 +64,13 @@ export function PoliticalTagSelector({
 
   const utils = trpc.useUtils();
 
-  // Charger les tags existants de l'organisation
+  // Charger les villes/circonscriptions
+  const { data: constituencies } = trpc.politics.listConstituencies.useQuery();
+
+  // Charger les tags existants de l'organisation (filtrés par ville si sélectionnée)
   const { data: availableTags, isLoading: loadingTags } = trpc.politics.listTags.useQuery({
     electionType: electionType || undefined,
+    constituency: selectedConstituency || undefined,
   });
 
   // Charger les tags associés au sujet
@@ -245,6 +250,28 @@ export function PoliticalTagSelector({
       {/* Ajouter un tag existant */}
       <div className="mb-4 p-3 bg-gray-50 rounded-lg">
         <Label className="text-sm font-medium mb-2 block">Ajouter une étiquette</Label>
+
+        {/* Filtre par ville */}
+        {constituencies && constituencies.length > 0 && (
+          <div className="mb-3">
+            <Select
+              value={selectedConstituency || 'all'}
+              onValueChange={(v) => setSelectedConstituency(v === 'all' ? '' : v)}
+            >
+              <SelectTrigger className="w-full h-8 text-sm">
+                <SelectValue placeholder="Filtrer par ville" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Toutes les villes</SelectItem>
+                {constituencies.map((c) => (
+                  <SelectItem key={c.id} value={c.name}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         {/* Temps de parole automatique */}
         <div className="flex items-center justify-between mb-3 p-2 bg-white rounded border">

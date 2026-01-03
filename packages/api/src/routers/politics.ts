@@ -68,6 +68,7 @@ export const politicsRouter = router({
         electionType: ElectionTypeEnum.optional(),
         electionYear: z.number().optional(),
         family: PoliticalFamilyEnum.optional(),
+        constituency: z.string().optional(),
       }).optional()
     )
     .query(async ({ ctx, input }) => {
@@ -81,6 +82,7 @@ export const politicsRouter = router({
           ...(input?.electionType && { electionType: input.electionType }),
           ...(input?.electionYear && { electionYear: input.electionYear }),
           ...(input?.family && { family: input.family }),
+          ...(input?.constituency && { constituency: input.constituency }),
         },
         orderBy: [
           { family: 'asc' },
@@ -751,6 +753,261 @@ export const politicsRouter = router({
           })),
         }, null, 2),
         mimeType: 'application/json',
+      };
+    }),
+
+  // ============ GESTION DES CIRCONSCRIPTIONS (VILLES) ============
+
+  // Lister les circonscriptions de l'organisation
+  listConstituencies: protectedProcedure
+    .input(
+      z.object({
+        activeOnly: z.boolean().default(true),
+      }).optional()
+    )
+    .query(async ({ ctx, input }) => {
+      if (!ctx.organizationId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED' });
+      }
+
+      return ctx.db.constituency.findMany({
+        where: {
+          organizationId: ctx.organizationId,
+          ...(input?.activeOnly !== false && { isActive: true }),
+        },
+        orderBy: { name: 'asc' },
+      });
+    }),
+
+  // Créer une nouvelle circonscription
+  createConstituency: protectedProcedure
+    .input(
+      z.object({
+        name: z.string().min(1).max(100),
+        department: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.organizationId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED' });
+      }
+
+      // Vérifier si la ville existe déjà
+      const existing = await ctx.db.constituency.findUnique({
+        where: {
+          organizationId_name: {
+            organizationId: ctx.organizationId,
+            name: input.name,
+          },
+        },
+      });
+
+      if (existing) {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: `La ville "${input.name}" existe déjà`,
+        });
+      }
+
+      return ctx.db.constituency.create({
+        data: {
+          name: input.name,
+          department: input.department,
+          organizationId: ctx.organizationId,
+        },
+      });
+    }),
+
+  // Mettre à jour une circonscription
+  updateConstituency: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        name: z.string().min(1).max(100).optional(),
+        department: z.string().optional(),
+        isActive: z.boolean().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+
+      const constituency = await ctx.db.constituency.findUnique({
+        where: { id },
+      });
+
+      if (!constituency || constituency.organizationId !== ctx.organizationId) {
+        throw new TRPCError({ code: 'NOT_FOUND' });
+      }
+
+      return ctx.db.constituency.update({
+        where: { id },
+        data,
+      });
+    }),
+
+  // Supprimer une circonscription (soft delete = isActive = false)
+  deleteConstituency: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const constituency = await ctx.db.constituency.findUnique({
+        where: { id: input.id },
+      });
+
+      if (!constituency || constituency.organizationId !== ctx.organizationId) {
+        throw new TRPCError({ code: 'NOT_FOUND' });
+      }
+
+      // Soft delete
+      return ctx.db.constituency.update({
+        where: { id: input.id },
+        data: { isActive: false },
+      });
+    }),
+
+  // Obtenir les statistiques d'équilibre par ville
+  getBalanceByConstituency: protectedProcedure
+    .input(
+      z.object({
+        startDate: z.date(),
+        endDate: z.date(),
+        electionType: ElectionTypeEnum.optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      if (!ctx.organizationId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED' });
+      }
+
+      // Récupérer toutes les villes actives
+      const constituencies = await ctx.db.constituency.findMany({
+        where: {
+          organizationId: ctx.organizationId,
+          isActive: true,
+        },
+        orderBy: { name: 'asc' },
+      });
+
+      // Récupérer tous les sujets avec leurs tags dans la période
+      const stories = await ctx.db.story.findMany({
+        where: {
+          organizationId: ctx.organizationId,
+          createdAt: {
+            gte: input.startDate,
+            lte: input.endDate,
+          },
+          ...(input.electionType && { electionType: input.electionType }),
+          politicalTags: {
+            some: {},
+          },
+        },
+        include: {
+          politicalTags: {
+            include: {
+              politicalTag: true,
+            },
+          },
+        },
+      });
+
+      const families = ['EXG', 'GAU', 'ECO', 'CEN', 'DRO', 'EXD', 'DIV', 'AUT'];
+
+      // Calculer les stats par ville
+      const results = constituencies.map(constituency => {
+        const familyStats: Record<string, { storyCount: number; speakingTimeSeconds: number }> = {};
+        families.forEach(f => {
+          familyStats[f] = { storyCount: 0, speakingTimeSeconds: 0 };
+        });
+
+        let totalSpeakingTime = 0;
+        let totalStories = 0;
+        const uniqueStoryIds = new Set<string>();
+
+        for (const story of stories) {
+          for (const storyTag of story.politicalTags) {
+            if (storyTag.politicalTag.constituency !== constituency.name) {
+              continue;
+            }
+
+            const family = storyTag.politicalTag.family;
+            const speakingTime = storyTag.speakingTime || 0;
+
+            familyStats[family].speakingTimeSeconds += speakingTime;
+            totalSpeakingTime += speakingTime;
+
+            if (!uniqueStoryIds.has(story.id)) {
+              uniqueStoryIds.add(story.id);
+              familyStats[family].storyCount++;
+            }
+          }
+        }
+
+        totalStories = uniqueStoryIds.size;
+
+        // Calculer le statut global pour cette ville
+        const representedFamilies = families.filter(f => familyStats[f].storyCount > 0);
+        const familyCount = representedFamilies.length;
+
+        let alertCount = 0;
+        let status: 'balanced' | 'warning' | 'danger' = 'balanced';
+
+        for (const family of families) {
+          const stats = familyStats[family];
+          const percentage = totalSpeakingTime > 0
+            ? (stats.speakingTimeSeconds / totalSpeakingTime) * 100
+            : (totalStories > 0 ? (stats.storyCount / totalStories) * 100 : 0);
+
+          if (stats.storyCount === 0 && familyCount > 0) {
+            alertCount++;
+            status = 'danger';
+          } else if (percentage >= THRESHOLDS.DANGER_MAX) {
+            alertCount++;
+            status = 'danger';
+          } else if (percentage >= THRESHOLDS.WARNING_MAX || (percentage <= THRESHOLDS.WARNING_MIN && stats.storyCount > 0)) {
+            alertCount++;
+            if (status !== 'danger') status = 'warning';
+          }
+        }
+
+        return {
+          constituency: {
+            id: constituency.id,
+            name: constituency.name,
+            department: constituency.department,
+          },
+          totalStories,
+          totalSpeakingTime,
+          familyStats: families.map(f => ({
+            family: f,
+            storyCount: familyStats[f].storyCount,
+            speakingTimeSeconds: familyStats[f].speakingTimeSeconds,
+            percentage: totalSpeakingTime > 0
+              ? Math.round((familyStats[f].speakingTimeSeconds / totalSpeakingTime) * 1000) / 10
+              : 0,
+          })),
+          alertCount,
+          status,
+        };
+      });
+
+      // Calculer le résumé global
+      const globalStatus = results.some(r => r.status === 'danger')
+        ? 'danger'
+        : results.some(r => r.status === 'warning')
+          ? 'warning'
+          : 'balanced';
+
+      return {
+        startDate: input.startDate,
+        endDate: input.endDate,
+        electionType: input.electionType,
+        constituencies: results,
+        summary: {
+          totalConstituencies: constituencies.length,
+          balancedCount: results.filter(r => r.status === 'balanced').length,
+          warningCount: results.filter(r => r.status === 'warning').length,
+          dangerCount: results.filter(r => r.status === 'danger').length,
+          globalStatus,
+        },
       };
     }),
 });
