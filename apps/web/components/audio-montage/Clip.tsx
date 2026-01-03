@@ -345,42 +345,61 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
           style={{ width: Math.max(clip.fadeInDuration * zoom, 16) }}
           onMouseDown={(e) => handleFadeStart(e, 'fadeIn')}
         >
-          {/* Zone de gradient fade in */}
+          {/* Courbe de fade in - SVG */}
           {clip.fadeInDuration > 0 && (
-            <div
-              className="absolute inset-0 bg-gradient-to-r from-black/60 to-transparent pointer-events-none"
-            />
+            <svg
+              className="absolute inset-0 w-full h-full pointer-events-none"
+              viewBox={`0 0 ${clip.fadeInDuration * zoom} ${clipHeight}`}
+              preserveAspectRatio="none"
+            >
+              {/* Zone remplie sous la courbe */}
+              <path
+                d={`M 0 ${clipHeight} Q ${clip.fadeInDuration * zoom * 0.5} ${clipHeight * 0.15}, ${clip.fadeInDuration * zoom} 0 L ${clip.fadeInDuration * zoom} ${clipHeight} Z`}
+                fill="rgba(0, 0, 0, 0.4)"
+              />
+              {/* Ligne de courbe */}
+              <path
+                d={`M 0 ${clipHeight} Q ${clip.fadeInDuration * zoom * 0.5} ${clipHeight * 0.15}, ${clip.fadeInDuration * zoom} 0`}
+                fill="none"
+                stroke="rgba(255, 255, 255, 0.8)"
+                strokeWidth="2"
+              />
+            </svg>
           )}
-          {/* Poignée fade in triangulaire dans le coin supérieur gauche */}
+          {/* Poignée fade in - point draggable */}
           <div
             className={cn(
-              'absolute top-0 left-0 w-4 h-4 transition-opacity',
+              'absolute top-0 w-3 h-3 rounded-full bg-white border-2 border-white shadow-lg transition-opacity',
+              'transform -translate-x-1/2',
               clip.fadeInDuration > 0 ? 'opacity-100' : 'opacity-0 group-hover/fadeIn:opacity-60',
-              isFading === 'fadeIn' && 'opacity-100',
+              isFading === 'fadeIn' && 'opacity-100 scale-125',
               !isSelected && isHovered && 'opacity-70'
             )}
             style={{
-              background: 'linear-gradient(135deg, rgba(255,255,255,0.8) 50%, transparent 50%)',
+              left: clip.fadeInDuration * zoom,
             }}
           />
-          {/* Ligne diagonale du fade */}
-          {clip.fadeInDuration > 0 && (
-            <div
-              className="absolute bottom-0 left-0 w-px bg-white/50 origin-bottom-left pointer-events-none"
-              style={{
-                height: clipHeight,
-                transform: `rotate(-${Math.atan(clipHeight / (clip.fadeInDuration * zoom)) * 180 / Math.PI}deg)`,
-              }}
-            />
-          )}
         </div>
       )}
       {/* Fade in indicator - quand pas sélectionné ni survolé */}
       {!isSelected && !isHovered && clip.fadeInDuration > 0 && (
-        <div
-          className="absolute top-0 left-0 bottom-0 bg-gradient-to-r from-black/60 to-transparent pointer-events-none"
-          style={{ width: Math.max(clip.fadeInDuration * zoom, 8) }}
-        />
+        <svg
+          className="absolute top-0 left-0 bottom-0 pointer-events-none"
+          style={{ width: clip.fadeInDuration * zoom, height: clipHeight }}
+          viewBox={`0 0 ${clip.fadeInDuration * zoom} ${clipHeight}`}
+          preserveAspectRatio="none"
+        >
+          <path
+            d={`M 0 ${clipHeight} Q ${clip.fadeInDuration * zoom * 0.5} ${clipHeight * 0.15}, ${clip.fadeInDuration * zoom} 0 L ${clip.fadeInDuration * zoom} ${clipHeight} Z`}
+            fill="rgba(0, 0, 0, 0.35)"
+          />
+          <path
+            d={`M 0 ${clipHeight} Q ${clip.fadeInDuration * zoom * 0.5} ${clipHeight * 0.15}, ${clip.fadeInDuration * zoom} 0`}
+            fill="none"
+            stroke="rgba(255, 255, 255, 0.5)"
+            strokeWidth="1.5"
+          />
+        </svg>
       )}
 
       {/* Fade out zone - visible au survol ou quand sélectionné */}
@@ -393,42 +412,61 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
           style={{ width: Math.max(clip.fadeOutDuration * zoom, 16) }}
           onMouseDown={(e) => handleFadeStart(e, 'fadeOut')}
         >
-          {/* Zone de gradient fade out */}
+          {/* Courbe de fade out - SVG */}
           {clip.fadeOutDuration > 0 && (
-            <div
-              className="absolute inset-0 bg-gradient-to-l from-black/60 to-transparent pointer-events-none"
-            />
+            <svg
+              className="absolute inset-0 w-full h-full pointer-events-none"
+              viewBox={`0 0 ${clip.fadeOutDuration * zoom} ${clipHeight}`}
+              preserveAspectRatio="none"
+            >
+              {/* Zone remplie sous la courbe */}
+              <path
+                d={`M 0 0 Q ${clip.fadeOutDuration * zoom * 0.5} ${clipHeight * 0.15}, ${clip.fadeOutDuration * zoom} ${clipHeight} L 0 ${clipHeight} Z`}
+                fill="rgba(0, 0, 0, 0.4)"
+              />
+              {/* Ligne de courbe */}
+              <path
+                d={`M 0 0 Q ${clip.fadeOutDuration * zoom * 0.5} ${clipHeight * 0.15}, ${clip.fadeOutDuration * zoom} ${clipHeight}`}
+                fill="none"
+                stroke="rgba(255, 255, 255, 0.8)"
+                strokeWidth="2"
+              />
+            </svg>
           )}
-          {/* Poignée fade out triangulaire dans le coin supérieur droit */}
+          {/* Poignée fade out - point draggable */}
           <div
             className={cn(
-              'absolute top-0 right-0 w-4 h-4 transition-opacity',
+              'absolute top-0 w-3 h-3 rounded-full bg-white border-2 border-white shadow-lg transition-opacity',
+              'transform translate-x-1/2',
               clip.fadeOutDuration > 0 ? 'opacity-100' : 'opacity-0 group-hover/fadeOut:opacity-60',
-              isFading === 'fadeOut' && 'opacity-100',
+              isFading === 'fadeOut' && 'opacity-100 scale-125',
               !isSelected && isHovered && 'opacity-70'
             )}
             style={{
-              background: 'linear-gradient(-135deg, rgba(255,255,255,0.8) 50%, transparent 50%)',
+              left: 0,
             }}
           />
-          {/* Ligne diagonale du fade */}
-          {clip.fadeOutDuration > 0 && (
-            <div
-              className="absolute bottom-0 right-0 w-px bg-white/50 origin-bottom-right pointer-events-none"
-              style={{
-                height: clipHeight,
-                transform: `rotate(${Math.atan(clipHeight / (clip.fadeOutDuration * zoom)) * 180 / Math.PI}deg)`,
-              }}
-            />
-          )}
         </div>
       )}
       {/* Fade out indicator - quand pas sélectionné ni survolé */}
       {!isSelected && !isHovered && clip.fadeOutDuration > 0 && (
-        <div
-          className="absolute top-0 right-0 bottom-0 bg-gradient-to-l from-black/60 to-transparent pointer-events-none"
-          style={{ width: Math.max(clip.fadeOutDuration * zoom, 8) }}
-        />
+        <svg
+          className="absolute top-0 right-0 bottom-0 pointer-events-none"
+          style={{ width: clip.fadeOutDuration * zoom, height: clipHeight }}
+          viewBox={`0 0 ${clip.fadeOutDuration * zoom} ${clipHeight}`}
+          preserveAspectRatio="none"
+        >
+          <path
+            d={`M 0 0 Q ${clip.fadeOutDuration * zoom * 0.5} ${clipHeight * 0.15}, ${clip.fadeOutDuration * zoom} ${clipHeight} L 0 ${clipHeight} Z`}
+            fill="rgba(0, 0, 0, 0.35)"
+          />
+          <path
+            d={`M 0 0 Q ${clip.fadeOutDuration * zoom * 0.5} ${clipHeight * 0.15}, ${clip.fadeOutDuration * zoom} ${clipHeight}`}
+            fill="none"
+            stroke="rgba(255, 255, 255, 0.5)"
+            strokeWidth="1.5"
+          />
+        </svg>
       )}
 
       {/* Contenu textuel - par-dessus la waveform */}
