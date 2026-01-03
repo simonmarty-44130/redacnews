@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Plus, Calendar, Radio, Palette, FileText, Clock, Copy } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Plus, Calendar, Radio, Palette, FileText, Clock, Copy, ArrowRight, ArrowLeft, Check, Search } from 'lucide-react';
 import { format } from 'date-fns';
 import {
   Dialog,
@@ -23,6 +23,8 @@ import {
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Badge } from '@/components/ui/badge';
 import { trpc } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
 
@@ -72,6 +74,11 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [templateVariables, setTemplateVariables] = useState<Record<string, string>>({});
 
+  // Étape de sélection des sujets existants
+  const [step, setStep] = useState<'main' | 'selectStories'>('main');
+  const [selectedStories, setSelectedStories] = useState<Record<string, string>>({}); // templateItemId -> storyId
+  const [storySearch, setStorySearch] = useState('');
+
   // État pour la création d'une nouvelle émission
   const [isCreatingShow, setIsCreatingShow] = useState(false);
   const [newShowName, setNewShowName] = useState('');
@@ -94,6 +101,33 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
     { id: selectedTemplateId },
     { enabled: !!selectedTemplateId }
   );
+
+  // Liste des sujets disponibles pour la sélection (statuts non-archivés)
+  const { data: availableStories } = trpc.story.list.useQuery(
+    {},
+    { enabled: step === 'selectStories' }
+  );
+
+  // Identifier les items de type STORY dans le template
+  const storyItems = useMemo(() => {
+    if (!selectedTemplate?.items) return [];
+    return selectedTemplate.items.filter((item) => item.type === 'STORY');
+  }, [selectedTemplate]);
+
+  // Vérifier si le template a des sujets à configurer
+  const hasStoryItems = storyItems.length > 0;
+
+  // Filtrer les sujets disponibles par la recherche
+  const filteredStories = useMemo(() => {
+    if (!availableStories) return [];
+    if (!storySearch.trim()) return availableStories;
+    const search = storySearch.toLowerCase();
+    return availableStories.filter(
+      (story) =>
+        story.title.toLowerCase().includes(search) ||
+        story.category?.toLowerCase().includes(search)
+    );
+  }, [availableStories, storySearch]);
 
   // Initialiser les variables du template quand il change
   useEffect(() => {
@@ -162,6 +196,9 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
     setSelectedTemplateId('');
     setTemplateVariables({});
     setIsCreatingShow(false);
+    setStep('main');
+    setSelectedStories({});
+    setStorySearch('');
     resetShowForm();
   };
 
@@ -178,8 +215,17 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleNextStep = () => {
+    // Si template avec des sujets et mode template, aller à l'étape de sélection
+    if (creationMode === 'template' && selectedTemplateId && hasStoryItems) {
+      setStep('selectStories');
+    } else {
+      // Sinon, créer directement
+      handleFinalSubmit();
+    }
+  };
+
+  const handleFinalSubmit = () => {
     if (!showId || !date) return;
 
     // Création depuis un template
@@ -188,6 +234,7 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
         templateId: selectedTemplateId,
         date: new Date(date),
         variables: templateVariables,
+        existingStories: Object.keys(selectedStories).length > 0 ? selectedStories : undefined,
       });
     } else {
       // Création d'un conducteur vide
@@ -195,6 +242,15 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
         showId,
         date: new Date(date),
       });
+    }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (step === 'main') {
+      handleNextStep();
+    } else {
+      handleFinalSubmit();
     }
   };
 
@@ -221,8 +277,8 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
           Nouveau conducteur
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[500px] max-h-[90vh] flex flex-col">
-        {!isCreatingShow ? (
+      <DialogContent className="sm:max-w-[600px] max-h-[90vh] flex flex-col">
+        {!isCreatingShow && step === 'main' ? (
           // Formulaire de création de conducteur
           <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
             <DialogHeader>
@@ -477,10 +533,150 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
                   (creationMode === 'template' && !selectedTemplateId)
                 }
               >
-                {isSubmitting ? 'Création...' : 'Créer le conducteur'}
+                {isSubmitting ? 'Création...' : (
+                  creationMode === 'template' && hasStoryItems ? (
+                    <>
+                      Suivant
+                      <ArrowRight className="h-4 w-4 ml-2" />
+                    </>
+                  ) : 'Créer le conducteur'
+                )}
               </Button>
             </DialogFooter>
           </form>
+        ) : !isCreatingShow && step === 'selectStories' ? (
+          // Étape de sélection des sujets existants
+          <div className="flex flex-col flex-1 overflow-hidden">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                Associer des sujets existants
+              </DialogTitle>
+              <DialogDescription>
+                Sélectionnez des sujets de la bibliothèque pour les emplacements du conducteur.
+                Laissez vide pour créer de nouveaux sujets.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="flex-1 py-4 overflow-hidden flex flex-col gap-4">
+              {/* Barre de recherche */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Rechercher un sujet..."
+                  value={storySearch}
+                  onChange={(e) => setStorySearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+
+              {/* Liste des emplacements à remplir */}
+              <ScrollArea className="flex-1">
+                <div className="space-y-4 pr-4">
+                  {storyItems.map((templateItem) => {
+                    const selectedStoryId = selectedStories[templateItem.id];
+                    const selectedStory = availableStories?.find(s => s.id === selectedStoryId);
+
+                    return (
+                      <div key={templateItem.id} className="border rounded-lg p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="font-medium text-sm">{templateItem.title}</div>
+                          <Badge variant="outline" className="text-xs">
+                            {Math.floor(templateItem.duration / 60)}:{(templateItem.duration % 60).toString().padStart(2, '0')}
+                          </Badge>
+                        </div>
+
+                        {selectedStory ? (
+                          <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded p-2">
+                            <div className="flex items-center gap-2">
+                              <Check className="h-4 w-4 text-green-600" />
+                              <span className="text-sm font-medium text-green-800">{selectedStory.title}</span>
+                              {selectedStory.category && (
+                                <Badge variant="secondary" className="text-xs">{selectedStory.category}</Badge>
+                              )}
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                const newSelected = { ...selectedStories };
+                                delete newSelected[templateItem.id];
+                                setSelectedStories(newSelected);
+                              }}
+                              className="h-7 text-xs text-gray-500 hover:text-red-600"
+                            >
+                              Retirer
+                            </Button>
+                          </div>
+                        ) : (
+                          <Select
+                            value=""
+                            onValueChange={(storyId) => {
+                              setSelectedStories(prev => ({
+                                ...prev,
+                                [templateItem.id]: storyId
+                              }));
+                            }}
+                          >
+                            <SelectTrigger className="text-sm">
+                              <SelectValue placeholder="Nouveau sujet (par défaut) ou sélectionner..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {filteredStories.map((story) => (
+                                <SelectItem key={story.id} value={story.id}>
+                                  <div className="flex items-center gap-2">
+                                    <FileText className="h-4 w-4 text-gray-400" />
+                                    <span>{story.title}</span>
+                                    {story.category && (
+                                      <span className="text-xs text-gray-500">({story.category})</span>
+                                    )}
+                                  </div>
+                                </SelectItem>
+                              ))}
+                              {filteredStories.length === 0 && (
+                                <div className="p-2 text-sm text-gray-500 text-center">
+                                  Aucun sujet trouvé
+                                </div>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+
+              {/* Résumé */}
+              <div className="text-sm text-gray-600 border-t pt-3">
+                <span className="font-medium">{Object.keys(selectedStories).length}</span> sujet(s) existant(s) sélectionné(s) sur{' '}
+                <span className="font-medium">{storyItems.length}</span> emplacement(s).
+                Les autres seront créés automatiquement.
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setStep('main');
+                  setStorySearch('');
+                }}
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Retour
+              </Button>
+              <Button
+                type="button"
+                disabled={isSubmitting}
+                onClick={handleFinalSubmit}
+              >
+                {isSubmitting ? 'Création...' : 'Créer le conducteur'}
+              </Button>
+            </DialogFooter>
+          </div>
         ) : (
           // Formulaire de création d'émission
           <div>

@@ -131,9 +131,11 @@ export function CollaborativeRundownEditor({ rundownId }: CollaborativeRundownEd
     })
   );
 
-  // Calculate timing
+  // Calculate timing - use rundown.startTime, show.startTime, or default to 12:00
   const timing = useMemo(() => {
-    const baseTime = parse('12:00', 'HH:mm', new Date());
+    // Priorité : startTime du rundown > startTime du show > 12:00
+    const showStartTime = rundown?.startTime || rundown?.show?.startTime || '12:00';
+    const baseTime = parse(showStartTime, 'HH:mm', new Date());
     let currentTime = baseTime;
     const startTimes: Record<string, string> = {};
     let totalDuration = 0;
@@ -145,7 +147,7 @@ export function CollaborativeRundownEditor({ rundownId }: CollaborativeRundownEd
     });
 
     return { startTimes, totalDuration };
-  }, [displayItems]);
+  }, [displayItems, rundown]);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {

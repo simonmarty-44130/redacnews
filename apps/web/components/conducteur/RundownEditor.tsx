@@ -106,11 +106,13 @@ export function RundownEditor({ rundownId }: RundownEditorProps) {
     })
   );
 
-  // Calculate timing
+  // Calculate timing - use rundown.startTime, show.startTime, or default to 12:00
   const timing = useMemo(() => {
     if (!rundown) return { startTimes: {}, totalDuration: 0 };
 
-    const baseTime = parse('12:00', 'HH:mm', new Date());
+    // Priorité : startTime du rundown > startTime du show > 12:00
+    const showStartTime = rundown.startTime || rundown.show.startTime || '12:00';
+    const baseTime = parse(showStartTime, 'HH:mm', new Date());
     let currentTime = baseTime;
     const startTimes: Record<string, string> = {};
     let totalDuration = 0;

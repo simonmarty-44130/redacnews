@@ -260,6 +260,8 @@ export const templateRouter = router({
         date: z.date(),
         variables: z.record(z.string()).optional(),
         createGoogleDocs: z.boolean().optional().default(true), // Creer les Google Docs pour les elements avec script
+        // Map des templateItemId -> storyId pour les sujets existants à lier
+        existingStories: z.record(z.string()).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -291,70 +293,145 @@ export const templateRouter = router({
         providedVariables
       );
 
-      // 4. Créer le conducteur
+      // 4. Créer le conducteur avec le startTime du show
       const rundown = await ctx.db.rundown.create({
         data: {
           showId: template.showId,
           date: input.date,
           status: 'DRAFT',
+          startTime: template.show.startTime, // Hériter du startTime du show
         },
       });
 
-      // 5. Créer tous les items en remplaçant les variables
-      const itemsData = template.items.map((item) => ({
-        rundownId: rundown.id,
-        type: item.type,
-        title: replaceVariables(item.title, variableValues) || item.title,
-        duration: item.duration,
-        position: item.position,
-        notes: replaceVariables(item.notes, variableValues),
-        script: replaceVariables(item.script, variableValues),
-        status: 'PENDING' as const,
-      }));
+      // 5. Créer les items et les Stories associées pour les éléments de type STORY
+      const createdItems = [];
+      const existingStories = input.existingStories || {};
 
-      await ctx.db.rundownItem.createMany({
-        data: itemsData,
-      });
+      for (const templateItem of template.items) {
+        const itemTitle = replaceVariables(templateItem.title, variableValues) || templateItem.title;
+        const itemScript = replaceVariables(templateItem.script, variableValues);
+        const itemNotes = replaceVariables(templateItem.notes, variableValues);
 
-      // 6. Récupérer les items créés
-      const createdItems = await ctx.db.rundownItem.findMany({
-        where: { rundownId: rundown.id },
-        orderBy: { position: 'asc' },
-      });
+        let storyId: string | null = null;
+        let googleDocId: string | null = null;
+        let googleDocUrl: string | null = null;
 
-      // 7. Créer les Google Docs pour les éléments qui ont du script
-      if (input.createGoogleDocs) {
-        const itemsWithScript = createdItems.filter((item) => item.script);
+        // Pour les éléments de type STORY
+        if (templateItem.type === 'STORY') {
+          // Vérifier si un sujet existant a été sélectionné pour cet item du template
+          const existingStoryId = existingStories[templateItem.id];
 
-        for (const item of itemsWithScript) {
+          if (existingStoryId) {
+            // Utiliser le sujet existant - récupérer ses infos pour le Google Doc
+            const existingStory = await ctx.db.story.findUnique({
+              where: { id: existingStoryId },
+            });
+            if (existingStory) {
+              storyId = existingStory.id;
+              googleDocId = existingStory.googleDocId;
+              googleDocUrl = existingStory.googleDocUrl;
+            }
+          } else {
+            // Créer une nouvelle Story dans la bibliothèque
+            // Déterminer la catégorie à partir du titre (ex: "Sommaire" -> "Sommaire 07h" ou "Sommaire 08h")
+            let storyCategory: string | undefined;
+            const showName = template.show.name.toLowerCase();
+            if (itemTitle.toLowerCase().includes('sommaire')) {
+              if (showName.includes('07h') || showName.includes('7h')) {
+                storyCategory = 'Sommaire 07h';
+              } else if (showName.includes('08h') || showName.includes('8h')) {
+                storyCategory = 'Sommaire 08h';
+              }
+            }
+
+            // Créer le Google Doc pour la Story si demandé
+            if (input.createGoogleDocs) {
+              try {
+                const { createStoryDoc, insertTextInDoc } = await import(
+                  '../lib/google/docs'
+                );
+
+                const docTitle = `${template.show.name} - ${itemTitle}`;
+                const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+                const doc = await createStoryDoc(docTitle, folderId);
+
+                if (itemScript) {
+                  await insertTextInDoc(doc.id, itemScript);
+                }
+
+                googleDocId = doc.id;
+                googleDocUrl = doc.url;
+              } catch (error) {
+                console.error(`Failed to create doc for story ${itemTitle}:`, error);
+              }
+            }
+
+            // Créer la Story dans la bibliothèque
+            const slug = itemTitle
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/(^-|-$)/g, '');
+
+            const story = await ctx.db.story.create({
+              data: {
+                title: itemTitle,
+                slug: `${slug}-${Date.now()}`,
+                authorId: ctx.userId!,
+                organizationId: ctx.organizationId!,
+                category: storyCategory,
+                content: itemScript || undefined,
+                estimatedDuration: templateItem.duration,
+                googleDocId: googleDocId || undefined,
+                googleDocUrl: googleDocUrl || undefined,
+                tags: [],
+              },
+            });
+
+            storyId = story.id;
+          }
+        } else if (templateItem.script && input.createGoogleDocs) {
+          // Pour les autres types avec script, créer un Google Doc sur le RundownItem
           try {
             const { createStoryDoc, insertTextInDoc } = await import(
               '../lib/google/docs'
             );
 
-            const docTitle = `${template.show.name} - ${item.title}`;
+            const docTitle = `${template.show.name} - ${itemTitle}`;
             const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
             const doc = await createStoryDoc(docTitle, folderId);
 
-            if (item.script) {
-              await insertTextInDoc(doc.id, item.script);
+            if (itemScript) {
+              await insertTextInDoc(doc.id, itemScript);
             }
 
-            await ctx.db.rundownItem.update({
-              where: { id: item.id },
-              data: {
-                googleDocId: doc.id,
-                googleDocUrl: doc.url,
-              },
-            });
+            googleDocId = doc.id;
+            googleDocUrl = doc.url;
           } catch (error) {
-            console.error(`Failed to create doc for item ${item.id}:`, error);
-            // Continuer même si un doc échoue
+            console.error(`Failed to create doc for item ${itemTitle}:`, error);
           }
         }
+
+        // Créer le RundownItem
+        const rundownItem = await ctx.db.rundownItem.create({
+          data: {
+            rundownId: rundown.id,
+            type: templateItem.type,
+            title: itemTitle,
+            duration: templateItem.duration,
+            position: templateItem.position,
+            notes: itemNotes,
+            script: itemScript,
+            status: 'PENDING',
+            storyId: storyId,
+            googleDocId: googleDocId,
+            googleDocUrl: googleDocUrl,
+          },
+        });
+
+        createdItems.push(rundownItem);
       }
 
-      // 8. Retourner le conducteur créé avec ses items
+      // 6. Retourner le conducteur créé avec ses items
       return ctx.db.rundown.findUniqueOrThrow({
         where: { id: rundown.id },
         include: {
