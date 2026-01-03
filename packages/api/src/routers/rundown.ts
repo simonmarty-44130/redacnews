@@ -35,7 +35,7 @@ export const rundownRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      return ctx.db.rundown.findUniqueOrThrow({
+      const rundown = await ctx.db.rundown.findUniqueOrThrow({
         where: { id: input.id },
         include: {
           show: true,
@@ -87,6 +87,76 @@ export const rundownRouter = router({
           },
         },
       });
+
+      // Synchroniser le titre, la durée et le statut depuis la Story liée si présente
+      // Cela garantit que le conducteur reflète toujours les données actuelles du sujet
+
+      // Mapping des statuts Story -> ItemStatus
+      const storyStatusToItemStatus: Record<string, 'PENDING' | 'IN_PROGRESS' | 'READY' | 'ON_AIR' | 'DONE'> = {
+        DRAFT: 'PENDING',
+        IN_REVIEW: 'IN_PROGRESS',
+        APPROVED: 'READY',
+        PUBLISHED: 'READY',
+        ARCHIVED: 'DONE',
+      };
+
+      const itemsToUpdate: { id: string; title: string; duration: number; status?: 'PENDING' | 'IN_PROGRESS' | 'READY' | 'ON_AIR' | 'DONE' }[] = [];
+
+      for (const item of rundown.items) {
+        if (item.story) {
+          const storyTitle = item.story.title;
+          const storyDuration = item.story.estimatedDuration;
+          const mappedStatus = storyStatusToItemStatus[item.story.status];
+
+          // Vérifier si une mise à jour est nécessaire
+          const needsTitleUpdate = storyTitle && item.title !== storyTitle;
+          const needsDurationUpdate = storyDuration && item.duration !== storyDuration;
+          // Ne mettre à jour le statut que si l'item n'est pas déjà ON_AIR ou DONE (statuts manuels)
+          const needsStatusUpdate = mappedStatus &&
+            item.status !== 'ON_AIR' &&
+            item.status !== 'DONE' &&
+            item.status !== mappedStatus;
+
+          if (needsTitleUpdate || needsDurationUpdate || needsStatusUpdate) {
+            itemsToUpdate.push({
+              id: item.id,
+              title: storyTitle || item.title,
+              duration: storyDuration || item.duration,
+              ...(needsStatusUpdate && { status: mappedStatus }),
+            });
+          }
+        }
+      }
+
+      // Appliquer les mises à jour en batch si nécessaire
+      if (itemsToUpdate.length > 0) {
+        await ctx.db.$transaction(
+          itemsToUpdate.map((update) =>
+            ctx.db.rundownItem.update({
+              where: { id: update.id },
+              data: {
+                title: update.title,
+                duration: update.duration,
+                ...(update.status && { status: update.status }),
+              },
+            })
+          )
+        );
+
+        // Mettre à jour les items en mémoire pour refléter les changements
+        for (const update of itemsToUpdate) {
+          const item = rundown.items.find((i) => i.id === update.id);
+          if (item) {
+            item.title = update.title;
+            item.duration = update.duration;
+            if (update.status) {
+              item.status = update.status;
+            }
+          }
+        }
+      }
+
+      return rundown;
     }),
 
   // Get single rundown item with script
