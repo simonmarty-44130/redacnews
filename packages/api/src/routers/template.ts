@@ -380,9 +380,35 @@ export const templateRouter = router({
         });
       }
 
-      // 6. Créer les Stories nécessaires (sans Google Docs pour l'instant - ils seront créés à la demande)
+      // 6. Créer les Stories nécessaires avec Google Docs pour les items STORY
+      // (les journaux ont peu d'items STORY donc pas de risque de timeout)
       for (const item of itemsToCreate) {
         if (item.needsNewStory) {
+          let googleDocId: string | null = null;
+          let googleDocUrl: string | null = null;
+
+          // Créer le Google Doc pour les items STORY si demandé
+          if (input.createGoogleDocs !== false) {
+            try {
+              const { createStoryDoc, insertTextInDoc } = await import(
+                '../lib/google/docs'
+              );
+
+              const docTitle = `${template.show.name} - ${item.itemTitle}`;
+              const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+              const doc = await createStoryDoc(docTitle, folderId);
+
+              if (item.itemScript) {
+                await insertTextInDoc(doc.id, item.itemScript);
+              }
+
+              googleDocId = doc.id;
+              googleDocUrl = doc.url;
+            } catch (error) {
+              console.error(`Failed to create doc for story ${item.itemTitle}:`, error);
+            }
+          }
+
           const slug = item.itemTitle
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, '-')
@@ -397,11 +423,15 @@ export const templateRouter = router({
               category: item.storyCategory,
               content: item.itemScript || undefined,
               estimatedDuration: item.templateItem.duration,
+              googleDocId: googleDocId || undefined,
+              googleDocUrl: googleDocUrl || undefined,
               tags: [],
             },
           });
 
           item.storyId = story.id;
+          item.googleDocId = googleDocId;
+          item.googleDocUrl = googleDocUrl;
           item.finalTitle = item.itemTitle;
         }
       }
@@ -425,8 +455,8 @@ export const templateRouter = router({
         data: rundownItemsData,
       });
 
-      // Note: Les Google Docs pour les Stories seront créés à la demande
-      // via story.createWithGoogleDoc ou rundown.createItemDoc pour éviter les timeouts
+      // Note: Les Google Docs pour les items non-STORY seront créés à la demande
+      // via rundown.createItemDoc pour éviter les timeouts sur les gros templates
 
       // 6. Retourner le conducteur créé avec ses items
       return ctx.db.rundown.findUniqueOrThrow({
