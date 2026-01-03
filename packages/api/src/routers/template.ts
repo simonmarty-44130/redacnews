@@ -316,13 +316,17 @@ export const templateRouter = router({
         let googleDocId: string | null = null;
         let googleDocUrl: string | null = null;
 
+        // Variables pour le titre et la durée (peuvent être écrasées par un sujet existant)
+        let finalTitle = itemTitle;
+        let finalDuration = templateItem.duration;
+
         // Pour les éléments de type STORY
         if (templateItem.type === 'STORY') {
           // Vérifier si un sujet existant a été sélectionné pour cet item du template
           const existingStoryId = existingStories[templateItem.id];
 
           if (existingStoryId) {
-            // Utiliser le sujet existant - récupérer ses infos pour le Google Doc
+            // Utiliser le sujet existant - récupérer ses infos
             const existingStory = await ctx.db.story.findUnique({
               where: { id: existingStoryId },
             });
@@ -330,6 +334,11 @@ export const templateRouter = router({
               storyId = existingStory.id;
               googleDocId = existingStory.googleDocId;
               googleDocUrl = existingStory.googleDocUrl;
+              // Utiliser le titre et la durée du sujet existant
+              finalTitle = existingStory.title;
+              if (existingStory.estimatedDuration) {
+                finalDuration = existingStory.estimatedDuration;
+              }
             }
           } else {
             // Créer une nouvelle Story dans la bibliothèque
@@ -416,8 +425,8 @@ export const templateRouter = router({
           data: {
             rundownId: rundown.id,
             type: templateItem.type,
-            title: itemTitle,
-            duration: templateItem.duration,
+            title: finalTitle,
+            duration: finalDuration,
             position: templateItem.position,
             notes: itemNotes,
             script: itemScript,
