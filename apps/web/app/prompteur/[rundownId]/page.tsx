@@ -61,6 +61,7 @@ export default function PrompterPage({ params }: PageProps) {
 
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const sectionRefs = useRef<Map<number, HTMLElement>>(new Map());
 
   // Update current time every second
   useEffect(() => {
@@ -90,7 +91,7 @@ export default function PrompterPage({ params }: PageProps) {
       if (scrollIntervalRef.current) {
         clearInterval(scrollIntervalRef.current);
       }
-      
+
       scrollIntervalRef.current = setInterval(() => {
         if (contentRef.current) {
           // Scroll speed: 1.0 = ~30px/sec, 2.0 = ~60px/sec
@@ -104,7 +105,7 @@ export default function PrompterPage({ params }: PageProps) {
         scrollIntervalRef.current = null;
       }
     }
-    
+
     return () => {
       if (scrollIntervalRef.current) {
         clearInterval(scrollIntervalRef.current);
@@ -112,6 +113,42 @@ export default function PrompterPage({ params }: PageProps) {
       }
     };
   }, [isScrolling, scrollSpeed]);
+
+  // Detect which section is currently visible based on scroll position
+  useEffect(() => {
+    const container = contentRef.current;
+    if (!container || !data?.sections) return;
+
+    const handleScroll = () => {
+      // The sight line is at HEADER_HEIGHT + 150 from the top of the viewport
+      const sightLineY = 150; // Relative to the container's visible area
+
+      let visibleSectionIndex = 0;
+
+      for (let i = 0; i < data.sections.length; i++) {
+        const sectionEl = document.getElementById(`section-${i}`);
+        if (sectionEl) {
+          const rect = sectionEl.getBoundingClientRect();
+          const containerRect = container.getBoundingClientRect();
+
+          // Calculate section position relative to container
+          const sectionTopInContainer = rect.top - containerRect.top;
+
+          // If this section is at or above the sight line, it's the current one
+          if (sectionTopInContainer <= sightLineY) {
+            visibleSectionIndex = i;
+          } else {
+            break;
+          }
+        }
+      }
+
+      setCurrentSectionIndex(visibleSectionIndex);
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [data?.sections]);
 
   // Scroll to a specific section
   const scrollToSection = useCallback((index: number) => {
