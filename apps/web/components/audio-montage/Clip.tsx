@@ -81,6 +81,7 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
   const [fadeStart, setFadeStart] = useState({ x: 0, fadeIn: 0, fadeOut: 0 });
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
   const [isDraggingVolume, setIsDraggingVolume] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
   // Calculer le volume effectif
   const effectiveVolume = trackMuted ? 0 : trackVolume * clip.volume;
@@ -289,6 +290,8 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
         borderLeft: `3px solid ${trackColor}`,
       }}
       onWheel={handleWheel}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       onClick={(e) => {
         e.stopPropagation();
 
@@ -332,8 +335,8 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
       {/* Overlay gradient subtil */}
       <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/30 pointer-events-none" />
 
-      {/* Fade in zone - toujours visible au survol quand sélectionné */}
-      {isSelected && onFadeChange && (
+      {/* Fade in zone - visible au survol ou quand sélectionné */}
+      {(isSelected || isHovered) && onFadeChange && (
         <div
           className={cn(
             'absolute top-0 left-0 bottom-0 cursor-ew-resize z-20',
@@ -353,7 +356,8 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
             className={cn(
               'absolute top-0 left-0 w-4 h-4 transition-opacity',
               clip.fadeInDuration > 0 ? 'opacity-100' : 'opacity-0 group-hover/fadeIn:opacity-60',
-              isFading === 'fadeIn' && 'opacity-100'
+              isFading === 'fadeIn' && 'opacity-100',
+              !isSelected && isHovered && 'opacity-70'
             )}
             style={{
               background: 'linear-gradient(135deg, rgba(255,255,255,0.8) 50%, transparent 50%)',
@@ -371,16 +375,16 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
           )}
         </div>
       )}
-      {/* Fade in indicator - quand pas sélectionné */}
-      {(!isSelected || !onFadeChange) && clip.fadeInDuration > 0 && (
+      {/* Fade in indicator - quand pas sélectionné ni survolé */}
+      {!isSelected && !isHovered && clip.fadeInDuration > 0 && (
         <div
           className="absolute top-0 left-0 bottom-0 bg-gradient-to-r from-black/60 to-transparent pointer-events-none"
           style={{ width: Math.max(clip.fadeInDuration * zoom, 8) }}
         />
       )}
 
-      {/* Fade out zone - toujours visible au survol quand sélectionné */}
-      {isSelected && onFadeChange && (
+      {/* Fade out zone - visible au survol ou quand sélectionné */}
+      {(isSelected || isHovered) && onFadeChange && (
         <div
           className={cn(
             'absolute top-0 right-0 bottom-0 cursor-ew-resize z-20',
@@ -400,7 +404,8 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
             className={cn(
               'absolute top-0 right-0 w-4 h-4 transition-opacity',
               clip.fadeOutDuration > 0 ? 'opacity-100' : 'opacity-0 group-hover/fadeOut:opacity-60',
-              isFading === 'fadeOut' && 'opacity-100'
+              isFading === 'fadeOut' && 'opacity-100',
+              !isSelected && isHovered && 'opacity-70'
             )}
             style={{
               background: 'linear-gradient(-135deg, rgba(255,255,255,0.8) 50%, transparent 50%)',
@@ -418,8 +423,8 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
           )}
         </div>
       )}
-      {/* Fade out indicator - quand pas sélectionné */}
-      {(!isSelected || !onFadeChange) && clip.fadeOutDuration > 0 && (
+      {/* Fade out indicator - quand pas sélectionné ni survolé */}
+      {!isSelected && !isHovered && clip.fadeOutDuration > 0 && (
         <div
           className="absolute top-0 right-0 bottom-0 bg-gradient-to-l from-black/60 to-transparent pointer-events-none"
           style={{ width: Math.max(clip.fadeOutDuration * zoom, 8) }}

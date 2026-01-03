@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useCallback, useEffect } from 'react';
+import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { useDrop } from 'react-dnd';
 import { cn } from '@/lib/utils';
 import { TRACK_HEIGHT, SNAP_TO_GRID, SNAP_THRESHOLD_PX } from '@/lib/audio-montage/constants';
@@ -81,6 +81,46 @@ interface OverlapInfo {
   clipId: string;
   overlapDuration: number; // Durée du chevauchement
   position: 'before' | 'after'; // Le clip existant est avant ou après le nouveau
+}
+
+// Type pour les zones de crossfade à afficher
+interface CrossfadeZone {
+  startTime: number;
+  endTime: number;
+  duration: number;
+  clip1Id: string;
+  clip2Id: string;
+}
+
+// Fonction pour détecter les zones de crossfade existantes entre clips
+function detectCrossfadeZones(clips: ClipWithComputed[]): CrossfadeZone[] {
+  const zones: CrossfadeZone[] = [];
+
+  // Trier les clips par temps de début
+  const sortedClips = [...clips].sort((a, b) => a.startTime - b.startTime);
+
+  for (let i = 0; i < sortedClips.length - 1; i++) {
+    const clip1 = sortedClips[i];
+    const clip2 = sortedClips[i + 1];
+
+    // Vérifier si les clips se chevauchent
+    const clip1End = clip1.startTime + clip1.duration;
+    const overlapStart = Math.max(clip1.startTime, clip2.startTime);
+    const overlapEnd = Math.min(clip1End, clip2.startTime + clip2.duration);
+
+    if (overlapStart < overlapEnd) {
+      // Il y a un chevauchement
+      zones.push({
+        startTime: overlapStart,
+        endTime: overlapEnd,
+        duration: overlapEnd - overlapStart,
+        clip1Id: clip1.id,
+        clip2Id: clip2.id,
+      });
+    }
+  }
+
+  return zones;
 }
 
 // Fonction pour vérifier si un clip peut être placé et détecter les chevauchements
@@ -277,6 +317,9 @@ export function Track({
       }
     };
   }, []);
+
+  // Détecter les zones de crossfade existantes
+  const crossfadeZones = useMemo(() => detectCrossfadeZones(track.clips), [track.clips]);
 
   // Configuration du drop
   const [{ isOver, canDrop }, drop] = useDrop(
@@ -543,6 +586,55 @@ export function Track({
           onVolumeChange={onClipVolumeChange}
           onFadeChange={onClipFadeChange}
         />
+      ))}
+
+      {/* Indicateurs de crossfade - zones où deux clips se chevauchent */}
+      {crossfadeZones.map((zone) => (
+        <div
+          key={`crossfade-${zone.clip1Id}-${zone.clip2Id}`}
+          className="absolute top-0 bottom-0 pointer-events-none z-30"
+          style={{
+            left: zone.startTime * zoom,
+            width: Math.max(zone.duration * zoom, 4),
+          }}
+        >
+          {/* Icône/badge de crossfade centré */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center">
+            <div
+              className="bg-purple-500/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-lg border border-purple-300/50 flex items-center gap-0.5"
+              title={`Crossfade: ${zone.duration.toFixed(2)}s`}
+            >
+              <svg
+                className="w-2.5 h-2.5"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                {/* Icône de crossfade - deux lignes qui se croisent */}
+                <path d="M2 12 L14 4" strokeLinecap="round" />
+                <path d="M2 4 L14 12" strokeLinecap="round" />
+              </svg>
+              <span>{zone.duration.toFixed(1)}s</span>
+            </div>
+          </div>
+          {/* Zone de mélange avec motif */}
+          <div
+            className="absolute inset-0 opacity-40"
+            style={{
+              background: `repeating-linear-gradient(
+                45deg,
+                rgba(168, 85, 247, 0.3),
+                rgba(168, 85, 247, 0.3) 2px,
+                transparent 2px,
+                transparent 6px
+              )`,
+            }}
+          />
+          {/* Lignes verticales de délimitation */}
+          <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-purple-400/60" />
+          <div className="absolute right-0 top-0 bottom-0 w-0.5 bg-purple-400/60" />
+        </div>
       ))}
 
       {/* Prévisualisation de drop (fantôme du clip) */}
