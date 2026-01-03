@@ -19,7 +19,7 @@ import {
 import { format, addSeconds, parse } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
-import { Clock, AlertTriangle, ChevronLeft, ChevronRight, Presentation, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Clock, AlertTriangle, ChevronLeft, ChevronRight, Presentation, MoreHorizontal, Trash2, ChevronDown, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -96,6 +96,13 @@ export function RundownEditor({ rundownId }: RundownEditorProps) {
   const deleteItem = trpc.rundown.deleteItem.useMutation({
     onSuccess: () => {
       utils.rundown.get.invalidate({ id: rundownId });
+    },
+  });
+
+  const updateRundownStatus = trpc.rundown.update.useMutation({
+    onSuccess: () => {
+      utils.rundown.get.invalidate({ id: rundownId });
+      utils.rundown.list.invalidate();
     },
   });
 
@@ -221,12 +228,50 @@ export function RundownEditor({ rundownId }: RundownEditorProps) {
               <Presentation className="h-4 w-4 mr-2" />
               Prompteur
             </Button>
-            <Badge className={statusColors[rundown.status]}>
-              {rundown.status === 'DRAFT' && 'Brouillon'}
-              {rundown.status === 'READY' && 'Pret'}
-              {rundown.status === 'ON_AIR' && 'A l\'antenne'}
-              {rundown.status === 'ARCHIVED' && 'Archive'}
-            </Badge>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className={cn(
+                  'inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium cursor-pointer hover:opacity-80 transition-opacity',
+                  statusColors[rundown.status]
+                )}>
+                  {rundown.status === 'DRAFT' && 'Brouillon'}
+                  {rundown.status === 'READY' && 'Pret'}
+                  {rundown.status === 'ON_AIR' && 'A l\'antenne'}
+                  {rundown.status === 'ARCHIVED' && 'Archive'}
+                  <ChevronDown className="h-3 w-3" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={() => updateRundownStatus.mutate({ id: rundownId, status: 'DRAFT' })}
+                  className="flex items-center justify-between"
+                >
+                  <span>Brouillon</span>
+                  {rundown.status === 'DRAFT' && <Check className="h-4 w-4 text-green-600" />}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => updateRundownStatus.mutate({ id: rundownId, status: 'READY' })}
+                  className="flex items-center justify-between"
+                >
+                  <span>Pret</span>
+                  {rundown.status === 'READY' && <Check className="h-4 w-4 text-green-600" />}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => updateRundownStatus.mutate({ id: rundownId, status: 'ON_AIR' })}
+                  className="flex items-center justify-between"
+                >
+                  <span>A l'antenne</span>
+                  {rundown.status === 'ON_AIR' && <Check className="h-4 w-4 text-green-600" />}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => updateRundownStatus.mutate({ id: rundownId, status: 'ARCHIVED' })}
+                  className="flex items-center justify-between"
+                >
+                  <span>Archive</span>
+                  {rundown.status === 'ARCHIVED' && <Check className="h-4 w-4 text-green-600" />}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon">
