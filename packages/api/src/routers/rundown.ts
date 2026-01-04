@@ -552,6 +552,43 @@ export const rundownRouter = router({
                 },
                 orderBy: { position: 'asc' },
               },
+              // Conducteur lié (imbriqué) avec ses items pour le script
+              linkedRundown: {
+                include: {
+                  show: true,
+                  items: {
+                    orderBy: { position: 'asc' },
+                    include: {
+                      story: {
+                        select: {
+                          content: true,
+                        },
+                      },
+                      media: {
+                        include: {
+                          mediaItem: {
+                            select: {
+                              id: true,
+                              title: true,
+                              type: true,
+                              duration: true,
+                              transcription: true,
+                            },
+                          },
+                        },
+                        orderBy: { position: 'asc' },
+                      },
+                    },
+                  },
+                },
+              },
+              // Assignee pour afficher le présentateur du conducteur lié
+              assignee: {
+                select: {
+                  firstName: true,
+                  lastName: true,
+                },
+              },
             },
           },
         },

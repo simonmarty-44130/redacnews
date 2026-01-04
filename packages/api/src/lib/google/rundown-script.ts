@@ -3,6 +3,37 @@ import { JWT } from 'google-auth-library';
 import type { docs_v1 } from 'googleapis';
 
 // Types
+interface LinkedRundownItem {
+  id: string;
+  type: string;
+  title: string;
+  duration: number;
+  position: number;
+  notes: string | null;
+  script: string | null;
+  story: {
+    content: string | null;
+  } | null;
+  media: Array<{
+    mediaItem: {
+      id: string;
+      title: string;
+      type: string;
+      duration: number | null;
+      transcription: string | null;
+    };
+  }>;
+}
+
+interface LinkedRundown {
+  id: string;
+  show: {
+    name: string;
+    color: string | null;
+  };
+  items: LinkedRundownItem[];
+}
+
 export interface RundownWithItems {
   id: string;
   date: Date;
@@ -34,6 +65,12 @@ export interface RundownWithItems {
         transcription: string | null;
       };
     }>;
+    // Conducteur lié (imbriqué)
+    linkedRundown?: LinkedRundown | null;
+    assignee?: {
+      firstName: string | null;
+      lastName: string | null;
+    } | null;
   }>;
 }
 
@@ -85,17 +122,27 @@ const getDocs = () => {
   return google.docs({ version: 'v1', auth });
 };
 
-// Emojis par type d'element
-const TYPE_EMOJI: Record<string, string> = {
-  STORY: '',
-  INTERVIEW: '',
-  JINGLE: '[JINGLE]',
-  MUSIC: '[MUSIQUE]',
-  LIVE: '[DIRECT]',
-  BREAK: '[PUB]',
-  OTHER: '',
+// Couleurs pour le formatage
+const COLORS = {
+  // En-tete
+  headerBg: { red: 0.2, green: 0.2, blue: 0.3 },
+  // Texte principal (corps)
+  bodyText: { red: 0, green: 0, blue: 0 },
+  // Indicateurs techniques (jingle, pub, musique)
+  technicalBg: { red: 0.85, green: 0.92, blue: 1.0 }, // Bleu clair
+  technicalText: { red: 0.1, green: 0.3, blue: 0.6 },
+  // Sons/medias
+  mediaBg: { red: 0.9, green: 0.95, blue: 0.9 }, // Vert tres clair
+  mediaText: { red: 0.1, green: 0.4, blue: 0.2 },
+  // Conducteur imbrique
+  linkedBg: { red: 0.95, green: 0.9, blue: 1.0 }, // Violet tres clair
+  linkedHeaderBg: { red: 0.6, green: 0.4, blue: 0.8 }, // Violet
+  linkedText: { red: 0.4, green: 0.2, blue: 0.6 },
+  // Timing/info technique
+  timingText: { red: 0.5, green: 0.5, blue: 0.5 },
 };
 
+// Labels par type d'element
 const TYPE_LABEL: Record<string, string> = {
   STORY: 'SUJET',
   INTERVIEW: 'INTERVIEW',
@@ -163,6 +210,15 @@ export async function createRundownScript(
   };
 }
 
+type FormatType = 'title' | 'subtitle' | 'itemHeader' | 'mediaBox' | 'technicalBox' | 'timing' | 'body' | 'linkedHeader' | 'linkedItemHeader' | 'linkedBody' | 'linkedInfo';
+
+interface FormatRange {
+  start: number;
+  end: number;
+  type: FormatType;
+  itemType?: string;
+}
+
 /**
  * Construit les requetes pour le contenu du document
  */
@@ -174,12 +230,7 @@ function buildScriptContent(rundown: RundownWithItems): docs_v1.Schema$Request[]
 
   // Texte complet a inserer (on construit tout le texte d'abord)
   let fullText = '';
-  const formatRanges: Array<{
-    start: number;
-    end: number;
-    type: 'title' | 'subtitle' | 'itemHeader' | 'mediaBox' | 'timing' | 'body';
-    itemType?: string;
-  }> = [];
+  const formatRanges: FormatRange[] = [];
 
   // === EN-TETE ===
   const headerTitle = `${rundown.show.name.toUpperCase()}\n`;
@@ -206,60 +257,145 @@ function buildScriptContent(rundown: RundownWithItems): docs_v1.Schema$Request[]
     const timeStr = formatTime(currentTime);
     const durationStr = formatDuration(item.duration);
 
-    // Priorite: script > story.content
-    const textContent = item.script || item.story?.content;
+    // Verifier si c'est un conducteur imbrique
+    if (item.linkedRundown) {
+      // === CONDUCTEUR IMBRIQUE ===
+      const linked = item.linkedRundown;
+      const assigneeName = item.assignee
+        ? `${item.assignee.firstName || ''} ${item.assignee.lastName || ''}`.trim()
+        : null;
 
-    if (textContent) {
-      // === ELEMENT AVEC TEXTE A LIRE ===
+      // Ligne de separation avant
+      fullText += '\n';
 
-      // Ligne separatrice
-      const separator = `${'_'.repeat(60)}\n`;
-      fullText += separator;
-
-      // Ligne d'en-tete du sujet
-      const itemHeaderText = `${timeStr} | ${item.title.toUpperCase()}    [${durationStr}]\n\n`;
-
-      const headerStart = fullText.length + 1;
-      fullText += itemHeaderText;
+      // Header du conducteur imbrique
+      const linkedHeaderText = `\n${'='.repeat(60)}\n${timeStr} | ${linked.show.name.toUpperCase()}${assigneeName ? ` - ${assigneeName}` : ''}    [${durationStr}]\n${'='.repeat(60)}\n\n`;
+      const linkedHeaderStart = fullText.length + 1;
+      fullText += linkedHeaderText;
       formatRanges.push({
-        start: headerStart,
-        end: headerStart + itemHeaderText.length,
-        type: 'itemHeader',
+        start: linkedHeaderStart,
+        end: linkedHeaderStart + linkedHeaderText.length,
+        type: 'linkedHeader',
       });
 
-      // Contenu (script ou contenu du sujet)
-      const content = cleanContent(textContent) + '\n\n';
-      const contentStart = fullText.length + 1;
-      fullText += content;
-      formatRanges.push({ start: contentStart, end: contentStart + content.length, type: 'body' });
+      // Items du conducteur imbrique
+      for (const linkedItem of linked.items) {
+        const linkedDurationStr = formatDuration(linkedItem.duration);
+        const linkedContent = linkedItem.script || linkedItem.story?.content;
 
-      // Sons attaches
-      for (const media of item.media) {
-        const mediaText = buildMediaBoxText(media.mediaItem);
-        const mediaStart = fullText.length + 1;
-        fullText += mediaText;
+        if (linkedContent) {
+          // Element avec texte
+          const linkedItemHeaderText = `    ${linkedItem.title.toUpperCase()}    [${linkedDurationStr}]\n`;
+          const linkedItemHeaderStart = fullText.length + 1;
+          fullText += linkedItemHeaderText;
+          formatRanges.push({
+            start: linkedItemHeaderStart,
+            end: linkedItemHeaderStart + linkedItemHeaderText.length,
+            type: 'linkedItemHeader',
+          });
+
+          // Contenu avec indentation
+          const linkedContentText = cleanContent(linkedContent)
+            .split('\n')
+            .map((line) => `    ${line}`)
+            .join('\n') + '\n\n';
+          const linkedContentStart = fullText.length + 1;
+          fullText += linkedContentText;
+          formatRanges.push({
+            start: linkedContentStart,
+            end: linkedContentStart + linkedContentText.length,
+            type: 'linkedBody',
+          });
+
+          // Sons attaches
+          for (const media of linkedItem.media) {
+            const mediaText = `        >>> SON: ${media.mediaItem.title} [${media.mediaItem.duration ? formatDuration(media.mediaItem.duration) : '--:--'}] <<<\n`;
+            const mediaStart = fullText.length + 1;
+            fullText += mediaText;
+            formatRanges.push({
+              start: mediaStart,
+              end: mediaStart + mediaText.length - 1,
+              type: 'mediaBox',
+            });
+          }
+        } else {
+          // Element technique (jingle, etc)
+          const label = TYPE_LABEL[linkedItem.type] || linkedItem.type;
+          const linkedTechText = `        >>> ${label}: ${linkedItem.title} [${linkedDurationStr}] <<<\n`;
+          const linkedTechStart = fullText.length + 1;
+          fullText += linkedTechText;
+          formatRanges.push({
+            start: linkedTechStart,
+            end: linkedTechStart + linkedTechText.length - 1,
+            type: 'technicalBox',
+          });
+        }
+      }
+
+      // Footer du conducteur imbrique
+      const linkedFooterText = `${'='.repeat(60)}\n    Fin ${linked.show.name} - Reprise antenne\n${'='.repeat(60)}\n\n`;
+      const linkedFooterStart = fullText.length + 1;
+      fullText += linkedFooterText;
+      formatRanges.push({
+        start: linkedFooterStart,
+        end: linkedFooterStart + linkedFooterText.length,
+        type: 'linkedInfo',
+      });
+    } else {
+      // === ELEMENT STANDARD ===
+      // Priorite: script > story.content
+      const textContent = item.script || item.story?.content;
+
+      if (textContent) {
+        // === ELEMENT AVEC TEXTE A LIRE ===
+
+        // Ligne separatrice
+        const separator = `${'_'.repeat(60)}\n`;
+        fullText += separator;
+
+        // Ligne d'en-tete du sujet
+        const itemHeaderText = `${timeStr} | ${item.title.toUpperCase()}    [${durationStr}]\n\n`;
+
+        const headerStart = fullText.length + 1;
+        fullText += itemHeaderText;
         formatRanges.push({
-          start: mediaStart,
-          end: mediaStart + mediaText.length - 1,
-          type: 'mediaBox',
-          itemType: 'INTERVIEW',
+          start: headerStart,
+          end: headerStart + itemHeaderText.length,
+          type: 'itemHeader',
+        });
+
+        // Contenu (script ou contenu du sujet)
+        const content = cleanContent(textContent) + '\n\n';
+        const contentStart = fullText.length + 1;
+        fullText += content;
+        formatRanges.push({ start: contentStart, end: contentStart + content.length, type: 'body' });
+
+        // Sons attaches
+        for (const media of item.media) {
+          const mediaText = buildMediaBoxText(media.mediaItem);
+          const mediaStart = fullText.length + 1;
+          fullText += mediaText;
+          formatRanges.push({
+            start: mediaStart,
+            end: mediaStart + mediaText.length - 1,
+            type: 'mediaBox',
+          });
+        }
+      } else {
+        // === ELEMENT SONORE / NON-TEXTE ===
+        const label = TYPE_LABEL[item.type] || item.type;
+
+        const boxText = `\n>>> [${label}] ${item.title} [${durationStr}] <<<\n\n`;
+
+        const boxStart = fullText.length + 1;
+        fullText += boxText;
+        formatRanges.push({
+          start: boxStart,
+          end: boxStart + boxText.length - 1,
+          type: 'technicalBox',
+          itemType: item.type,
         });
       }
-    } else {
-      // === ELEMENT SONORE / NON-TEXTE ===
-      const label = TYPE_LABEL[item.type] || item.type;
-      const prefix = TYPE_EMOJI[item.type] || '';
-
-      const boxText = `\n>>> ${prefix}${prefix ? ' ' : ''}${label}: ${item.title} [${durationStr}] <<<\n\n`;
-
-      const boxStart = fullText.length + 1;
-      fullText += boxText;
-      formatRanges.push({
-        start: boxStart,
-        end: boxStart + boxText.length - 1,
-        type: 'mediaBox',
-        itemType: item.type,
-      });
     }
 
     // Avancer le timing
@@ -300,6 +436,18 @@ function buildScriptContent(rundown: RundownWithItems): docs_v1.Schema$Request[]
           },
         });
       }
+      // Ajouter shading (fond de couleur) si present
+      if (formatting.shading) {
+        requests.push({
+          updateParagraphStyle: {
+            range: { startIndex: range.start, endIndex: range.end },
+            paragraphStyle: {
+              shading: formatting.shading,
+            },
+            fields: 'shading',
+          },
+        });
+      }
     }
   }
 
@@ -334,9 +482,9 @@ function buildMediaBoxText(media: {
  * Retourne le formatage pour un type de contenu
  */
 function getFormattingForType(
-  type: string,
+  type: FormatType,
   _itemType?: string
-): { textStyle: docs_v1.Schema$TextStyle; paragraphStyle?: docs_v1.Schema$ParagraphStyle } | null {
+): { textStyle: docs_v1.Schema$TextStyle; paragraphStyle?: docs_v1.Schema$ParagraphStyle; shading?: docs_v1.Schema$Shading } | null {
   switch (type) {
     case 'title':
       return {
@@ -352,7 +500,7 @@ function getFormattingForType(
       return {
         textStyle: {
           fontSize: { magnitude: 12, unit: 'PT' },
-          foregroundColor: { color: { rgbColor: { red: 0.4, green: 0.4, blue: 0.4 } } },
+          foregroundColor: { color: { rgbColor: COLORS.timingText } },
         },
         paragraphStyle: {
           alignment: 'CENTER',
@@ -364,16 +512,88 @@ function getFormattingForType(
           bold: true,
           fontSize: { magnitude: 14, unit: 'PT' },
         },
+        shading: {
+          backgroundColor: { color: { rgbColor: { red: 0.95, green: 0.95, blue: 0.95 } } },
+        },
+      };
+    case 'technicalBox':
+      return {
+        textStyle: {
+          bold: true,
+          fontSize: { magnitude: 12, unit: 'PT' },
+          foregroundColor: { color: { rgbColor: COLORS.technicalText } },
+        },
+        paragraphStyle: {
+          alignment: 'CENTER',
+        },
+        shading: {
+          backgroundColor: { color: { rgbColor: COLORS.technicalBg } },
+        },
       };
     case 'mediaBox':
       return {
         textStyle: {
           bold: true,
-          fontSize: { magnitude: 12, unit: 'PT' },
-          foregroundColor: { color: { rgbColor: { red: 0.2, green: 0.2, blue: 0.6 } } },
+          fontSize: { magnitude: 11, unit: 'PT' },
+          foregroundColor: { color: { rgbColor: COLORS.mediaText } },
         },
         paragraphStyle: {
           alignment: 'CENTER',
+        },
+        shading: {
+          backgroundColor: { color: { rgbColor: COLORS.mediaBg } },
+        },
+      };
+    case 'linkedHeader':
+      return {
+        textStyle: {
+          bold: true,
+          fontSize: { magnitude: 14, unit: 'PT' },
+          foregroundColor: { color: { rgbColor: { red: 1, green: 1, blue: 1 } } },
+        },
+        paragraphStyle: {
+          alignment: 'CENTER',
+        },
+        shading: {
+          backgroundColor: { color: { rgbColor: COLORS.linkedHeaderBg } },
+        },
+      };
+    case 'linkedItemHeader':
+      return {
+        textStyle: {
+          bold: true,
+          fontSize: { magnitude: 12, unit: 'PT' },
+          foregroundColor: { color: { rgbColor: COLORS.linkedText } },
+        },
+        shading: {
+          backgroundColor: { color: { rgbColor: COLORS.linkedBg } },
+        },
+      };
+    case 'linkedBody':
+      return {
+        textStyle: {
+          fontSize: { magnitude: 12, unit: 'PT' },
+          foregroundColor: { color: { rgbColor: COLORS.linkedText } },
+        },
+        paragraphStyle: {
+          lineSpacing: 140,
+        },
+        shading: {
+          backgroundColor: { color: { rgbColor: COLORS.linkedBg } },
+        },
+      };
+    case 'linkedInfo':
+      return {
+        textStyle: {
+          bold: true,
+          fontSize: { magnitude: 11, unit: 'PT' },
+          foregroundColor: { color: { rgbColor: { red: 1, green: 1, blue: 1 } } },
+        },
+        paragraphStyle: {
+          alignment: 'CENTER',
+        },
+        shading: {
+          backgroundColor: { color: { rgbColor: COLORS.linkedHeaderBg } },
         },
       };
     case 'body':
