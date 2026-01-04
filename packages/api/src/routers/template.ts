@@ -293,13 +293,14 @@ export const templateRouter = router({
         providedVariables
       );
 
-      // 4. Créer le conducteur avec le startTime du show
+      // 4. Créer le conducteur avec le startTime du show et les variables du template
       const rundown = await ctx.db.rundown.create({
         data: {
           showId: template.showId,
           date: input.date,
           status: 'DRAFT',
           startTime: template.show.startTime, // Hériter du startTime du show
+          templateVariables: variableValues, // Sauvegarder les variables pour envoi aux invités
         },
       });
 

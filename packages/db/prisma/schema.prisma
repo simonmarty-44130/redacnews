@@ -94,6 +94,7 @@ model Rundown {
   startTime         String?
   subtitle          String?
   title             String?
+  templateVariables Json?               // Variables du template utilisées à la création (noms des invités, etc.)
   show              Show                @relation(fields: [showId], references: [id])
   guestShares       RundownGuestShare[]
   linkedFromItems   RundownItem[]       @relation("LinkedRundown")

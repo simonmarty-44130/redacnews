@@ -19,7 +19,7 @@ import {
 import { format, addSeconds, parse } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
-import { Clock, AlertTriangle, ChevronLeft, ChevronRight, Presentation, MoreHorizontal, Trash2, ChevronDown, Check } from 'lucide-react';
+import { Clock, AlertTriangle, ChevronLeft, ChevronRight, Presentation, MoreHorizontal, Trash2, ChevronDown, Check, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -43,6 +43,7 @@ import {
 import { RundownItem } from './RundownItem';
 import { AddItemDialog } from './AddItemDialog';
 import { GenerateScriptButton } from './GenerateScriptButton';
+import { SendToGuestsGmail } from './SendToGuestsGmail';
 import { trpc } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
 
@@ -59,6 +60,7 @@ const statusColors = {
 
 export function RundownEditor({ rundownId }: RundownEditorProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showSendToGuestsDialog, setShowSendToGuestsDialog] = useState(false);
   const router = useRouter();
 
   const { data: rundown, isLoading } = trpc.rundown.get.useQuery(
@@ -219,6 +221,18 @@ export function RundownEditor({ rundownId }: RundownEditorProps) {
               existingScriptUrl={rundown.scriptDocUrl}
               existingScriptGeneratedAt={rundown.scriptGeneratedAt}
             />
+            {/* Bouton pour envoyer le conducteur aux invités (visible uniquement si des variables template existent) */}
+            {rundown.templateVariables && Object.keys(rundown.templateVariables as Record<string, string>).length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowSendToGuestsDialog(true)}
+                title="Envoyer le conducteur aux invités via Gmail"
+              >
+                <Mail className="h-4 w-4 mr-2" />
+                Invités
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -385,6 +399,26 @@ export function RundownEditor({ rundownId }: RundownEditorProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Dialog pour envoyer aux invités via Gmail */}
+      {rundown && (
+        <SendToGuestsGmail
+          open={showSendToGuestsDialog}
+          onOpenChange={setShowSendToGuestsDialog}
+          rundownId={rundownId}
+          showName={rundown.show.name}
+          rundownDate={new Date(rundown.date)}
+          startTime={rundown.startTime || rundown.show.startTime || '07:00'}
+          items={rundown.items.map((item) => ({
+            id: item.id,
+            type: item.type,
+            title: item.title,
+            duration: item.duration,
+            position: item.position,
+          }))}
+          templateVariables={(rundown.templateVariables as Record<string, string>) || {}}
+        />
+      )}
     </div>
   );
 }
