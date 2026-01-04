@@ -15,21 +15,21 @@ const settingsCategories = [
     description: 'Paramètres de votre organisation',
     href: '/settings/organisation',
     icon: Building2,
-    available: false,
+    available: true,
   },
   {
     title: 'Notifications',
     description: 'Préférences de notifications',
     href: '/settings/notifications',
     icon: Bell,
-    available: false,
+    available: true,
   },
   {
     title: 'Sécurité',
     description: 'Mot de passe et authentification',
     href: '/settings/securite',
     icon: Shield,
-    available: false,
+    available: true,
   },
 ];
 

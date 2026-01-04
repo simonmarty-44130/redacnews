@@ -31,7 +31,7 @@ const tourDesClocherItems: Array<{
 
   // --- 7h00-7h04 : OUVERTURE ---
   {
-    type: 'STORY',
+    type: 'OTHER', // Rubrique d'animation, pas un sujet éditorial
     title: 'Ouverture Clara',
     startTime: '7h00',
     duration: 60,
@@ -48,7 +48,7 @@ Votre journal du jour présenté par Alex Gauthier`,
     fixedTime: '07:00',
   },
   {
-    type: 'STORY',
+    type: 'OTHER', // Rubrique fixe, pas un sujet éditorial
     title: 'Flash national',
     startTime: '7h01',
     duration: 60,
@@ -58,7 +58,7 @@ Votre journal du jour présenté par Alex Gauthier`,
     fixedTime: null,
   },
   {
-    type: 'STORY',
+    type: 'OTHER', // Rubrique fixe, pas un sujet éditorial
     title: 'Flash local',
     startTime: '7h02',
     duration: 60,
@@ -68,7 +68,7 @@ Votre journal du jour présenté par Alex Gauthier`,
     fixedTime: null,
   },
   {
-    type: 'STORY',
+    type: 'OTHER', // Rubrique fixe, pas un sujet éditorial
     title: 'Météo',
     startTime: '7h03',
     duration: 60,
@@ -90,7 +90,7 @@ Votre journal du jour présenté par Alex Gauthier`,
 
   // --- 7h05-7h06 : PRÉSENTATION ---
   {
-    type: 'STORY',
+    type: 'OTHER', // Dialogue d'animation Clara/Tiphaine, pas un sujet éditorial
     title: 'Présentation de la matinale',
     startTime: '7h05',
     duration: 60,
@@ -155,7 +155,7 @@ Avant de parler de votre paroisse, j'aimerais qu'on parle un peu de vous.
     fixedTime: null,
   },
   {
-    type: 'STORY',
+    type: 'OTHER', // Rubrique spirituelle fixe, pas un sujet éditorial
     title: 'Évangile du jour',
     startTime: '7h14',
     duration: 240,
@@ -218,7 +218,7 @@ Commentaire par {{COMMENTATEUR_EVANGILE}}.`,
     fixedTime: '07:28', // HEURE IMPÉRATIVE
   },
   {
-    type: 'STORY',
+    type: 'OTHER', // Rubrique météo fixe
     title: 'Météo',
     startTime: '7h29',
     duration: 60,
@@ -287,7 +287,7 @@ Questions pour les invités :
 
   // --- 8h00-8h05 : TOP HORAIRE ---
   {
-    type: 'STORY',
+    type: 'OTHER', // Top horaire fixe, pas un sujet éditorial
     title: 'Top 8h + Flash national',
     startTime: '8h00',
     duration: 120,
@@ -297,7 +297,7 @@ Questions pour les invités :
     fixedTime: '08:00', // HEURE IMPÉRATIVE - TOP HORAIRE
   },
   {
-    type: 'STORY',
+    type: 'OTHER', // Rubrique info fixe
     title: 'Flash local',
     startTime: '8h02',
     duration: 60,
@@ -307,7 +307,7 @@ Questions pour les invités :
     fixedTime: null,
   },
   {
-    type: 'STORY',
+    type: 'OTHER', // Rubrique météo fixe
     title: 'Météo',
     startTime: '8h03',
     duration: 60,
@@ -399,7 +399,7 @@ Questions pour l'invité(e) :
 
   // --- 8h30-8h45 : RADIO VATICAN ---
   {
-    type: 'STORY',
+    type: 'OTHER', // Programme externe, pas un sujet éditorial interne
     title: 'Journal Radio Vatican',
     startTime: '8h30',
     duration: 900,
@@ -409,7 +409,7 @@ Questions pour l'invité(e) :
     fixedTime: '08:30', // HEURE IMPÉRATIVE - SYNCHRO SATELLITE
   },
   {
-    type: 'STORY',
+    type: 'OTHER', // Transition d'animation
     title: 'Retour antenne Clara',
     startTime: '8h45',
     duration: 20,
@@ -476,7 +476,7 @@ Questions pour l'invité(e) :
 
   // --- 8h58-9h00 : CONCLUSION FINALE ---
   {
-    type: 'STORY',
+    type: 'OTHER', // Conclusion d'animation
     title: 'Conclusion Tiphaine',
     startTime: '8h58',
     duration: 60,
@@ -492,7 +492,7 @@ Je repasse l'antenne à Clara, bonne fin de journée !`,
     fixedTime: null,
   },
   {
-    type: 'STORY',
+    type: 'OTHER', // Conclusion d'animation + promotion
     title: 'Conclusion Clara + Appel aux dons',
     startTime: '8h59',
     duration: 50,
