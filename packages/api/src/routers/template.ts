@@ -311,8 +311,6 @@ export const templateRouter = router({
         itemScript: string | null;
         itemNotes: string | null;
         storyId: string | null;
-        googleDocId: string | null;
-        googleDocUrl: string | null;
         finalTitle: string;
         finalDuration: number;
         needsNewStory: boolean;
@@ -326,8 +324,6 @@ export const templateRouter = router({
         const itemNotes = replaceVariables(templateItem.notes, variableValues);
 
         let storyId: string | null = null;
-        let googleDocId: string | null = null;
-        let googleDocUrl: string | null = null;
         let finalTitle = itemTitle;
         let finalDuration = templateItem.duration;
         let needsNewStory = false;
@@ -344,8 +340,6 @@ export const templateRouter = router({
             });
             if (existingStory) {
               storyId = existingStory.id;
-              googleDocId = existingStory.googleDocId;
-              googleDocUrl = existingStory.googleDocUrl;
               finalTitle = existingStory.title;
               if (existingStory.estimatedDuration) {
                 finalDuration = existingStory.estimatedDuration;
@@ -371,8 +365,6 @@ export const templateRouter = router({
           itemScript,
           itemNotes,
           storyId,
-          googleDocId,
-          googleDocUrl,
           finalTitle,
           finalDuration,
           needsNewStory,
@@ -380,63 +372,47 @@ export const templateRouter = router({
         });
       }
 
-      // 6. Créer les Stories nécessaires avec Google Docs pour les items STORY
-      // (les journaux ont peu d'items STORY donc pas de risque de timeout)
-      for (const item of itemsToCreate) {
-        if (item.needsNewStory) {
-          let googleDocId: string | null = null;
-          let googleDocUrl: string | null = null;
+      // 6. Créer les Stories nécessaires pour les items STORY
+      // Note: On ne crée plus automatiquement les Google Docs pour éviter les timeouts
+      // Les Google Docs seront créés à la demande via rundown.createItemDoc
+      const storiesToCreate = itemsToCreate.filter((item) => item.needsNewStory);
 
-          // Créer le Google Doc pour les items STORY si demandé
-          if (input.createGoogleDocs !== false) {
-            try {
-              const { createStoryDoc, insertTextInDoc } = await import(
-                '../lib/google/docs'
-              );
-
-              const docTitle = `${template.show.name} - ${item.itemTitle}`;
-              const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-              const doc = await createStoryDoc(docTitle, folderId);
-
-              if (item.itemScript) {
-                await insertTextInDoc(doc.id, item.itemScript);
-              }
-
-              googleDocId = doc.id;
-              googleDocUrl = doc.url;
-            } catch (error) {
-              console.error(`Failed to create doc for story ${item.itemTitle}:`, error);
-            }
-          }
-
+      if (storiesToCreate.length > 0) {
+        // Créer toutes les Stories en batch pour optimiser les performances
+        const storyDataList = storiesToCreate.map((item) => {
           const slug = item.itemTitle
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, '-')
             .replace(/(^-|-$)/g, '');
 
+          return {
+            title: item.itemTitle,
+            slug: `${slug}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            authorId: ctx.userId!,
+            organizationId: ctx.organizationId!,
+            category: item.storyCategory,
+            content: item.itemScript || undefined,
+            estimatedDuration: item.templateItem.duration,
+            tags: [],
+          };
+        });
+
+        // Créer les stories une par une car createMany ne retourne pas les IDs
+        for (let i = 0; i < storiesToCreate.length; i++) {
+          const item = storiesToCreate[i];
+          const storyData = storyDataList[i];
+
           const story = await ctx.db.story.create({
-            data: {
-              title: item.itemTitle,
-              slug: `${slug}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              authorId: ctx.userId!,
-              organizationId: ctx.organizationId!,
-              category: item.storyCategory,
-              content: item.itemScript || undefined,
-              estimatedDuration: item.templateItem.duration,
-              googleDocId: googleDocId || undefined,
-              googleDocUrl: googleDocUrl || undefined,
-              tags: [],
-            },
+            data: storyData,
           });
 
           item.storyId = story.id;
-          item.googleDocId = googleDocId;
-          item.googleDocUrl = googleDocUrl;
           item.finalTitle = item.itemTitle;
         }
       }
 
       // 7. Créer tous les RundownItems en batch
+      // Note: googleDocId et googleDocUrl seront créés à la demande
       const rundownItemsData = itemsToCreate.map((item) => ({
         rundownId: rundown.id,
         type: item.templateItem.type,
@@ -447,8 +423,6 @@ export const templateRouter = router({
         script: item.itemScript,
         status: 'PENDING' as const,
         storyId: item.storyId,
-        googleDocId: item.googleDocId,
-        googleDocUrl: item.googleDocUrl,
       }));
 
       await ctx.db.rundownItem.createMany({
