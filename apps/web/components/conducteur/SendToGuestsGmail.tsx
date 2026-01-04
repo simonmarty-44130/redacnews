@@ -269,8 +269,8 @@ L'équipe de Radio Fidélité
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] max-h-[85vh] flex flex-col">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-[600px] max-h-[85vh] flex flex-col overflow-hidden">
+        <DialogHeader className="flex-shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5" />
             Envoyer le conducteur aux invités
@@ -282,7 +282,7 @@ L'équipe de Radio Fidélité
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 -mx-6 px-6">
+        <ScrollArea className="flex-1 min-h-0 -mx-6 px-6">
           <div className="space-y-4 py-4">
             {guests.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
