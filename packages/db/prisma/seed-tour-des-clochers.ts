@@ -540,20 +540,18 @@ const templateVariables: TemplateVariable[] = [
 async function seedTourDesClochers() {
   console.log('🏠 Seed du template Tour des Clochers...\n');
 
-  // 1. Trouver l'organisation (Radio Fidélité ou Radio RédacNews)
+  // 1. Trouver l'organisation Radio Fidélité (prioritaire)
   let organization = await prisma.organization.findFirst({
     where: {
       OR: [
         { name: { contains: 'Fidélité', mode: 'insensitive' } },
         { name: { contains: 'Fidelite', mode: 'insensitive' } },
         { slug: { contains: 'fidelite' } },
-        { name: { contains: 'RedacNews', mode: 'insensitive' } },
-        { slug: { contains: 'redacnews' } },
       ],
     },
   });
 
-  // Si pas trouvée, prendre la première organisation disponible
+  // Si Radio Fidélité pas trouvée, prendre la première organisation disponible
   if (!organization) {
     organization = await prisma.organization.findFirst();
   }
