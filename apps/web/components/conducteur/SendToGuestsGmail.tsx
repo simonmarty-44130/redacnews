@@ -239,18 +239,29 @@ Radio Fidélité - La radio qui vous rapproche
     return { subject, body };
   };
 
+  // État pour afficher le message de copie
+  const [copiedGuest, setCopiedGuest] = useState<string | null>(null);
+
   // Ouvrir Gmail Compose pour un invité
-  const openGmailCompose = (guest: GuestInfo) => {
+  const openGmailCompose = async (guest: GuestInfo) => {
     if (!guest.email) return;
 
     const { subject, body } = generateEmailContent(guest);
 
-    // Encoder pour l'URL
-    const encodedSubject = encodeURIComponent(subject);
-    const encodedBody = encodeURIComponent(body);
+    // Copier le contenu dans le presse-papiers
+    try {
+      await navigator.clipboard.writeText(body);
+      setCopiedGuest(guest.variableName);
+      setTimeout(() => setCopiedGuest(null), 3000);
+    } catch (err) {
+      console.error('Erreur copie presse-papiers:', err);
+    }
 
-    // URL Gmail Compose
-    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(guest.email)}&su=${encodedSubject}&body=${encodedBody}`;
+    // Encoder pour l'URL (sans le body pour éviter l'erreur 400)
+    const encodedSubject = encodeURIComponent(subject);
+
+    // URL Gmail Compose - sans body, l'utilisateur collera le contenu
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(guest.email)}&su=${encodedSubject}`;
 
     window.open(gmailUrl, '_blank');
   };
@@ -295,8 +306,8 @@ Radio Fidélité - La radio qui vous rapproche
               <>
                 <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg text-sm text-blue-800">
                   <AlertCircle className="h-4 w-4 inline mr-1" />
-                  Renseignez les emails des invités puis cliquez sur "Envoyer" pour ouvrir Gmail
-                  avec le message pré-rempli.
+                  Renseignez les emails puis cliquez sur "Gmail". Le conducteur complet sera
+                  <strong> copié dans le presse-papiers</strong> - collez-le (Ctrl+V) dans le mail.
                 </div>
 
                 {guests.map((guest) => (
@@ -354,7 +365,7 @@ Radio Fidélité - La radio qui vous rapproche
                         />
                       </div>
                       <Button
-                        variant="outline"
+                        variant={copiedGuest === guest.variableName ? 'default' : 'outline'}
                         size="sm"
                         disabled={!guestEmails[guest.variableName]?.includes('@')}
                         onClick={() =>
@@ -363,13 +374,30 @@ Radio Fidélité - La radio qui vous rapproche
                             email: guestEmails[guest.variableName] || '',
                           })
                         }
+                        className={copiedGuest === guest.variableName ? 'bg-green-600 hover:bg-green-700' : ''}
                       >
-                        <ExternalLink className="h-4 w-4 mr-1" />
-                        Gmail
+                        {copiedGuest === guest.variableName ? (
+                          <>
+                            <Check className="h-4 w-4 mr-1" />
+                            Copié !
+                          </>
+                        ) : (
+                          <>
+                            <ExternalLink className="h-4 w-4 mr-1" />
+                            Gmail
+                          </>
+                        )}
                       </Button>
                     </div>
                   </div>
                 ))}
+
+                {copiedGuest && (
+                  <div className="bg-green-100 border border-green-300 p-3 rounded-lg text-sm text-green-800 animate-pulse">
+                    <Check className="h-4 w-4 inline mr-1" />
+                    <strong>Conducteur copié !</strong> Collez-le dans Gmail avec Ctrl+V (ou Cmd+V sur Mac)
+                  </div>
+                )}
 
                 <Separator />
 
