@@ -110,6 +110,7 @@ interface RundownItemData {
   assigneeId?: string | null;
   linkedRundownId?: string | null;
   linkedRundown?: LinkedRundownInfo | null;
+  fixedTime?: string | null; // Heure fixe obligatoire (format HH:mm)
   story?: {
     id: string;
     title: string;
@@ -157,6 +158,44 @@ function formatDuration(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Calcule le delta entre l'heure calculée et l'heure fixe obligatoire
+ * Retourne le delta en secondes (positif si en retard, négatif si en avance)
+ */
+function calculateFixedTimeDelta(
+  calculatedTime: string,
+  fixedTime: string
+): { deltaSeconds: number; deltaText: string; status: 'ok' | 'warning' | 'error' } {
+  // Parser l'heure calculée (format HH:mm:ss ou HH:mm)
+  const calcParts = calculatedTime.split(':').map(Number);
+  const calcSeconds = calcParts[0] * 3600 + calcParts[1] * 60 + (calcParts[2] || 0);
+
+  // Parser l'heure fixe (format HH:mm)
+  const fixedParts = fixedTime.split(':').map(Number);
+  const fixedSeconds = fixedParts[0] * 3600 + fixedParts[1] * 60;
+
+  const deltaSeconds = calcSeconds - fixedSeconds;
+  const absDelta = Math.abs(deltaSeconds);
+
+  // Formater le delta
+  const mins = Math.floor(absDelta / 60);
+  const secs = absDelta % 60;
+  const sign = deltaSeconds >= 0 ? '+' : '-';
+  const deltaText = `${sign}${mins}:${secs.toString().padStart(2, '0')}`;
+
+  // Déterminer le statut
+  let status: 'ok' | 'warning' | 'error';
+  if (absDelta <= 30) {
+    status = 'ok'; // < 30s = OK
+  } else if (absDelta <= 120) {
+    status = 'warning'; // 30s - 2min = attention
+  } else {
+    status = 'error'; // > 2min = problème
+  }
+
+  return { deltaSeconds, deltaText, status };
 }
 
 export function RundownItem({
@@ -246,8 +285,46 @@ export function RundownItem({
         <GripVertical className="h-5 w-5" />
       </button>
 
-      {/* Time */}
-      <div className="w-16 text-sm font-mono text-gray-600">{startTime}</div>
+      {/* Time + Fixed time badge */}
+      <div className="flex items-center gap-1">
+        <div className="w-16 text-sm font-mono text-gray-600">{startTime}</div>
+        {item.fixedTime && (() => {
+          const delta = calculateFixedTimeDelta(startTime, item.fixedTime);
+          return (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div
+                    className={cn(
+                      'px-1.5 py-0.5 rounded text-xs font-mono font-medium',
+                      delta.status === 'ok' && 'bg-green-100 text-green-700',
+                      delta.status === 'warning' && 'bg-orange-100 text-orange-700',
+                      delta.status === 'error' && 'bg-red-100 text-red-700'
+                    )}
+                  >
+                    {item.fixedTime}
+                    {delta.status !== 'ok' && (
+                      <span className="ml-1 text-[10px]">
+                        ({delta.deltaText})
+                      </span>
+                    )}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Heure impérative: {item.fixedTime}</p>
+                  <p className={cn(
+                    delta.status === 'ok' && 'text-green-600',
+                    delta.status === 'warning' && 'text-orange-600',
+                    delta.status === 'error' && 'text-red-600'
+                  )}>
+                    Delta: {delta.deltaText}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          );
+        })()}
+      </div>
 
       {/* Type icon */}
       <div className={cn('p-1.5 rounded', typeInfo.color, 'bg-opacity-10')}>

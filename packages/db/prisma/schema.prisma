@@ -136,6 +136,7 @@ model RundownItem {
   googleDocId     String?
   googleDocUrl    String?
   linkedRundownId String?
+  fixedTime       String?            // Heure fixe obligatoire (format HH:mm, ex: "08:00" pour top horaire)
   assignee        User?              @relation(fields: [assigneeId], references: [id])
   linkedRundown   Rundown?           @relation("LinkedRundown", fields: [linkedRundownId], references: [id])
   rundown         Rundown            @relation(fields: [rundownId], references: [id], onDelete: Cascade)
@@ -349,6 +350,7 @@ model RundownTemplateItem {
   position   Int
   notes      String?
   script     String?
+  fixedTime  String?         // Heure fixe obligatoire (format HH:mm, ex: "08:00" pour top horaire)
   template   RundownTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
 
   @@index([templateId])

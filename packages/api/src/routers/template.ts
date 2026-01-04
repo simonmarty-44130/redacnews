@@ -424,6 +424,7 @@ export const templateRouter = router({
         script: item.itemScript,
         status: 'PENDING' as const,
         storyId: item.storyId,
+        fixedTime: item.templateItem.fixedTime, // Heure fixe obligatoire héritée du template
       }));
 
       await ctx.db.rundownItem.createMany({
@@ -487,6 +488,7 @@ export const templateRouter = router({
         position: item.position,
         notes: item.notes,
         script: item.script,
+        fixedTime: item.fixedTime, // Conserver les heures fixes obligatoires
       }));
 
       await ctx.db.rundownTemplateItem.createMany({

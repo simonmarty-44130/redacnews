@@ -23,6 +23,7 @@ const tourDesClocherItems: Array<{
   script: string | null;
   notes: string | null;
   isFixed: boolean;
+  fixedTime: string | null; // Heure obligatoire (format HH:mm) - si défini, génère un avertissement si delta
 }> = [
   // ============================================================================
   // PREMIÈRE HEURE (7h00 - 8h00)
@@ -44,6 +45,7 @@ Mais avant l'essentiel de votre actualité aujourd'hui.
 Votre journal du jour présenté par Alex Gauthier`,
     notes: 'Clara en studio - Lancement de la matinale',
     isFixed: true,
+    fixedTime: '07:00',
   },
   {
     type: 'STORY',
@@ -53,6 +55,7 @@ Votre journal du jour présenté par Alex Gauthier`,
     script: null,
     notes: 'Flash info national - 1 min',
     isFixed: true,
+    fixedTime: null,
   },
   {
     type: 'STORY',
@@ -62,6 +65,7 @@ Votre journal du jour présenté par Alex Gauthier`,
     script: null,
     notes: 'Flash info local Loire-Atlantique - 1 min',
     isFixed: true,
+    fixedTime: null,
   },
   {
     type: 'STORY',
@@ -71,6 +75,7 @@ Votre journal du jour présenté par Alex Gauthier`,
     script: null,
     notes: 'Météo Loire-Atlantique - 1 min max',
     isFixed: true,
+    fixedTime: null,
   },
   {
     type: 'BREAK',
@@ -80,6 +85,7 @@ Votre journal du jour présenté par Alex Gauthier`,
     script: null,
     notes: 'Bloc pub 1',
     isFixed: true,
+    fixedTime: null,
   },
 
   // --- 7h05-7h06 : PRÉSENTATION ---
@@ -106,6 +112,7 @@ et {{INVITE_ASSOCIATION}} pour une association locale.
 C : Et qui commence maintenant sur Radio Fidélité !`,
     notes: 'Dialogue Clara/Tiphaine - Présentation des invités',
     isFixed: false,
+    fixedTime: null,
   },
   {
     type: 'JINGLE',
@@ -115,6 +122,7 @@ C : Et qui commence maintenant sur Radio Fidélité !`,
     script: null,
     notes: 'Sponsor + Générique TDC',
     isFixed: true,
+    fixedTime: null,
   },
 
   // --- 7h07-7h14 : ACCUEIL DU PÈRE ---
@@ -132,6 +140,7 @@ Avant de parler de votre paroisse, j'aimerais qu'on parle un peu de vous.
 • Quand êtes-vous arrivé sur cette paroisse ?`,
     notes: 'Interview parcours personnel du Père - 7 min',
     isFixed: false,
+    fixedTime: null,
   },
 
   // --- 7h14-7h19 : ÉVANGILE ---
@@ -143,6 +152,7 @@ Avant de parler de votre paroisse, j'aimerais qu'on parle un peu de vous.
     script: null,
     notes: 'Virgule TDC',
     isFixed: true,
+    fixedTime: null,
   },
   {
     type: 'STORY',
@@ -156,6 +166,7 @@ Avant de parler de votre paroisse, j'aimerais qu'on parle un peu de vous.
 Commentaire par {{COMMENTATEUR_EVANGILE}}.`,
     notes: 'Évangile + Commentaire - ~4 min',
     isFixed: false,
+    fixedTime: null,
   },
   {
     type: 'JINGLE',
@@ -165,6 +176,7 @@ Commentaire par {{COMMENTATEUR_EVANGILE}}.`,
     script: null,
     notes: 'Virgule TDC',
     isFixed: true,
+    fixedTime: null,
   },
 
   // --- 7h20-7h28 : RETOUR PÈRE ---
@@ -181,6 +193,7 @@ Commentaire par {{COMMENTATEUR_EVANGILE}}.`,
 • Quels sont vos projets pour cette année pastorale ?`,
     notes: 'Interview vie paroissiale avec le Père - 8 min',
     isFixed: false,
+    fixedTime: null,
   },
 
   // --- 7h28-7h31 : TRANSITION ---
@@ -192,41 +205,45 @@ Commentaire par {{COMMENTATEUR_EVANGILE}}.`,
     script: null,
     notes: 'Virgule TDC',
     isFixed: true,
+    fixedTime: null,
   },
   {
     type: 'BREAK',
     title: 'Publicité',
     startTime: '7h28',
-    duration: 120,
+    duration: 50,
     script: null,
-    notes: 'Bloc pub 2',
+    notes: 'Bloc pub 2 - DOIT PARTIR À 07:28',
     isFixed: true,
+    fixedTime: '07:28', // HEURE IMPÉRATIVE
   },
   {
     type: 'STORY',
     title: 'Météo',
-    startTime: '7h30',
+    startTime: '7h29',
     duration: 60,
     script: null,
-    notes: 'Météo flash',
+    notes: 'Météo flash - DOIT PARTIR À 07:29',
     isFixed: true,
+    fixedTime: '07:29', // HEURE IMPÉRATIVE
   },
 
-  // --- 7h31-7h58 : VIE PAROISSIALE ---
+  // --- 7h30-7h58 : VIE PAROISSIALE ---
   {
     type: 'JINGLE',
     title: 'Jingle retour antenne',
-    startTime: '7h31',
+    startTime: '7h30',
     duration: 10,
     script: null,
     notes: 'Jingle retour après pub',
     isFixed: true,
+    fixedTime: null,
   },
   {
     type: 'INTERVIEW',
     title: 'Vie paroissiale',
-    startTime: '7h31',
-    duration: 1620,
+    startTime: '7h30',
+    duration: 1680,
     script: `Nous allons maintenant à la rencontre de paroissiens engagés.
 
 Pour ce premier créneau consacré à la vie paroissiale, je reçois {{INVITES_VIE_PAROISSIALE}}.
@@ -237,8 +254,9 @@ Questions pour les invités :
 • En quoi consiste votre engagement ?
 • Qu'est-ce que cet engagement vous apporte ?
 • Comment les gens peuvent-ils rejoindre votre groupe/mouvement ?`,
-    notes: 'Invités vie paroissiale - 27 min (7h31-7h58)',
+    notes: 'Invités vie paroissiale - ~28 min (7h30-7h58)',
     isFixed: false,
+    fixedTime: null,
   },
 
   // --- 7h58-8h00 : TRANSITION ---
@@ -250,6 +268,7 @@ Questions pour les invités :
     script: null,
     notes: 'Jingle TDC avant pub',
     isFixed: true,
+    fixedTime: null,
   },
   {
     type: 'BREAK',
@@ -259,6 +278,7 @@ Questions pour les invités :
     script: null,
     notes: 'Bloc pub 3 - Fin première heure',
     isFixed: true,
+    fixedTime: null,
   },
 
   // ============================================================================
@@ -272,8 +292,9 @@ Questions pour les invités :
     startTime: '8h00',
     duration: 120,
     script: null,
-    notes: 'Top horaire + Flash national',
+    notes: 'Top horaire + Flash national - DOIT PARTIR À 08:00',
     isFixed: true,
+    fixedTime: '08:00', // HEURE IMPÉRATIVE - TOP HORAIRE
   },
   {
     type: 'STORY',
@@ -283,6 +304,7 @@ Questions pour les invités :
     script: null,
     notes: 'Flash info local',
     isFixed: true,
+    fixedTime: null,
   },
   {
     type: 'STORY',
@@ -292,6 +314,7 @@ Questions pour les invités :
     script: null,
     notes: 'Météo',
     isFixed: true,
+    fixedTime: null,
   },
   {
     type: 'JINGLE',
@@ -301,6 +324,7 @@ Questions pour les invités :
     script: null,
     notes: 'Jingle retour + Sponsor TDC',
     isFixed: true,
+    fixedTime: null,
   },
 
   // --- 8h06-8h16 : ÉLUS / MAIRIE ---
@@ -319,6 +343,7 @@ Questions pour l'élu(e) :
 • Un mot sur la vie associative de la commune ?`,
     notes: 'Interview élu(e) local(e) - 10 min (8h06-8h16)',
     isFixed: false,
+    fixedTime: null,
   },
   {
     type: 'JINGLE',
@@ -328,6 +353,7 @@ Questions pour l'élu(e) :
     script: null,
     notes: 'Virgule TDC',
     isFixed: true,
+    fixedTime: null,
   },
 
   // --- 8h17-8h28 : HISTOIRE / PATRIMOINE ---
@@ -346,6 +372,7 @@ Questions pour l'invité(e) :
 • Comment ce patrimoine est-il préservé aujourd'hui ?`,
     notes: 'Interview histoire/patrimoine - 11 min (8h17-8h28)',
     isFixed: false,
+    fixedTime: null,
   },
 
   // --- 8h28-8h30 : TRANSITION ---
@@ -357,6 +384,7 @@ Questions pour l'invité(e) :
     script: null,
     notes: 'Jingle TDC',
     isFixed: true,
+    fixedTime: null,
   },
   {
     type: 'BREAK',
@@ -366,6 +394,7 @@ Questions pour l'invité(e) :
     script: null,
     notes: 'Bloc pub 4',
     isFixed: true,
+    fixedTime: null,
   },
 
   // --- 8h30-8h45 : RADIO VATICAN ---
@@ -375,8 +404,9 @@ Questions pour l'invité(e) :
     startTime: '8h30',
     duration: 900,
     script: null,
-    notes: 'Journal international Radio Vatican - 15 min',
+    notes: 'Journal international Radio Vatican - 15 min - DOIT PARTIR À 08:30',
     isFixed: true,
+    fixedTime: '08:30', // HEURE IMPÉRATIVE - SYNCHRO SATELLITE
   },
   {
     type: 'STORY',
@@ -386,6 +416,7 @@ Questions pour l'invité(e) :
     script: `C (Clara) : 8h45 sur Radio Fidélité, nous retrouvons Tiphaine Sellier en direct de {{COMMUNE}} pour la suite et fin du Tour des Clochers de ce matin.`,
     notes: 'Transition Clara',
     isFixed: true,
+    fixedTime: null,
   },
   {
     type: 'JINGLE',
@@ -395,6 +426,7 @@ Questions pour l'invité(e) :
     script: null,
     notes: 'Jingle spécial dernier segment',
     isFixed: true,
+    fixedTime: null,
   },
 
   // --- 8h45-8h55 : ASSOCIATION ---
@@ -413,6 +445,7 @@ Questions pour l'invité(e) :
 • Quels sont vos projets à venir ?`,
     notes: 'Interview association - 10 min (8h45-8h55)',
     isFixed: false,
+    fixedTime: null,
   },
 
   // --- 8h55-8h58 : CONCLUSION PÈRE ---
@@ -424,6 +457,7 @@ Questions pour l'invité(e) :
     script: null,
     notes: 'Virgule TDC avec nom de la paroisse',
     isFixed: true,
+    fixedTime: null,
   },
   {
     type: 'INTERVIEW',
@@ -437,6 +471,7 @@ Questions pour l'invité(e) :
 • Les horaires des messes ce week-end ?`,
     notes: 'Conclusion avec invité fil rouge - 3 min',
     isFixed: false,
+    fixedTime: null,
   },
 
   // --- 8h58-9h00 : CONCLUSION FINALE ---
@@ -454,6 +489,7 @@ On se retrouve vendredi prochain pour un nouveau Tour des Clochers !
 Je repasse l'antenne à Clara, bonne fin de journée !`,
     notes: 'Conclusion Tiphaine sur place',
     isFixed: false,
+    fixedTime: null,
   },
   {
     type: 'STORY',
@@ -469,6 +505,7 @@ Pour rappel, tous les replay du Tour des clochers sont à réécouter sur www.ra
 Et comme toujours, Radio Fidélité a besoin de votre soutien. Pour nous aider, rendez-vous sur radio-fidelite.fr, rubrique "nous soutenir".`,
     notes: 'Conclusion Clara en studio + Appel aux dons',
     isFixed: true,
+    fixedTime: null,
   },
   {
     type: 'JINGLE',
@@ -478,6 +515,7 @@ Et comme toujours, Radio Fidélité a besoin de votre soutien. Pour nous aider, 
     script: null,
     notes: 'Sponsor de sortie',
     isFixed: true,
+    fixedTime: null,
   },
   {
     type: 'BREAK',
@@ -487,6 +525,7 @@ Et comme toujours, Radio Fidélité a besoin de votre soutien. Pour nous aider, 
     script: null,
     notes: 'Bloc pub fin - Transition vers programme suivant',
     isFixed: true,
+    fixedTime: null,
   },
 ];
 
@@ -662,6 +701,7 @@ En studio : Clara Bert`,
     position: index,
     notes: item.notes ? `${item.startTime} - ${item.notes}` : item.startTime,
     script: item.script,
+    fixedTime: item.fixedTime, // Heure obligatoire si définie
   }));
 
   await prisma.rundownTemplateItem.createMany({
@@ -677,6 +717,7 @@ En studio : Clara Bert`,
 
   const fixedItems = tourDesClocherItems.filter((i) => i.isFixed).length;
   const variableItems = tourDesClocherItems.filter((i) => !i.isFixed).length;
+  const fixedTimeItems = tourDesClocherItems.filter((i) => i.fixedTime !== null).length;
 
   console.log('\n📋 Résumé du template:');
   console.log(`   - Nom: ${template.name}`);
@@ -684,8 +725,17 @@ En studio : Clara Bert`,
   console.log(`   - Éléments totaux: ${itemsData.length}`);
   console.log(`   - Éléments fixes: ${fixedItems}`);
   console.log(`   - Éléments variables: ${variableItems}`);
+  console.log(`   - Éléments avec heure impérative: ${fixedTimeItems}`);
   console.log(`   - Durée totale: ${hours}h${minutes.toString().padStart(2, '0')}`);
   console.log(`   - Variables: ${templateVariables.length}`);
+
+  // Afficher les heures impératives
+  console.log('\n⏰ Heures impératives:');
+  tourDesClocherItems
+    .filter((i) => i.fixedTime !== null)
+    .forEach((item) => {
+      console.log(`   - ${item.fixedTime} : ${item.title}`);
+    });
 
   console.log('\n📝 Catégories de variables:');
   const categories = [...new Set(templateVariables.map((v) => v.category))];
