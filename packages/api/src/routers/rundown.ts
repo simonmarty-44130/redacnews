@@ -89,7 +89,8 @@ export const rundownRouter = router({
       });
 
       // Synchroniser le titre, la durée et le statut depuis la Story liée si présente
-      // Cela garantit que le conducteur reflète toujours les données actuelles du sujet
+      // ET synchroniser la durée depuis le conducteur lié (imbriqué) si présent
+      // Cela garantit que le conducteur reflète toujours les données actuelles
 
       // Mapping des statuts Story -> ItemStatus
       const storyStatusToItemStatus: Record<string, 'PENDING' | 'IN_PROGRESS' | 'READY' | 'ON_AIR' | 'DONE'> = {
@@ -103,28 +104,70 @@ export const rundownRouter = router({
       const itemsToUpdate: { id: string; title: string; duration: number; status?: 'PENDING' | 'IN_PROGRESS' | 'READY' | 'ON_AIR' | 'DONE' }[] = [];
 
       for (const item of rundown.items) {
+        let needsUpdate = false;
+        let newTitle = item.title;
+        let newDuration = item.duration;
+        let newStatus: 'PENDING' | 'IN_PROGRESS' | 'READY' | 'ON_AIR' | 'DONE' | undefined;
+
+        // 1. Synchroniser depuis la Story liée
         if (item.story) {
           const storyTitle = item.story.title;
           const storyDuration = item.story.estimatedDuration;
           const mappedStatus = storyStatusToItemStatus[item.story.status];
 
           // Vérifier si une mise à jour est nécessaire
-          const needsTitleUpdate = storyTitle && item.title !== storyTitle;
-          const needsDurationUpdate = storyDuration && item.duration !== storyDuration;
+          if (storyTitle && item.title !== storyTitle) {
+            newTitle = storyTitle;
+            needsUpdate = true;
+          }
+          if (storyDuration && item.duration !== storyDuration) {
+            newDuration = storyDuration;
+            needsUpdate = true;
+          }
           // Ne mettre à jour le statut que si l'item n'est pas déjà ON_AIR ou DONE (statuts manuels)
-          const needsStatusUpdate = mappedStatus &&
+          if (mappedStatus &&
             item.status !== 'ON_AIR' &&
             item.status !== 'DONE' &&
-            item.status !== mappedStatus;
-
-          if (needsTitleUpdate || needsDurationUpdate || needsStatusUpdate) {
-            itemsToUpdate.push({
-              id: item.id,
-              title: storyTitle || item.title,
-              duration: storyDuration || item.duration,
-              ...(needsStatusUpdate && { status: mappedStatus }),
-            });
+            item.status !== mappedStatus) {
+            newStatus = mappedStatus;
+            needsUpdate = true;
           }
+        }
+
+        // 2. Synchroniser la durée depuis le conducteur lié (imbriqué)
+        // La durée réelle du conducteur lié prévaut sur la durée théorique du template
+        if (item.linkedRundown) {
+          // Récupérer la durée totale des items du conducteur lié
+          const linkedRundownWithDurations = await ctx.db.rundown.findUnique({
+            where: { id: item.linkedRundown.id },
+            include: {
+              items: {
+                select: { duration: true },
+              },
+            },
+          });
+
+          if (linkedRundownWithDurations) {
+            const linkedTotalDuration = linkedRundownWithDurations.items.reduce(
+              (sum, linkedItem) => sum + linkedItem.duration,
+              0
+            );
+
+            // Mettre à jour si la durée diffère
+            if (item.duration !== linkedTotalDuration) {
+              newDuration = linkedTotalDuration;
+              needsUpdate = true;
+            }
+          }
+        }
+
+        if (needsUpdate) {
+          itemsToUpdate.push({
+            id: item.id,
+            title: newTitle,
+            duration: newDuration,
+            ...(newStatus && { status: newStatus }),
+          });
         }
       }
 

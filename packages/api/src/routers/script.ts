@@ -94,6 +94,12 @@ export const scriptRouter = router({
                       duration: true,
                       type: true,
                       position: true,
+                      // Aussi récupérer le contenu de la Story liée si présente
+                      story: {
+                        select: {
+                          content: true,
+                        },
+                      },
                     },
                   },
                 },
@@ -135,7 +141,8 @@ export const scriptRouter = router({
             items: item.linkedRundown.items.map((linkedItem) => ({
               id: linkedItem.id,
               title: linkedItem.title,
-              script: linkedItem.script,
+              // Priorité: script de l'item > contenu de la Story liée
+              script: linkedItem.script || linkedItem.story?.content || null,
               duration: linkedItem.duration,
               type: linkedItem.type,
               position: linkedItem.position,
