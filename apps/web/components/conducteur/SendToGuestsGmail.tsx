@@ -14,7 +14,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import {
   Mail,
@@ -282,7 +281,7 @@ L'équipe de Radio Fidélité
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 min-h-0 -mx-6 px-6">
+        <div className="overflow-y-auto max-h-[50vh] -mx-6 px-6">
           <div className="space-y-4 py-4">
             {guests.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
@@ -416,7 +415,7 @@ L'équipe de Radio Fidélité
               </>
             )}
           </div>
-        </ScrollArea>
+        </div>
 
         <DialogFooter className="flex-shrink-0 gap-2 sm:gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
