@@ -16,6 +16,7 @@ model Organization {
   updatedAt        DateTime          @updatedAt
   collections      Collection[]
   constituencies   Constituency[]
+  invitations      Invitation[]
   mediaItems       MediaItem[]
   montageProjects  MontageProject[]
   politicalTags    PoliticalTag[]
@@ -51,6 +52,7 @@ model User {
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
   comments        Comment[]
+  invitationsSent Invitation[]        @relation("InvitationSentBy")
   mediaItems      MediaItem[]
   montageProjects MontageProject[]
   sentGuestShares RundownGuestShare[] @relation("GuestShareSentBy")
@@ -530,4 +532,33 @@ enum PoliticalFamily {
   EXD
   DIV
   AUT
+}
+
+// ============ INVITATIONS ============
+
+model Invitation {
+  id             String           @id @default(cuid())
+  email          String
+  role           UserRole         @default(JOURNALIST)
+  token          String           @unique
+  status         InvitationStatus @default(PENDING)
+  organizationId String
+  invitedById    String
+  expiresAt      DateTime
+  createdAt      DateTime         @default(now())
+  acceptedAt     DateTime?
+
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  invitedBy      User             @relation("InvitationSentBy", fields: [invitedById], references: [id])
+
+  @@index([organizationId])
+  @@index([email])
+  @@index([token])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  CANCELLED
 }

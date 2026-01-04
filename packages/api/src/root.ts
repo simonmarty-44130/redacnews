@@ -8,6 +8,7 @@ import { scriptRouter } from './routers/script';
 import { templateRouter } from './routers/template';
 import { rundownGuestRouter } from './routers/rundown-guest';
 import { politicsRouter } from './routers/politics';
+import { teamRouter } from './routers/team';
 
 export const appRouter = router({
   rundown: rundownRouter,
@@ -19,6 +20,7 @@ export const appRouter = router({
   template: templateRouter,
   rundownGuest: rundownGuestRouter,
   politics: politicsRouter,
+  team: teamRouter,
 });
 
 export type AppRouter = typeof appRouter;
