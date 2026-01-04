@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { trpc } from '@/lib/trpc/client';
 import {
   Dialog,
   DialogContent,
@@ -23,9 +24,12 @@ import {
   ExternalLink,
   Check,
   AlertCircle,
+  Loader2,
+  Link as LinkIcon,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { toast } from 'sonner';
 
 interface RundownItem {
   id: string;
@@ -41,6 +45,7 @@ interface GuestInfo {
   name: string;
   email: string;
   passages: Array<{
+    itemId: string;
     time: string;
     title: string;
     duration: number;
@@ -98,6 +103,7 @@ const VARIABLE_LABELS: Record<string, string> = {
 export function SendToGuestsGmail({
   open,
   onOpenChange,
+  rundownId,
   showName,
   rundownDate,
   startTime,
@@ -106,6 +112,18 @@ export function SendToGuestsGmail({
 }: SendToGuestsGmailProps) {
   // État pour les emails de chaque invité
   const [guestEmails, setGuestEmails] = useState<Record<string, string>>({});
+  // État pour suivre quel invité est en cours de traitement
+  const [processingGuest, setProcessingGuest] = useState<string | null>(null);
+  // État pour les liens créés
+  const [createdLinks, setCreatedLinks] = useState<Record<string, string>>({});
+
+  // Mutation pour créer le lien de partage
+  const createShareLink = trpc.rundownGuest.createShareLink.useMutation({
+    onError: (error) => {
+      toast.error(`Erreur: ${error.message}`);
+      setProcessingGuest(null);
+    },
+  });
 
   // Extraire les invités depuis les variables du template
   const guests = useMemo(() => {
@@ -138,6 +156,7 @@ export function SendToGuestsGmail({
           );
         })
         .map((item) => ({
+          itemId: item.id,
           time: calculateItemTime(startTime, items, item.position),
           title: item.title,
           duration: item.duration,
@@ -155,127 +174,98 @@ export function SendToGuestsGmail({
     return result;
   }, [templateVariables, items, startTime, guestEmails]);
 
-  // Calculer toutes les heures de passage pour le conducteur complet
-  const itemsWithTimes = useMemo(() => {
-    return items.map((item) => ({
-      ...item,
-      time: calculateItemTime(startTime, items, item.position),
-    }));
-  }, [items, startTime]);
+  // Ouvrir Gmail Compose pour un invité avec le lien de partage
+  const openGmailCompose = async (guest: GuestInfo) => {
+    if (!guest.email) return;
 
-  // Générer le contenu de l'email pour un invité (version texte formatée pour Gmail Compose)
-  const generateEmailContent = (guest: GuestInfo): { subject: string; body: string } => {
-    const formattedDate = format(rundownDate, 'EEEE d MMMM yyyy', { locale: fr });
-    const formattedDateShort = format(rundownDate, 'd MMMM yyyy', { locale: fr });
+    setProcessingGuest(guest.variableName);
 
-    const subject = `Radio Fidélité - ${showName} - ${formattedDateShort} - Votre participation`;
+    try {
+      // Créer le lien de partage via l'API
+      const result = await createShareLink.mutateAsync({
+        rundownId,
+        recipientEmail: guest.email,
+        recipientName: guest.name,
+        highlightItemIds: guest.passages.map((p) => p.itemId),
+        expirationDays: 7,
+      });
 
-    // Trouver les titres des passages de l'invité pour le marquage
-    const guestPassageTitles = guest.passages.map((p) => p.title.toLowerCase());
+      // Sauvegarder le lien
+      setCreatedLinks((prev) => ({
+        ...prev,
+        [guest.variableName]: result.shareUrl,
+      }));
 
-    // Construire le corps du message en texte formaté
-    let body = `📻 RADIO FIDÉLITÉ
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // Préparer l'email
+      const formattedDate = format(rundownDate, 'EEEE d MMMM yyyy', { locale: fr });
+      const formattedDateShort = format(rundownDate, 'd MMMM yyyy', { locale: fr });
 
-Bonjour ${guest.name},
+      const subject = `Radio Fidélité - ${showName} - ${formattedDateShort} - Votre participation`;
+
+      // Construire le corps de l'email avec le lien
+      const passagesList = guest.passages.length > 0
+        ? guest.passages.map((p) => `• ${p.time} - ${p.title} (${formatDuration(p.duration)})`).join('\n')
+        : '';
+
+      const body = `Bonjour ${guest.name},
 
 Vous êtes invité(e) à participer à l'émission "${showName}" sur Radio Fidélité.
 
-📅 INFORMATIONS PRATIQUES
-━━━━━━━━━━━━━━━━━━━━━━━━━
-• Date : ${formattedDate}
-• Heure de début : ${startTime}
-• Lieu : Studios de Radio Fidélité (à confirmer)
+📅 Date : ${formattedDate}
+🕐 Heure de début : ${startTime}
 
-`;
+${guest.passages.length > 0 ? `⭐ Vos passages prévus :
+${passagesList}
 
-    // Ajouter les passages de l'invité
-    if (guest.passages.length > 0) {
-      body += `⭐ VOS PASSAGES PRÉVUS
-━━━━━━━━━━━━━━━━━━━━━━━━━
-`;
-      guest.passages.forEach((p) => {
-        body += `▸ ${p.time}  │  ${p.title}  │  ${formatDuration(p.duration)}
-`;
-      });
-      body += `
-`;
-    }
+` : ''}📋 CONSULTEZ LE CONDUCTEUR COMPLET :
+${result.shareUrl}
 
-    // Conducteur complet
-    body += `📋 CONDUCTEUR COMPLET DE L'ÉMISSION
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-(⭐ = Vos passages)
-
-`;
-
-    // Calculer la largeur max du titre pour l'alignement
-    const maxTitleLength = Math.min(
-      40,
-      Math.max(...itemsWithTimes.map((item) => item.title.length))
-    );
-
-    itemsWithTimes.forEach((item) => {
-      const isGuestPassage = guestPassageTitles.includes(item.title.toLowerCase());
-      const marker = isGuestPassage ? '⭐' : '  ';
-      const title = item.title.substring(0, maxTitleLength).padEnd(maxTitleLength);
-      body += `${marker} ${item.time}  │  ${title}  │  ${formatDuration(item.duration)}
-`;
-    });
-
-    body += `
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Ce lien vous permet de visualiser le conducteur complet de l'émission avec vos passages mis en surbrillance. Il est valable 7 jours.
 
 Merci de confirmer votre participation en répondant à cet email.
 
 Cordialement,
 L'équipe de Radio Fidélité
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📞 02 40 69 27 27  │  🌐 www.radio-fidelite.fr
-Radio Fidélité - La radio qui vous rapproche
-`;
+---
+📻 Radio Fidélité - La radio qui vous rapproche
+📞 02 40 69 27 27 | 🌐 www.radio-fidelite.fr`;
 
-    return { subject, body };
-  };
+      // Encoder pour l'URL
+      const encodedSubject = encodeURIComponent(subject);
+      const encodedBody = encodeURIComponent(body);
 
-  // État pour afficher le message de copie
-  const [copiedGuest, setCopiedGuest] = useState<string | null>(null);
+      // URL Gmail Compose
+      const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(guest.email)}&su=${encodedSubject}&body=${encodedBody}`;
 
-  // Ouvrir Gmail Compose pour un invité
-  const openGmailCompose = async (guest: GuestInfo) => {
-    if (!guest.email) return;
+      // Ouvrir Gmail
+      window.open(gmailUrl, '_blank');
 
-    const { subject, body } = generateEmailContent(guest);
-
-    // Copier le contenu dans le presse-papiers
-    try {
-      await navigator.clipboard.writeText(body);
-      setCopiedGuest(guest.variableName);
-      setTimeout(() => setCopiedGuest(null), 3000);
-    } catch (err) {
-      console.error('Erreur copie presse-papiers:', err);
+      toast.success(`Email préparé pour ${guest.name}`);
+    } catch {
+      // Erreur déjà gérée par onError
+    } finally {
+      setProcessingGuest(null);
     }
-
-    // Encoder pour l'URL (sans le body pour éviter l'erreur 400)
-    const encodedSubject = encodeURIComponent(subject);
-
-    // URL Gmail Compose - sans body, l'utilisateur collera le contenu
-    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(guest.email)}&su=${encodedSubject}`;
-
-    window.open(gmailUrl, '_blank');
   };
 
   // Ouvrir Gmail pour tous les invités avec email
-  const openAllGmailCompose = () => {
+  const openAllGmailCompose = async () => {
     const guestsWithEmail = guests.filter((g) => g.email && g.email.includes('@'));
-    guestsWithEmail.forEach((guest, index) => {
-      // Délai pour éviter le blocage des pop-ups
-      setTimeout(() => openGmailCompose(guest), index * 500);
-    });
+    for (let i = 0; i < guestsWithEmail.length; i++) {
+      const guest = guestsWithEmail[i];
+      await openGmailCompose({
+        ...guest,
+        email: guestEmails[guest.variableName] || '',
+      });
+      // Délai entre chaque envoi pour éviter le blocage
+      if (i < guestsWithEmail.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    }
   };
 
-  const guestsWithEmail = guests.filter((g) => g.email && g.email.includes('@'));
+  const guestsWithEmail = guests.filter((g) => guestEmails[g.variableName]?.includes('@'));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -305,9 +295,9 @@ Radio Fidélité - La radio qui vous rapproche
             ) : (
               <>
                 <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg text-sm text-blue-800">
-                  <AlertCircle className="h-4 w-4 inline mr-1" />
-                  Renseignez les emails puis cliquez sur "Gmail". Le conducteur complet sera
-                  <strong> copié dans le presse-papiers</strong> - collez-le (Ctrl+V) dans le mail.
+                  <LinkIcon className="h-4 w-4 inline mr-1" />
+                  Un <strong>lien personnalisé</strong> sera créé pour chaque invité.
+                  Ce lien affiche le conducteur complet avec ses passages surlignés en jaune.
                 </div>
 
                 {guests.map((guest) => (
@@ -345,7 +335,7 @@ Radio Fidélité - La radio qui vous rapproche
                       </div>
                     )}
 
-                    {/* Email */}
+                    {/* Email + boutons */}
                     <div className="flex items-center gap-2">
                       <div className="flex-1">
                         <Label htmlFor={`email-${guest.variableName}`} className="sr-only">
@@ -365,21 +355,29 @@ Radio Fidélité - La radio qui vous rapproche
                         />
                       </div>
                       <Button
-                        variant={copiedGuest === guest.variableName ? 'default' : 'outline'}
+                        variant={createdLinks[guest.variableName] ? 'default' : 'outline'}
                         size="sm"
-                        disabled={!guestEmails[guest.variableName]?.includes('@')}
+                        disabled={
+                          !guestEmails[guest.variableName]?.includes('@') ||
+                          processingGuest === guest.variableName
+                        }
                         onClick={() =>
                           openGmailCompose({
                             ...guest,
                             email: guestEmails[guest.variableName] || '',
                           })
                         }
-                        className={copiedGuest === guest.variableName ? 'bg-green-600 hover:bg-green-700' : ''}
+                        className={createdLinks[guest.variableName] ? 'bg-green-600 hover:bg-green-700' : ''}
                       >
-                        {copiedGuest === guest.variableName ? (
+                        {processingGuest === guest.variableName ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                            Création...
+                          </>
+                        ) : createdLinks[guest.variableName] ? (
                           <>
                             <Check className="h-4 w-4 mr-1" />
-                            Copié !
+                            Envoyé
                           </>
                         ) : (
                           <>
@@ -389,15 +387,24 @@ Radio Fidélité - La radio qui vous rapproche
                         )}
                       </Button>
                     </div>
+
+                    {/* Lien créé */}
+                    {createdLinks[guest.variableName] && (
+                      <div className="text-xs text-green-700 bg-green-50 p-2 rounded flex items-center gap-1">
+                        <Check className="h-3 w-3" />
+                        Lien créé :
+                        <a
+                          href={createdLinks[guest.variableName]}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline ml-1"
+                        >
+                          voir le conducteur
+                        </a>
+                      </div>
+                    )}
                   </div>
                 ))}
-
-                {copiedGuest && (
-                  <div className="bg-green-100 border border-green-300 p-3 rounded-lg text-sm text-green-800 animate-pulse">
-                    <Check className="h-4 w-4 inline mr-1" />
-                    <strong>Conducteur copié !</strong> Collez-le dans Gmail avec Ctrl+V (ou Cmd+V sur Mac)
-                  </div>
-                )}
 
                 <Separator />
 
@@ -416,9 +423,21 @@ Radio Fidélité - La radio qui vous rapproche
             Fermer
           </Button>
           {guests.length > 0 && (
-            <Button onClick={openAllGmailCompose} disabled={guestsWithEmail.length === 0}>
-              <Send className="h-4 w-4 mr-2" />
-              Envoyer à tous ({guestsWithEmail.length})
+            <Button
+              onClick={openAllGmailCompose}
+              disabled={guestsWithEmail.length === 0 || processingGuest !== null}
+            >
+              {processingGuest ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  En cours...
+                </>
+              ) : (
+                <>
+                  <Send className="h-4 w-4 mr-2" />
+                  Envoyer à tous ({guestsWithEmail.length})
+                </>
+              )}
             </Button>
           )}
         </DialogFooter>

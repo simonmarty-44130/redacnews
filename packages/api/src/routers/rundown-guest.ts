@@ -423,6 +423,51 @@ export const rundownGuestRouter = router({
 
   // ========== ACCÈS WEB SÉCURISÉ ==========
 
+  // Créer un lien de partage sans envoyer d'email (pour Gmail compose)
+  createShareLink: protectedProcedure
+    .input(
+      z.object({
+        rundownId: z.string(),
+        recipientEmail: z.string().email(),
+        recipientName: z.string(),
+        highlightItemIds: z.array(z.string()),
+        expirationDays: z.number().min(1).max(30).default(7),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Vérifier permissions
+      const rundown = await ctx.db.rundown.findUniqueOrThrow({
+        where: { id: input.rundownId },
+        include: { show: true },
+      });
+
+      if (rundown.show.organizationId !== ctx.organizationId) {
+        throw new TRPCError({ code: 'FORBIDDEN' });
+      }
+
+      // Générer le token
+      const accessToken = nanoid(32);
+      const tokenExpiresAt = addDays(new Date(), input.expirationDays);
+
+      // Créer l'entrée de partage
+      await ctx.db.rundownGuestShare.create({
+        data: {
+          rundownId: input.rundownId,
+          recipientEmail: input.recipientEmail,
+          recipientName: input.recipientName,
+          highlightedItems: input.highlightItemIds,
+          sentById: ctx.userId!,
+          accessToken,
+          tokenExpiresAt,
+        },
+      });
+
+      return {
+        shareUrl: `${process.env.NEXT_PUBLIC_APP_URL}/conducteur/partage/${accessToken}`,
+        expiresAt: tokenExpiresAt,
+      };
+    }),
+
   // Récupérer un conducteur partagé via token (route publique)
   getSharedRundown: publicProcedure
     .input(z.object({ token: z.string() }))
