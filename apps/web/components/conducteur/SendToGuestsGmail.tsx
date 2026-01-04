@@ -155,29 +155,86 @@ export function SendToGuestsGmail({
     return result;
   }, [templateVariables, items, startTime, guestEmails]);
 
-  // Générer le contenu de l'email pour un invité
+  // Calculer toutes les heures de passage pour le conducteur complet
+  const itemsWithTimes = useMemo(() => {
+    return items.map((item) => ({
+      ...item,
+      time: calculateItemTime(startTime, items, item.position),
+    }));
+  }, [items, startTime]);
+
+  // Générer le contenu de l'email pour un invité (version texte formatée pour Gmail Compose)
   const generateEmailContent = (guest: GuestInfo): { subject: string; body: string } => {
     const formattedDate = format(rundownDate, 'EEEE d MMMM yyyy', { locale: fr });
+    const formattedDateShort = format(rundownDate, 'd MMMM yyyy', { locale: fr });
 
-    const subject = `Radio Fidélité - ${showName} - ${formattedDate}`;
+    const subject = `Radio Fidélité - ${showName} - ${formattedDateShort} - Votre participation`;
 
-    let body = `Bonjour ${guest.name},\n\n`;
-    body += `Vous êtes invité(e) à participer à l'émission "${showName}" sur Radio Fidélité.\n\n`;
-    body += `Date : ${formattedDate}\n`;
-    body += `Lieu : [Lieu de l'émission]\n\n`;
+    // Trouver les titres des passages de l'invité pour le marquage
+    const guestPassageTitles = guest.passages.map((p) => p.title.toLowerCase());
 
+    // Construire le corps du message en texte formaté
+    let body = `📻 RADIO FIDÉLITÉ
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Bonjour ${guest.name},
+
+Vous êtes invité(e) à participer à l'émission "${showName}" sur Radio Fidélité.
+
+📅 INFORMATIONS PRATIQUES
+━━━━━━━━━━━━━━━━━━━━━━━━━
+• Date : ${formattedDate}
+• Heure de début : ${startTime}
+• Lieu : Studios de Radio Fidélité (à confirmer)
+
+`;
+
+    // Ajouter les passages de l'invité
     if (guest.passages.length > 0) {
-      body += `Vos passages prévus :\n`;
-      body += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-      guest.passages.forEach((passage) => {
-        body += `• ${passage.time} - ${passage.title} (${formatDuration(passage.duration)})\n`;
+      body += `⭐ VOS PASSAGES PRÉVUS
+━━━━━━━━━━━━━━━━━━━━━━━━━
+`;
+      guest.passages.forEach((p) => {
+        body += `▸ ${p.time}  │  ${p.title}  │  ${formatDuration(p.duration)}
+`;
       });
-      body += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+      body += `
+`;
     }
 
-    body += `Merci de confirmer votre participation.\n\n`;
-    body += `Cordialement,\n`;
-    body += `L'équipe de Radio Fidélité`;
+    // Conducteur complet
+    body += `📋 CONDUCTEUR COMPLET DE L'ÉMISSION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(⭐ = Vos passages)
+
+`;
+
+    // Calculer la largeur max du titre pour l'alignement
+    const maxTitleLength = Math.min(
+      40,
+      Math.max(...itemsWithTimes.map((item) => item.title.length))
+    );
+
+    itemsWithTimes.forEach((item) => {
+      const isGuestPassage = guestPassageTitles.includes(item.title.toLowerCase());
+      const marker = isGuestPassage ? '⭐' : '  ';
+      const title = item.title.substring(0, maxTitleLength).padEnd(maxTitleLength);
+      body += `${marker} ${item.time}  │  ${title}  │  ${formatDuration(item.duration)}
+`;
+    });
+
+    body += `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Merci de confirmer votre participation en répondant à cet email.
+
+Cordialement,
+L'équipe de Radio Fidélité
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📞 02 40 69 27 27  │  🌐 www.radio-fidelite.fr
+Radio Fidélité - La radio qui vous rapproche
+`;
 
     return { subject, body };
   };
