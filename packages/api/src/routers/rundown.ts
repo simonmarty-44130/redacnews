@@ -112,7 +112,12 @@ export const rundownRouter = router({
         // 1. Synchroniser depuis la Story liée
         if (item.story) {
           const storyTitle = item.story.title;
-          const storyDuration = item.story.estimatedDuration;
+          // Calculer la durée totale = temps de lecture + durée des médias audio
+          const readingDuration = item.story.estimatedDuration || 0;
+          const mediaDuration = item.story.media
+            ?.filter((m) => m.mediaItem.type === 'AUDIO' && m.mediaItem.duration)
+            .reduce((sum, m) => sum + (m.mediaItem.duration || 0), 0) || 0;
+          const storyDuration = readingDuration + mediaDuration;
           const mappedStatus = storyStatusToItemStatus[item.story.status];
 
           // Vérifier si une mise à jour est nécessaire
@@ -120,7 +125,7 @@ export const rundownRouter = router({
             newTitle = storyTitle;
             needsUpdate = true;
           }
-          if (storyDuration && item.duration !== storyDuration) {
+          if (storyDuration > 0 && item.duration !== storyDuration) {
             newDuration = storyDuration;
             needsUpdate = true;
           }
