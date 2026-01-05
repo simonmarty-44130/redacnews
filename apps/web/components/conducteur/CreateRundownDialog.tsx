@@ -131,29 +131,39 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
 
   // Ref pour tracker le dernier templateId pour lequel on a initialisé les variables
   const lastInitializedTemplateIdRef = useRef<string>('');
+  // Ref pour tracker si les variables ont déjà été initialisées pour ce template
+  const variablesInitializedRef = useRef<boolean>(false);
 
-  // Initialiser les variables du template quand l'ID du template sélectionné change
-  // (pas quand les données du template sont juste refetch)
+  // Initialiser les variables du template UNIQUEMENT quand l'ID du template change
+  // Ne pas réinitialiser lors d'un refetch ou retour sur l'onglet
   useEffect(() => {
-    // Si on a désélectionné le template, réinitialiser
+    // Si on a désélectionné le template, réinitialiser les refs
     if (!selectedTemplateId) {
-      setTemplateVariables({});
       lastInitializedTemplateIdRef.current = '';
+      variablesInitializedRef.current = false;
+      // Ne pas effacer templateVariables ici pour éviter de perdre les données
+      // si c'est juste un re-render temporaire
       return;
     }
 
-    // Si c'est un nouveau template et qu'on a les données, initialiser les variables
-    if (
-      selectedTemplateId !== lastInitializedTemplateIdRef.current &&
-      selectedTemplate?.variables
-    ) {
+    // Si c'est un NOUVEAU template (ID différent), initialiser les variables
+    if (selectedTemplateId !== lastInitializedTemplateIdRef.current) {
+      // Marquer qu'on a changé de template, mais attendre les données
+      lastInitializedTemplateIdRef.current = selectedTemplateId;
+      variablesInitializedRef.current = false;
+    }
+
+    // Initialiser les variables seulement si:
+    // 1. On n'a pas encore initialisé pour ce template
+    // 2. On a les données du template
+    if (!variablesInitializedRef.current && selectedTemplate?.variables) {
       const vars = selectedTemplate.variables as unknown as TemplateVariable[];
       const initialValues: Record<string, string> = {};
       vars.forEach((v) => {
         initialValues[v.name] = v.defaultValue || '';
       });
       setTemplateVariables(initialValues);
-      lastInitializedTemplateIdRef.current = selectedTemplateId;
+      variablesInitializedRef.current = true;
     }
   }, [selectedTemplateId, selectedTemplate]);
 
@@ -213,6 +223,9 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
     setStep('main');
     setSelectedStories({});
     setStorySearch('');
+    // Réinitialiser les refs pour permettre une nouvelle initialisation
+    lastInitializedTemplateIdRef.current = '';
+    variablesInitializedRef.current = false;
     resetShowForm();
   };
 
