@@ -1,6 +1,14 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { router, protectedProcedure } from '../trpc';
+import { awsConfig, s3Config } from '../lib/aws-config';
+
+const s3Client = new S3Client({
+  region: awsConfig.region,
+  credentials: awsConfig.credentials,
+});
 
 export const rundownRouter = router({
   // List rundowns
@@ -976,7 +984,7 @@ export const rundownRouter = router({
                       title: true,
                       type: true,
                       duration: true,
-                      s3Url: true,
+                      s3Key: true,
                       mimeType: true,
                     },
                   },
@@ -994,7 +1002,7 @@ export const rundownRouter = router({
                           title: true,
                           type: true,
                           duration: true,
-                          s3Url: true,
+                          s3Key: true,
                           mimeType: true,
                         },
                       },
@@ -1017,7 +1025,7 @@ export const rundownRouter = router({
                               title: true,
                               type: true,
                               duration: true,
-                              s3Url: true,
+                              s3Key: true,
                               mimeType: true,
                             },
                           },
@@ -1034,7 +1042,7 @@ export const rundownRouter = router({
                                   title: true,
                                   type: true,
                                   duration: true,
-                                  s3Url: true,
+                                  s3Key: true,
                                   mimeType: true,
                                 },
                               },
@@ -1057,7 +1065,7 @@ export const rundownRouter = router({
         id: string;
         title: string;
         duration: number | null;
-        s3Url: string;
+        s3Key: string;
         mimeType: string;
         itemTitle: string;
         position: number;
@@ -1076,7 +1084,7 @@ export const rundownRouter = router({
                 id: m.mediaItem.id,
                 title: m.mediaItem.title,
                 duration: m.mediaItem.duration,
-                s3Url: m.mediaItem.s3Url,
+                s3Key: m.mediaItem.s3Key,
                 mimeType: m.mediaItem.mimeType,
                 itemTitle,
                 position: position++,
@@ -1092,7 +1100,7 @@ export const rundownRouter = router({
                   id: m.mediaItem.id,
                   title: m.mediaItem.title,
                   duration: m.mediaItem.duration,
-                  s3Url: m.mediaItem.s3Url,
+                  s3Key: m.mediaItem.s3Key,
                   mimeType: m.mediaItem.mimeType,
                   itemTitle,
                   position: position++,
@@ -1110,10 +1118,35 @@ export const rundownRouter = router({
 
       collectMedia(rundown.items);
 
+      // Generer des URLs presignees pour chaque media (pour download)
+      const mediaList = Array.from(mediaMap.values()).sort((a, b) => a.position - b.position);
+
+      const mediaWithPresignedUrls = await Promise.all(
+        mediaList.map(async (media) => {
+          const presignedUrl = await getSignedUrl(
+            s3Client,
+            new GetObjectCommand({
+              Bucket: s3Config.bucket,
+              Key: media.s3Key,
+            }),
+            { expiresIn: 3600 } // 1 heure
+          );
+          return {
+            id: media.id,
+            title: media.title,
+            duration: media.duration,
+            s3Url: presignedUrl, // URL presignee pour le telechargement
+            mimeType: media.mimeType,
+            itemTitle: media.itemTitle,
+            position: media.position,
+          };
+        })
+      );
+
       return {
         rundownTitle: rundown.show.name,
         rundownDate: rundown.date,
-        media: Array.from(mediaMap.values()).sort((a, b) => a.position - b.position),
+        media: mediaWithPresignedUrls,
       };
     }),
 
