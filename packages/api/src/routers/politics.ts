@@ -323,6 +323,7 @@ export const politicsRouter = router({
       }
 
       // Récupérer tous les sujets avec leurs tags dans la période
+      // Inclure les médias audio pour calculer automatiquement le temps de parole
       const stories = await ctx.db.story.findMany({
         where: {
           organizationId: ctx.organizationId,
@@ -339,6 +340,17 @@ export const politicsRouter = router({
           politicalTags: {
             include: {
               politicalTag: true,
+            },
+          },
+          // Inclure les médias audio pour calculer la durée automatiquement
+          media: {
+            include: {
+              mediaItem: {
+                select: {
+                  type: true,
+                  duration: true,
+                },
+              },
             },
           },
         },
@@ -372,9 +384,15 @@ export const politicsRouter = router({
       const uniqueStoryIds = new Set<string>();
 
       for (const story of filteredStories) {
+        // Calculer la durée totale des médias audio du sujet
+        const storyAudioDuration = story.media
+          ?.filter((m) => m.mediaItem.type === 'AUDIO' && m.mediaItem.duration)
+          .reduce((sum, m) => sum + (m.mediaItem.duration || 0), 0) || 0;
+
         for (const storyTag of story.politicalTags) {
           const family = storyTag.politicalTag.family;
-          const speakingTime = storyTag.speakingTime || 0;
+          // Utiliser la durée des médias audio si présents, sinon speakingTime manuel
+          const speakingTime = storyAudioDuration > 0 ? storyAudioDuration : (storyTag.speakingTime || 0);
 
           // Filtrer par constituency
           if (input.constituency && storyTag.politicalTag.constituency !== input.constituency) {
@@ -888,6 +906,7 @@ export const politicsRouter = router({
       });
 
       // Récupérer tous les sujets avec leurs tags dans la période
+      // Inclure les médias audio pour calculer la durée automatiquement
       const stories = await ctx.db.story.findMany({
         where: {
           organizationId: ctx.organizationId,
@@ -904,6 +923,16 @@ export const politicsRouter = router({
           politicalTags: {
             include: {
               politicalTag: true,
+            },
+          },
+          media: {
+            include: {
+              mediaItem: {
+                select: {
+                  type: true,
+                  duration: true,
+                },
+              },
             },
           },
         },
@@ -923,13 +952,19 @@ export const politicsRouter = router({
         const uniqueStoryIds = new Set<string>();
 
         for (const story of stories) {
+          // Calculer la durée totale des médias audio du sujet
+          const storyAudioDuration = story.media
+            ?.filter((m) => m.mediaItem.type === 'AUDIO' && m.mediaItem.duration)
+            .reduce((sum, m) => sum + (m.mediaItem.duration || 0), 0) || 0;
+
           for (const storyTag of story.politicalTags) {
             if (storyTag.politicalTag.constituency !== constituency.name) {
               continue;
             }
 
             const family = storyTag.politicalTag.family;
-            const speakingTime = storyTag.speakingTime || 0;
+            // Utiliser la durée des médias audio si présents, sinon speakingTime manuel
+            const speakingTime = storyAudioDuration > 0 ? storyAudioDuration : (storyTag.speakingTime || 0);
 
             familyStats[family].speakingTimeSeconds += speakingTime;
             totalSpeakingTime += speakingTime;
