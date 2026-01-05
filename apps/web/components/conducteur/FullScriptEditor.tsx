@@ -15,6 +15,8 @@ import {
   AlertCircle,
   Volume2,
   X,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -105,6 +107,7 @@ export function FullScriptEditor({
   const [isSaving, setIsSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<{ success: boolean; message: string } | null>(null);
   const [expandAll, setExpandAll] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const textareaRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map());
 
   const utils = trpc.useUtils();
@@ -124,6 +127,19 @@ export function FullScriptEditor({
       toast.error(`Erreur: ${error.message}`);
     },
   });
+
+  // Gestion du raccourci clavier Escape pour quitter le plein écran
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFullscreen) {
+        e.preventDefault();
+        setIsFullscreen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullscreen]);
 
   // Initialiser les sections depuis les items
   useEffect(() => {
@@ -290,12 +306,42 @@ export function FullScriptEditor({
 
   return (
     <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-4xl h-[90vh] flex flex-col p-0">
+      <DialogContent
+        className={cn(
+          'flex flex-col p-0 transition-all duration-200',
+          isFullscreen
+            ? 'max-w-none w-screen h-screen rounded-none'
+            : 'max-w-4xl h-[90vh]'
+        )}
+      >
         <DialogHeader className="px-6 py-4 border-b flex-shrink-0">
-          <DialogTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
-            Script complet - {showName}
-          </DialogTitle>
+          <div className="flex items-center justify-between">
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Script complet - {showName}
+            </DialogTitle>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setIsFullscreen(!isFullscreen)}
+                    className="h-8 w-8"
+                  >
+                    {isFullscreen ? (
+                      <Minimize2 className="h-4 w-4" />
+                    ) : (
+                      <Maximize2 className="h-4 w-4" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {isFullscreen ? 'Quitter le plein écran' : 'Plein écran'}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
           <DialogDescription>
             {format(rundownDate, 'EEEE d MMMM yyyy', { locale: fr })}
             {' • '}
