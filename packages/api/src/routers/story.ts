@@ -193,6 +193,7 @@ export const storyRouter = router({
 
   // Sync content from Google Doc
   // Retourne le contenu et la duree estimee pour le timer de lecture
+  // Si du texte est en gras (lancement/pied), seul ce texte est comptabilisé pour la durée
   syncGoogleDoc: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
@@ -205,17 +206,21 @@ export const storyRouter = router({
       }
 
       try {
-        const { getDocContent, estimateReadingDuration } =
+        const { getDocContentWithFormatting, estimateReadingDuration } =
           await import('../lib/google/docs');
 
-        const content = await getDocContent(story.googleDocId);
-        const wordCount = content.trim().split(/\s+/).filter(Boolean).length;
+        const { fullText, boldText, hasBoldText } = await getDocContentWithFormatting(story.googleDocId);
+
+        // Si du texte est en gras, ne compter que le gras (lancement/pied)
+        // Sinon compter tout le texte
+        const textForDuration = hasBoldText ? boldText : fullText;
+        const wordCount = textForDuration.trim().split(/\s+/).filter(Boolean).length;
         const estimatedDuration = estimateReadingDuration(wordCount);
 
         const updated = await ctx.db.story.update({
           where: { id: input.id },
           data: {
-            content,
+            content: fullText, // Sauvegarder tout le contenu pour backup
             estimatedDuration,
           },
         });
@@ -226,6 +231,7 @@ export const storyRouter = router({
           content: updated.content,
           estimatedDuration: updated.estimatedDuration,
           wordCount,
+          usedBoldOnly: hasBoldText, // Indiquer si seul le gras a été compté
         };
       } catch (error) {
         console.error('Failed to sync Google Doc:', error);

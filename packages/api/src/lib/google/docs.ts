@@ -119,6 +119,69 @@ export async function getDocContent(docId: string): Promise<string> {
 }
 
 /**
+ * Gets content from a Google Doc, separating bold text (lancement/pied) from regular text (voix off)
+ * Returns both full content and bold-only content for duration calculation
+ */
+export async function getDocContentWithFormatting(docId: string): Promise<{
+  fullText: string;
+  boldText: string;
+  hasBoldText: boolean;
+}> {
+  const docs = getDocs();
+
+  const doc = await docs.documents.get({ documentId: docId });
+
+  let fullText = '';
+  let boldText = '';
+
+  doc.data.body?.content?.forEach((element) => {
+    if (element.paragraph?.elements) {
+      element.paragraph.elements.forEach((e) => {
+        if (e.textRun?.content) {
+          const content = e.textRun.content;
+          fullText += content;
+
+          // Vérifier si le texte est en gras
+          if (e.textRun.textStyle?.bold) {
+            boldText += content;
+          }
+        }
+      });
+    }
+  });
+
+  return {
+    fullText,
+    boldText,
+    hasBoldText: boldText.trim().length > 0,
+  };
+}
+
+/**
+ * Estimates reading duration based on Google Doc content
+ * If bold text exists (lancement/pied), only count that for the presenter
+ * Otherwise count all text
+ */
+export async function estimateDocReadingDuration(docId: string): Promise<{
+  duration: number;
+  wordCount: number;
+  usedBoldOnly: boolean;
+}> {
+  const { fullText, boldText, hasBoldText } = await getDocContentWithFormatting(docId);
+
+  // Utiliser le texte en gras s'il existe, sinon tout le texte
+  const textToCount = hasBoldText ? boldText : fullText;
+  const wordCount = textToCount.trim().split(/\s+/).filter(Boolean).length;
+  const duration = estimateReadingDuration(wordCount);
+
+  return {
+    duration,
+    wordCount,
+    usedBoldOnly: hasBoldText,
+  };
+}
+
+/**
  * Updates the content of a Google Doc
  */
 export async function updateDocContent(
