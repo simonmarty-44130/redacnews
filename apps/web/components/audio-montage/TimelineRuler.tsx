@@ -51,8 +51,9 @@ export function TimelineRuler({
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    // Utiliser toute la largeur de la timeline
-    const width = timelineWidth;
+    // Le canvas ne dessine que la portion visible (viewport), pas toute la timeline
+    // Le container div parent couvre toute la timeline pour les clics
+    const width = viewportWidth;
     const height = TIMELINE_RULER_HEIGHT;
 
     canvas.width = width * dpr;
@@ -75,17 +76,17 @@ export function TimelineRuler({
 
     const { major, minor } = getTickInterval(zoom);
 
-    // Calculer les temps sur toute la timeline
-    const startTime = 0;
-    const endTime = Math.ceil(duration / minor) * minor + minor;
+    // Calculer les temps visibles (basé sur scrollLeft)
+    const startTime = Math.floor(scrollLeft / zoom / minor) * minor;
+    const endTime = Math.ceil((scrollLeft + viewportWidth) / zoom / minor) * minor;
 
     ctx.font = '10px "SF Mono", Monaco, monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
 
     for (let time = startTime; time <= endTime; time += minor) {
-      // Position directe sans offset de scroll (le scroll est géré par le parent)
-      const x = time * zoom;
+      // Position relative au viewport (soustraire scrollLeft pour l'affichage)
+      const x = time * zoom - scrollLeft;
 
       if (x < -10 || x > width + 10) continue;
 
@@ -106,8 +107,8 @@ export function TimelineRuler({
       }
     }
 
-    // Curseur de lecture - Bleu vif (position directe sans offset)
-    const cursorX = currentTime * zoom;
+    // Curseur de lecture - Bleu vif (position relative au viewport)
+    const cursorX = currentTime * zoom - scrollLeft;
     if (cursorX >= 0 && cursorX <= width) {
       ctx.strokeStyle = '#3B82F6';
       ctx.lineWidth = 2;
@@ -125,7 +126,7 @@ export function TimelineRuler({
       ctx.closePath();
       ctx.fill();
     }
-  }, [zoom, timelineWidth, duration, currentTime]);
+  }, [zoom, scrollLeft, viewportWidth, duration, currentTime]);
 
   // Calculer le temps a partir de la position X relative au container
   // Le container couvre maintenant toute la timeline, donc pas besoin d'ajouter scrollLeft
@@ -177,16 +178,17 @@ export function TimelineRuler({
   return (
     <div
       ref={containerRef}
-      className={`${isDragging ? 'cursor-grabbing' : 'cursor-pointer'} bg-[#111111]`}
-      style={{ height: TIMELINE_RULER_HEIGHT }}
+      className={`${isDragging ? 'cursor-grabbing' : 'cursor-pointer'} bg-[#111111] relative`}
+      style={{ height: TIMELINE_RULER_HEIGHT, width: timelineWidth }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseLeave}
     >
+      {/* Canvas positionné de manière sticky pour suivre le viewport */}
       <canvas
         ref={canvasRef}
-        className="pointer-events-none"
+        className="pointer-events-none sticky left-0"
         style={{ height: TIMELINE_RULER_HEIGHT }}
       />
     </div>
