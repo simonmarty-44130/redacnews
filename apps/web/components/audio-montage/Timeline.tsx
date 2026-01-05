@@ -379,6 +379,7 @@ export function Timeline({
                   zoom={zoom}
                   scrollLeft={scrollLeft}
                   viewportWidth={viewportWidth}
+                  timelineWidth={timelineWidth}
                   duration={duration}
                   currentTime={currentTime}
                   onSeek={onSeek}

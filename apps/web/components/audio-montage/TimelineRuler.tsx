@@ -7,6 +7,7 @@ interface TimelineRulerProps {
   zoom: number; // pixels par seconde
   scrollLeft: number;
   viewportWidth: number;
+  timelineWidth: number; // Largeur totale de la timeline
   duration: number;
   currentTime: number;
   onSeek: (time: number) => void;
@@ -16,6 +17,7 @@ export function TimelineRuler({
   zoom,
   scrollLeft,
   viewportWidth,
+  timelineWidth,
   duration,
   currentTime,
   onSeek,
@@ -49,7 +51,8 @@ export function TimelineRuler({
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    const width = viewportWidth;
+    // Utiliser toute la largeur de la timeline
+    const width = timelineWidth;
     const height = TIMELINE_RULER_HEIGHT;
 
     canvas.width = width * dpr;
@@ -72,16 +75,17 @@ export function TimelineRuler({
 
     const { major, minor } = getTickInterval(zoom);
 
-    // Calculer les temps visibles
-    const startTime = Math.floor(scrollLeft / zoom / minor) * minor;
-    const endTime = Math.ceil((scrollLeft + viewportWidth) / zoom / minor) * minor;
+    // Calculer les temps sur toute la timeline
+    const startTime = 0;
+    const endTime = Math.ceil(duration / minor) * minor + minor;
 
     ctx.font = '10px "SF Mono", Monaco, monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
 
     for (let time = startTime; time <= endTime; time += minor) {
-      const x = time * zoom - scrollLeft;
+      // Position directe sans offset de scroll (le scroll est géré par le parent)
+      const x = time * zoom;
 
       if (x < -10 || x > width + 10) continue;
 
@@ -102,8 +106,8 @@ export function TimelineRuler({
       }
     }
 
-    // Curseur de lecture - Bleu vif
-    const cursorX = currentTime * zoom - scrollLeft;
+    // Curseur de lecture - Bleu vif (position directe sans offset)
+    const cursorX = currentTime * zoom;
     if (cursorX >= 0 && cursorX <= width) {
       ctx.strokeStyle = '#3B82F6';
       ctx.lineWidth = 2;
@@ -121,17 +125,18 @@ export function TimelineRuler({
       ctx.closePath();
       ctx.fill();
     }
-  }, [zoom, scrollLeft, viewportWidth, duration, currentTime]);
+  }, [zoom, timelineWidth, duration, currentTime]);
 
   // Calculer le temps a partir de la position X relative au container
+  // Le container couvre maintenant toute la timeline, donc pas besoin d'ajouter scrollLeft
   const getTimeFromX = useCallback((clientX: number): number => {
     const container = containerRef.current;
     if (!container) return 0;
 
     const rect = container.getBoundingClientRect();
-    const x = clientX - rect.left + scrollLeft;
+    const x = clientX - rect.left;
     return Math.max(0, x / zoom);
-  }, [scrollLeft, zoom]);
+  }, [zoom]);
 
   // Gestion du mousedown pour commencer le drag
   const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
