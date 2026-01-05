@@ -951,6 +951,167 @@ export const rundownRouter = router({
       });
     }),
 
+  // Get all media files from a rundown (for download)
+  getRundownMedia: protectedProcedure
+    .input(z.object({ rundownId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const rundown = await ctx.db.rundown.findUniqueOrThrow({
+        where: { id: input.rundownId },
+        include: {
+          show: true,
+          items: {
+            orderBy: { position: 'asc' },
+            include: {
+              // Media directement sur l'item
+              media: {
+                include: {
+                  mediaItem: {
+                    select: {
+                      id: true,
+                      title: true,
+                      type: true,
+                      duration: true,
+                      s3Url: true,
+                      mimeType: true,
+                    },
+                  },
+                },
+                orderBy: { position: 'asc' },
+              },
+              // Media lies au sujet
+              story: {
+                include: {
+                  media: {
+                    include: {
+                      mediaItem: {
+                        select: {
+                          id: true,
+                          title: true,
+                          type: true,
+                          duration: true,
+                          s3Url: true,
+                          mimeType: true,
+                        },
+                      },
+                    },
+                    orderBy: { position: 'asc' },
+                  },
+                },
+              },
+              // Conducteur lie (imbrique) avec ses medias
+              linkedRundown: {
+                include: {
+                  items: {
+                    orderBy: { position: 'asc' },
+                    include: {
+                      media: {
+                        include: {
+                          mediaItem: {
+                            select: {
+                              id: true,
+                              title: true,
+                              type: true,
+                              duration: true,
+                              s3Url: true,
+                              mimeType: true,
+                            },
+                          },
+                        },
+                        orderBy: { position: 'asc' },
+                      },
+                      story: {
+                        include: {
+                          media: {
+                            include: {
+                              mediaItem: {
+                                select: {
+                                  id: true,
+                                  title: true,
+                                  type: true,
+                                  duration: true,
+                                  s3Url: true,
+                                  mimeType: true,
+                                },
+                              },
+                            },
+                            orderBy: { position: 'asc' },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      // Collecter tous les medias audio
+      const mediaMap = new Map<string, {
+        id: string;
+        title: string;
+        duration: number | null;
+        s3Url: string;
+        mimeType: string;
+        itemTitle: string;
+        position: number;
+      }>();
+
+      let position = 0;
+
+      const collectMedia = (items: typeof rundown.items, prefix = '') => {
+        for (const item of items) {
+          const itemTitle = prefix ? `${prefix} - ${item.title}` : item.title;
+
+          // Media directement sur l'item
+          for (const m of item.media) {
+            if (m.mediaItem.type === 'AUDIO' && !mediaMap.has(m.mediaItem.id)) {
+              mediaMap.set(m.mediaItem.id, {
+                id: m.mediaItem.id,
+                title: m.mediaItem.title,
+                duration: m.mediaItem.duration,
+                s3Url: m.mediaItem.s3Url,
+                mimeType: m.mediaItem.mimeType,
+                itemTitle,
+                position: position++,
+              });
+            }
+          }
+
+          // Media lies au sujet
+          if (item.story) {
+            for (const m of item.story.media) {
+              if (m.mediaItem.type === 'AUDIO' && !mediaMap.has(m.mediaItem.id)) {
+                mediaMap.set(m.mediaItem.id, {
+                  id: m.mediaItem.id,
+                  title: m.mediaItem.title,
+                  duration: m.mediaItem.duration,
+                  s3Url: m.mediaItem.s3Url,
+                  mimeType: m.mediaItem.mimeType,
+                  itemTitle,
+                  position: position++,
+                });
+              }
+            }
+          }
+
+          // Conducteur lie (imbrique)
+          if (item.linkedRundown) {
+            collectMedia(item.linkedRundown.items as typeof rundown.items, itemTitle);
+          }
+        }
+      };
+
+      collectMedia(rundown.items);
+
+      return {
+        rundownTitle: rundown.show.name,
+        rundownDate: rundown.date,
+        media: Array.from(mediaMap.values()).sort((a, b) => a.position - b.position),
+      };
+    }),
+
   // Create complete rundown with team and items
   createComplete: protectedProcedure
     .input(
