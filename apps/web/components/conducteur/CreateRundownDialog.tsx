@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Plus, Calendar, Radio, Palette, FileText, Clock, Copy, ArrowRight, ArrowLeft, Check, Search } from 'lucide-react';
 import { format } from 'date-fns';
 import {
@@ -129,19 +129,33 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
     );
   }, [availableStories, storySearch]);
 
-  // Initialiser les variables du template quand il change
+  // Ref pour tracker le dernier templateId pour lequel on a initialisé les variables
+  const lastInitializedTemplateIdRef = useRef<string>('');
+
+  // Initialiser les variables du template quand l'ID du template sélectionné change
+  // (pas quand les données du template sont juste refetch)
   useEffect(() => {
-    if (selectedTemplate?.variables) {
+    // Si on a désélectionné le template, réinitialiser
+    if (!selectedTemplateId) {
+      setTemplateVariables({});
+      lastInitializedTemplateIdRef.current = '';
+      return;
+    }
+
+    // Si c'est un nouveau template et qu'on a les données, initialiser les variables
+    if (
+      selectedTemplateId !== lastInitializedTemplateIdRef.current &&
+      selectedTemplate?.variables
+    ) {
       const vars = selectedTemplate.variables as unknown as TemplateVariable[];
       const initialValues: Record<string, string> = {};
       vars.forEach((v) => {
         initialValues[v.name] = v.defaultValue || '';
       });
       setTemplateVariables(initialValues);
-    } else {
-      setTemplateVariables({});
+      lastInitializedTemplateIdRef.current = selectedTemplateId;
     }
-  }, [selectedTemplate]);
+  }, [selectedTemplateId, selectedTemplate]);
 
   // Réinitialiser le template quand l'émission change
   useEffect(() => {
