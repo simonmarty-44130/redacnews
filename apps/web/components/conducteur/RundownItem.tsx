@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -21,6 +21,8 @@ import {
   Link2,
   Unlink,
   Loader2,
+  Check,
+  X,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -131,6 +133,7 @@ interface RundownItemProps {
   rundownDate: Date;
   onDelete?: () => void;
   onStatusChange?: (status: RundownItemData['status']) => void;
+  onDurationChange?: (newDuration: number) => void;
   onFocus?: () => void; // For collaborative cursor tracking
   onBlur?: () => void;
   onLinkChange?: () => void;
@@ -205,11 +208,17 @@ export function RundownItem({
   rundownDate,
   onDelete,
   onStatusChange,
+  onDurationChange,
   onFocus,
   onBlur,
   onLinkChange,
 }: RundownItemProps) {
   const [mediaExpanded, setMediaExpanded] = useState(false);
+  const [isEditingDuration, setIsEditingDuration] = useState(false);
+  const [editedMinutes, setEditedMinutes] = useState(Math.floor(item.duration / 60));
+  const [editedSeconds, setEditedSeconds] = useState(item.duration % 60);
+  const minutesInputRef = useRef<HTMLInputElement>(null);
+
   const {
     attributes,
     listeners,
@@ -220,6 +229,44 @@ export function RundownItem({
   } = useSortable({ id: item.id });
 
   const utils = trpc.useUtils();
+
+  // Focus sur l'input des minutes quand on entre en mode édition
+  useEffect(() => {
+    if (isEditingDuration && minutesInputRef.current) {
+      minutesInputRef.current.focus();
+      minutesInputRef.current.select();
+    }
+  }, [isEditingDuration]);
+
+  // Handlers pour l'édition de la durée
+  const handleStartEditDuration = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditedMinutes(Math.floor(item.duration / 60));
+    setEditedSeconds(item.duration % 60);
+    setIsEditingDuration(true);
+  };
+
+  const handleSaveDuration = () => {
+    const newDuration = editedMinutes * 60 + editedSeconds;
+    if (newDuration !== item.duration && newDuration >= 0) {
+      onDurationChange?.(newDuration);
+    }
+    setIsEditingDuration(false);
+  };
+
+  const handleCancelEditDuration = () => {
+    setEditedMinutes(Math.floor(item.duration / 60));
+    setEditedSeconds(item.duration % 60);
+    setIsEditingDuration(false);
+  };
+
+  const handleDurationKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSaveDuration();
+    } else if (e.key === 'Escape') {
+      handleCancelEditDuration();
+    }
+  };
 
   // Mutation pour creer un Google Doc pour l'item
   const createItemDoc = trpc.rundown.createItemDoc.useMutation({
@@ -423,11 +470,65 @@ export function RundownItem({
         );
       })()}
 
-      {/* Duration */}
-      <div className="flex items-center gap-1 text-sm text-gray-600">
-        <Clock className="h-4 w-4" />
-        {formatDuration(item.duration)}
-      </div>
+      {/* Duration - Editable */}
+      {isEditingDuration ? (
+        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          <Clock className="h-4 w-4 text-blue-600" />
+          <input
+            ref={minutesInputRef}
+            type="number"
+            min="0"
+            max="999"
+            value={editedMinutes}
+            onChange={(e) => setEditedMinutes(Math.max(0, parseInt(e.target.value) || 0))}
+            onKeyDown={handleDurationKeyDown}
+            className="w-10 h-6 text-sm text-center border rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <span className="text-gray-400">:</span>
+          <input
+            type="number"
+            min="0"
+            max="59"
+            value={editedSeconds.toString().padStart(2, '0')}
+            onChange={(e) => setEditedSeconds(Math.min(59, Math.max(0, parseInt(e.target.value) || 0)))}
+            onKeyDown={handleDurationKeyDown}
+            className="w-10 h-6 text-sm text-center border rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 text-green-600 hover:text-green-700 hover:bg-green-50"
+            onClick={handleSaveDuration}
+          >
+            <Check className="h-3 w-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 text-gray-400 hover:text-gray-600"
+            onClick={handleCancelEditDuration}
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      ) : (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={handleStartEditDuration}
+                className="flex items-center gap-1 text-sm text-gray-600 hover:text-blue-600 hover:bg-blue-50 px-2 py-1 rounded transition-colors cursor-pointer"
+              >
+                <Clock className="h-4 w-4" />
+                {formatDuration(item.duration)}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Cliquer pour modifier la durée</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
 
       {/* Script button - Ouvre directement le Google Doc */}
       <TooltipProvider>

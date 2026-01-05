@@ -19,7 +19,7 @@ import {
 import { format, addSeconds, parse } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
-import { Clock, AlertTriangle, ChevronLeft, ChevronRight, Presentation, MoreHorizontal, Trash2, ChevronDown, Check, Mail } from 'lucide-react';
+import { Clock, AlertTriangle, ChevronLeft, ChevronRight, Presentation, MoreHorizontal, Trash2, ChevronDown, Check, Mail, FileEdit } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -44,6 +44,7 @@ import { RundownItem } from './RundownItem';
 import { AddItemDialog } from './AddItemDialog';
 import { GenerateScriptButton } from './GenerateScriptButton';
 import { SendToGuestsGmail } from './SendToGuestsGmail';
+import { FullScriptEditor } from './FullScriptEditor';
 import { trpc } from '@/lib/trpc/client';
 import { cn } from '@/lib/utils';
 
@@ -61,6 +62,7 @@ const statusColors = {
 export function RundownEditor({ rundownId }: RundownEditorProps) {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showSendToGuestsDialog, setShowSendToGuestsDialog] = useState(false);
+  const [showFullScriptEditor, setShowFullScriptEditor] = useState(false);
   const router = useRouter();
 
   const { data: rundown, isLoading } = trpc.rundown.get.useQuery(
@@ -221,6 +223,16 @@ export function RundownEditor({ rundownId }: RundownEditorProps) {
               existingScriptUrl={rundown.scriptDocUrl}
               existingScriptGeneratedAt={rundown.scriptGeneratedAt}
             />
+            {/* Bouton pour éditer le script complet */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowFullScriptEditor(true)}
+              title="Éditer le script complet de l'émission"
+            >
+              <FileEdit className="h-4 w-4 mr-2" />
+              Script complet
+            </Button>
             {/* Bouton pour envoyer le conducteur aux invités (visible uniquement si des variables template existent) */}
             {rundown.templateVariables && Object.keys(rundown.templateVariables as Record<string, string>).length > 0 && (
               <Button
@@ -365,6 +377,9 @@ export function RundownEditor({ rundownId }: RundownEditorProps) {
                     onStatusChange={(status) =>
                       handleStatusChange(item.id, status)
                     }
+                    onDurationChange={(newDuration) =>
+                      updateItem.mutate({ id: item.id, duration: newDuration })
+                    }
                     onLinkChange={() => utils.rundown.get.invalidate({ id: rundownId })}
                   />
                 ))}
@@ -417,6 +432,28 @@ export function RundownEditor({ rundownId }: RundownEditorProps) {
             position: item.position,
           }))}
           templateVariables={(rundown.templateVariables as Record<string, string>) || {}}
+        />
+      )}
+
+      {/* Éditeur de script complet */}
+      {showFullScriptEditor && rundown && (
+        <FullScriptEditor
+          rundownId={rundownId}
+          showName={rundown.show.name}
+          rundownDate={new Date(rundown.date)}
+          startTime={rundown.startTime || rundown.show.startTime || '12:00'}
+          items={rundown.items.map((item) => ({
+            id: item.id,
+            type: item.type,
+            title: item.title,
+            duration: item.duration,
+            position: item.position,
+            script: item.script,
+            googleDocId: item.googleDocId,
+            notes: item.notes,
+          }))}
+          onClose={() => setShowFullScriptEditor(false)}
+          onScriptsSaved={() => utils.rundown.get.invalidate({ id: rundownId })}
         />
       )}
     </div>
