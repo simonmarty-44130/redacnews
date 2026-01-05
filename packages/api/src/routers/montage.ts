@@ -335,7 +335,7 @@ export const montageRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
       }
 
-      return ctx.db.montageClip.create({
+      const clip = await ctx.db.montageClip.create({
         data: {
           trackId: input.trackId,
           name: input.name,
@@ -350,6 +350,13 @@ export const montageRouter = router({
           fadeOutDuration: 0,
         },
       });
+
+      // Retourner le clip avec une URL presignee pour le chargement immediat
+      const presignedUrl = await getPresignedUrlFromS3Url(clip.sourceUrl);
+      return {
+        ...clip,
+        sourceUrl: presignedUrl,
+      };
     }),
 
   updateClip: protectedProcedure
