@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import { TIMELINE_RULER_HEIGHT } from '@/lib/audio-montage/constants';
 
 interface TimelineRulerProps {
@@ -21,6 +21,8 @@ export function TimelineRuler({
   onSeek,
 }: TimelineRulerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Calculer l'intervalle des marques en fonction du zoom
   const getTickInterval = (zoom: number): { major: number; minor: number } => {
@@ -121,19 +123,67 @@ export function TimelineRuler({
     }
   }, [zoom, scrollLeft, viewportWidth, duration, currentTime]);
 
-  const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left + scrollLeft;
-    const time = x / zoom;
-    onSeek(Math.max(0, time));
-  };
+  // Calculer le temps a partir de la position X relative au container
+  const getTimeFromX = useCallback((clientX: number): number => {
+    const container = containerRef.current;
+    if (!container) return 0;
+
+    const rect = container.getBoundingClientRect();
+    const x = clientX - rect.left + scrollLeft;
+    return Math.max(0, x / zoom);
+  }, [scrollLeft, zoom]);
+
+  // Gestion du mousedown pour commencer le drag
+  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+    const time = getTimeFromX(e.clientX);
+    onSeek(time);
+  }, [getTimeFromX, onSeek]);
+
+  // Gestion du mousemove pendant le drag
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDragging) return;
+    const time = getTimeFromX(e.clientX);
+    onSeek(time);
+  }, [isDragging, getTimeFromX, onSeek]);
+
+  // Gestion du mouseup pour terminer le drag
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  // Gestion du mouseleave pour terminer le drag si on sort du canvas
+  const handleMouseLeave = useCallback(() => {
+    if (isDragging) {
+      setIsDragging(false);
+    }
+  }, [isDragging]);
+
+  // Gestion globale du mouseup pour le cas ou on relache en dehors
+  useEffect(() => {
+    if (isDragging) {
+      const handleGlobalMouseUp = () => setIsDragging(false);
+      window.addEventListener('mouseup', handleGlobalMouseUp);
+      return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+    }
+  }, [isDragging]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      className="cursor-pointer bg-[#111111]"
-      onClick={handleClick}
+    <div
+      ref={containerRef}
+      className={`${isDragging ? 'cursor-grabbing' : 'cursor-pointer'} bg-[#111111]`}
       style={{ height: TIMELINE_RULER_HEIGHT }}
-    />
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseLeave}
+    >
+      <canvas
+        ref={canvasRef}
+        className="pointer-events-none"
+        style={{ height: TIMELINE_RULER_HEIGHT }}
+      />
+    </div>
   );
 }
