@@ -9,10 +9,14 @@ import {
 
 // Configuration Cognito
 const cognitoClient = new CognitoIdentityProviderClient({
-  region: process.env.AWS_REGION || 'eu-west-3',
+  region: process.env.MY_AWS_REGION || process.env.AWS_REGION || 'eu-west-3',
+  credentials: {
+    accessKeyId: process.env.MY_AWS_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.MY_AWS_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || '',
+  },
 });
 
-const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID;
+const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID || process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID;
 
 export const settingsRouter = router({
   // ========== ORGANISATION ==========
