@@ -83,6 +83,8 @@ const SyncedWaveSurfer = memo(
       const [isPlaying, setIsPlaying] = useState(false);
       const [isLoading, setIsLoading] = useState(true);
       const [hasError, setHasError] = useState(false);
+      const [loadingTimedOut, setLoadingTimedOut] = useState(false); // Timeout pour fichiers longs
+      const loadingTimeoutRef = useRef<number | null>(null);
 
       // Refs pour les etats (pour eviter les closures stale dans les callbacks)
       const isReadyRef = useRef(false);
@@ -184,8 +186,30 @@ const SyncedWaveSurfer = memo(
         setHasError(false);
         setIsReady(false);
         setIsPlaying(false);
+        setLoadingTimedOut(false);
         isReadyRef.current = false;
         isPlayingRef.current = false;
+
+        // Nettoyer le timeout precedent
+        if (loadingTimeoutRef.current) {
+          clearTimeout(loadingTimeoutRef.current);
+          loadingTimeoutRef.current = null;
+        }
+
+        // Pour les fichiers tres longs (> 30 min), utiliser des parametres optimises
+        const isLongFile = (sourceDuration || 0) > 1800; // Plus de 30 minutes
+        // Pour les fichiers TRES longs (> 1h), encore plus optimise
+        const isVeryLongFile = (sourceDuration || 0) > 3600; // Plus de 1 heure
+
+        // Timeout pour les fichiers longs - afficher un fallback si ca prend trop de temps
+        const timeoutDuration = isVeryLongFile ? 8000 : isLongFile ? 15000 : 30000;
+        loadingTimeoutRef.current = window.setTimeout(() => {
+          if (isMountedRef.current && instanceIdRef.current === currentInstanceId && !isReadyRef.current) {
+            console.log(`[SyncedWaveSurfer ${clipId}] Loading timeout after ${timeoutDuration}ms`);
+            setLoadingTimedOut(true);
+            setIsLoading(false);
+          }
+        }, timeoutDuration);
 
         const ws = WaveSurfer.create({
           container: containerRef.current,
@@ -196,14 +220,34 @@ const SyncedWaveSurfer = memo(
           normalize: true,
           backend: 'WebAudio',
           hideScrollbar: true,
-          // Waveform fluide et détaillée (pas de barWidth = waveform continue)
-          // Comme dans AudioEditor.tsx pour un rendu professionnel
           interact: false, // Pas d'interaction directe - controlee par SyncEngine
+          // Optimisations pour fichiers longs/tres longs
+          ...(isVeryLongFile && {
+            // Fichiers > 1h : tres simplifies pour eviter les problemes de memoire
+            barWidth: 3,
+            barGap: 2,
+            barRadius: 1,
+            minPxPerSec: 0.5, // Encore moins de resolution
+          }),
+          ...(isLongFile && !isVeryLongFile && {
+            // Fichiers 30min-1h : modérément simplifies
+            barWidth: 2,
+            barGap: 1,
+            barRadius: 1,
+            minPxPerSec: 1,
+          }),
         });
 
         ws.on('ready', () => {
           if (!isMountedRef.current || instanceIdRef.current !== currentInstanceId)
             return;
+
+          // Annuler le timeout car le chargement a reussi
+          if (loadingTimeoutRef.current) {
+            clearTimeout(loadingTimeoutRef.current);
+            loadingTimeoutRef.current = null;
+          }
+          setLoadingTimedOut(false);
 
           const duration = ws.getDuration();
           console.log(`[SyncedWaveSurfer ${clipId}] ready, duration: ${duration?.toFixed(2)}s, sourceDuration prop: ${sourceDuration?.toFixed(2)}s`);
@@ -276,6 +320,13 @@ const SyncedWaveSurfer = memo(
         return () => {
           isMountedRef.current = false;
           stopFadeInterval();
+
+          // Nettoyer le timeout
+          if (loadingTimeoutRef.current) {
+            clearTimeout(loadingTimeoutRef.current);
+            loadingTimeoutRef.current = null;
+          }
+
           const wsToDestroy = wavesurferRef.current;
           wavesurferRef.current = null;
 
@@ -289,7 +340,7 @@ const SyncedWaveSurfer = memo(
             });
           }
         };
-      }, [sourceUrl, clipId, color, height]);
+      }, [sourceUrl, clipId, color, height, sourceDuration]);
 
       // Mettre a jour le volume quand il change
       useEffect(() => {
@@ -441,6 +492,34 @@ const SyncedWaveSurfer = memo(
           {hasError && !isLoading && (
             <div className="absolute inset-0 flex items-center justify-center">
               <span className="text-[10px] text-white/60">Erreur</span>
+            </div>
+          )}
+
+          {/* Fallback visuel pour fichiers longs qui n'ont pas fini de charger */}
+          {loadingTimedOut && !isReady && !hasError && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              {/* Waveform de remplacement simplifiee - barres statiques */}
+              <div className="absolute inset-0 flex items-center justify-center gap-[2px] px-2">
+                {Array.from({ length: 60 }).map((_, i) => {
+                  // Generer des hauteurs pseudo-aleatoires basees sur l'index
+                  const h = 20 + Math.sin(i * 0.5) * 15 + Math.cos(i * 0.3) * 10;
+                  return (
+                    <div
+                      key={i}
+                      className="flex-1 rounded-sm opacity-50"
+                      style={{
+                        height: `${h}%`,
+                        backgroundColor: color,
+                        maxWidth: '4px',
+                      }}
+                    />
+                  );
+                })}
+              </div>
+              {/* Badge indiquant que c'est un fichier long */}
+              <div className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/60 rounded text-[9px] text-white/80">
+                Fichier long
+              </div>
             </div>
           )}
         </div>
