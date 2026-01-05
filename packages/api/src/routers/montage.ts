@@ -12,16 +12,24 @@ const s3Client = new S3Client({
   credentials: awsConfig.credentials,
 });
 
-// Helper pour extraire la cle S3 depuis une URL S3
+// Helper pour extraire la cle S3 depuis une URL S3 ou CloudFront
 function extractS3KeyFromUrl(url: string): string | null {
   try {
+    const urlObj = new URL(url);
+
     // URL format: https://bucket.s3.region.amazonaws.com/key
     // ou https://bucket.s3.amazonaws.com/key
-    const urlObj = new URL(url);
     if (urlObj.hostname.includes('s3.')) {
       // Retirer le / initial et decoder l'URL (pour eviter le double encodage)
       return decodeURIComponent(urlObj.pathname.slice(1));
     }
+
+    // URL format CloudFront: https://xxxxx.cloudfront.net/key
+    if (urlObj.hostname.includes('cloudfront.net')) {
+      // Retirer le / initial et decoder l'URL
+      return decodeURIComponent(urlObj.pathname.slice(1));
+    }
+
     return null;
   } catch {
     return null;

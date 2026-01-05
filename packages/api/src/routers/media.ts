@@ -48,7 +48,13 @@ export const mediaRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const key = `${ctx.organizationId}/media/${Date.now()}-${input.filename}`;
+      // Nettoyer le nom de fichier pour éviter les problèmes d'encodage URL
+      // Remplacer les espaces et caractères spéciaux par des underscores
+      const sanitizedFilename = input.filename
+        .replace(/[^a-zA-Z0-9.\-_]/g, '_')
+        .replace(/_+/g, '_');
+
+      const key = `${ctx.organizationId}/media/${Date.now()}-${sanitizedFilename}`;
 
       const command = new PutObjectCommand({
         Bucket: s3Config.bucket,
