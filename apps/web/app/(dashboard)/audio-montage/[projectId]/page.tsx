@@ -17,7 +17,7 @@ export default function MontageProjectPage() {
   } = trpc.montage.get.useQuery({ id: projectId });
 
   // Charger les medias disponibles
-  const { data: mediaItems, isLoading: isMediaLoading } = trpc.media.list.useQuery({
+  const { data: mediaItems, isLoading: isMediaLoading, refetch: refetchMedia } = trpc.media.list.useQuery({
     type: 'AUDIO',
   });
 
@@ -101,6 +101,7 @@ export default function MontageProjectPage() {
     <MontageEditor
       project={projectData}
       mediaItems={mediaItemsData}
+      onRefreshMedia={() => refetchMedia()}
       onSave={async (data) => {
         await saveStateMutation.mutateAsync({
           projectId,

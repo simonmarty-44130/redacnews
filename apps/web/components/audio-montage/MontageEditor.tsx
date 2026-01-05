@@ -44,6 +44,7 @@ interface MontageEditorProps {
     s3Url: string;
     type: string;
   }[];
+  onRefreshMedia?: () => void;
   onSave: (data: {
     duration: number;
     tracks: { id: string; volume: number; pan: number; muted: boolean; solo: boolean }[];
@@ -72,6 +73,7 @@ interface MontageEditorProps {
 export function MontageEditor({
   project: initialProject,
   mediaItems,
+  onRefreshMedia,
   onSave,
   onAddTrack,
   onDeleteTrack,
@@ -1010,45 +1012,7 @@ export function MontageEditor({
     }
   }, [isRecording, recordingTrackId, stopRecording, onAddClip]);
 
-  // Gestion de l'import de fichier local
-  const handleImportFile = useCallback(async (file: File, fileDuration: number, trackId: string) => {
-    // Creer une URL temporaire pour le fichier
-    const url = URL.createObjectURL(file);
-
-    // Determiner la position de depart
-    // Si timeline vide, placer a 0, sinon a la position de la playhead
-    const timelineEmpty = isTimelineEmpty();
-    const startTime = timelineEmpty ? 0 : currentTime;
-
-    try {
-      const newClip = await onAddClip(trackId, {
-        name: file.name.replace(/\.[^/.]+$/, ''), // Nom sans extension
-        sourceUrl: url,
-        sourceDuration: fileDuration,
-        startTime,
-        inPoint: 0,
-        outPoint: fileDuration,
-        volume: 1,
-        fadeInDuration: 0,
-        fadeOutDuration: 0,
-      });
-
-      setProject((prev) => ({
-        ...prev,
-        tracks: prev.tracks.map((t) =>
-          t.id === trackId ? { ...t, clips: [...t.clips, newClip] } : t
-        ),
-      }));
-
-      setHasUnsavedChanges(true);
-      console.log('[MontageEditor] File imported:', file.name, 'on track:', trackId, 'duration:', fileDuration.toFixed(2));
-    } catch (error) {
-      console.error('[MontageEditor] Failed to import file:', error);
-      URL.revokeObjectURL(url);
-    }
-  }, [currentTime, isTimelineEmpty, onAddClip]);
-
-  // Gestion de l'import depuis la mediatheque
+  // Gestion de l'import depuis la mediatheque (utilise aussi pour les fichiers locaux apres upload S3)
   const handleImportFromLibrary = useCallback(async (
     mediaItem: { id: string; title: string; duration: number | null; s3Url: string },
     trackId: string
@@ -1346,8 +1310,8 @@ export function MontageEditor({
           onOpenChange={setIsImportDialogOpen}
           tracks={project.tracks}
           mediaItems={mediaItems}
-          onImportFile={handleImportFile}
           onImportFromLibrary={handleImportFromLibrary}
+          onMediaCreated={onRefreshMedia}
         />
       </div>
     </DndProvider>

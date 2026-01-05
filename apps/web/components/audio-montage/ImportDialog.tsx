@@ -21,7 +21,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
+import { trpc } from '@/lib/trpc/client';
+import { toast } from 'sonner';
 import type { Track } from '@/lib/audio-montage/types';
 
 interface MediaItem {
@@ -37,8 +40,8 @@ interface ImportDialogProps {
   onOpenChange: (open: boolean) => void;
   tracks: Track[];
   mediaItems: MediaItem[];
-  onImportFile: (file: File, duration: number, trackId: string) => void;
   onImportFromLibrary: (mediaItem: MediaItem, trackId: string) => void;
+  onMediaCreated?: () => void; // Pour rafraichir la liste des medias apres upload
 }
 
 type ImportSource = 'library' | 'local';
@@ -48,8 +51,8 @@ export function ImportDialog({
   onOpenChange,
   tracks,
   mediaItems,
-  onImportFile,
   onImportFromLibrary,
+  onMediaCreated,
 }: ImportDialogProps) {
   // Source d'import
   const [source, setSource] = useState<ImportSource>('library');
@@ -62,6 +65,8 @@ export function ImportDialog({
   const [fileDuration, setFileDuration] = useState<number | null>(null);
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Pour l'import depuis la mediatheque
@@ -70,6 +75,10 @@ export function ImportDialog({
 
   // Erreur
   const [error, setError] = useState<string | null>(null);
+
+  // tRPC mutations pour l'upload S3
+  const getUploadUrl = trpc.media.getUploadUrl.useMutation();
+  const createMedia = trpc.media.create.useMutation();
 
   // Filtrer les items audio de la mediatheque
   const filteredMediaItems = mediaItems.filter(
@@ -91,6 +100,8 @@ export function ImportDialog({
     setError(null);
     setIsLoadingFile(false);
     setIsDragging(false);
+    setIsUploading(false);
+    setUploadProgress(0);
     setSelectedMediaItem(null);
     setSearch('');
   }, []);
@@ -184,15 +195,79 @@ export function ImportDialog({
     }
   };
 
-  const handleImport = () => {
+  const handleImport = async () => {
     if (!selectedTrackId) {
       setError('Veuillez selectionner une piste');
       return;
     }
 
     if (source === 'local' && file && fileDuration !== null) {
-      onImportFile(file, fileDuration, selectedTrackId);
-      handleClose();
+      // Upload vers S3 d'abord
+      setIsUploading(true);
+      setUploadProgress(0);
+      setError(null);
+
+      try {
+        // 1. Obtenir l'URL presignee
+        const { uploadUrl, key, publicUrl } = await getUploadUrl.mutateAsync({
+          filename: file.name,
+          contentType: file.type,
+        });
+
+        // 2. Upload vers S3 avec progression
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+              const progress = Math.round((e.loaded / e.total) * 100);
+              setUploadProgress(progress);
+            }
+          };
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve();
+            } else {
+              reject(new Error('Upload echoue'));
+            }
+          };
+          xhr.onerror = () => reject(new Error('Erreur reseau'));
+          xhr.open('PUT', uploadUrl);
+          xhr.setRequestHeader('Content-Type', file.type);
+          xhr.send(file);
+        });
+
+        // 3. Creer le MediaItem en base
+        const title = file.name.replace(/\.[^/.]+$/, '');
+        const newMedia = await createMedia.mutateAsync({
+          title,
+          type: 'AUDIO',
+          mimeType: file.type,
+          fileSize: file.size,
+          s3Key: key,
+          s3Url: publicUrl,
+          duration: Math.round(fileDuration),
+        });
+
+        // 4. Notifier le parent et importer le clip
+        onMediaCreated?.();
+
+        // Creer un MediaItem compatible pour l'import
+        const mediaItem: MediaItem = {
+          id: newMedia.id,
+          title: newMedia.title,
+          duration: newMedia.duration,
+          s3Url: newMedia.s3Url,
+          type: newMedia.type,
+        };
+
+        onImportFromLibrary(mediaItem, selectedTrackId);
+        toast.success(`${title} importe avec succes`);
+        handleClose();
+      } catch (err) {
+        console.error('[ImportDialog] Upload error:', err);
+        setError(err instanceof Error ? err.message : 'Erreur lors de l\'upload');
+        setIsUploading(false);
+      }
     } else if (source === 'library' && selectedMediaItem) {
       onImportFromLibrary(selectedMediaItem, selectedTrackId);
       handleClose();
@@ -212,7 +287,7 @@ export function ImportDialog({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const canImport = selectedTrackId && (
+  const canImport = selectedTrackId && !isUploading && (
     (source === 'local' && file && fileDuration !== null) ||
     (source === 'library' && selectedMediaItem)
   );
@@ -416,6 +491,17 @@ export function ImportDialog({
             </Select>
           </div>
 
+          {/* Progression de l'upload */}
+          {isUploading && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Upload en cours...</span>
+                <span className="font-mono">{uploadProgress}%</span>
+              </div>
+              <Progress value={uploadProgress} className="h-2" />
+            </div>
+          )}
+
           {/* Erreur */}
           {error && (
             <div className="rounded-lg bg-destructive/10 text-destructive p-3 text-sm">
@@ -425,12 +511,21 @@ export function ImportDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={handleClose}>
+          <Button variant="outline" onClick={handleClose} disabled={isUploading}>
             Annuler
           </Button>
-          <Button onClick={handleImport} disabled={!canImport}>
-            <Upload className="mr-2 h-4 w-4" />
-            Importer
+          <Button onClick={handleImport} disabled={!canImport || isUploading}>
+            {isUploading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Upload...
+              </>
+            ) : (
+              <>
+                <Upload className="mr-2 h-4 w-4" />
+                Importer
+              </>
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>
