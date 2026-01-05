@@ -150,7 +150,7 @@ export function MediaPicker({
               {filteredItems?.map((item) => (
                 <div
                   key={item.id}
-                  className="flex items-center gap-3 p-3 rounded-lg border hover:bg-gray-50 transition-colors"
+                  className="flex items-center gap-2 p-2 rounded-lg border hover:bg-gray-50 transition-colors overflow-hidden"
                 >
                   {/* Play button pour audio */}
                   {item.type === 'AUDIO' && (
@@ -175,9 +175,9 @@ export function MediaPicker({
                     </div>
                   )}
 
-                  {/* Infos */}
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{item.title}</p>
+                  {/* Infos - largeur limitée */}
+                  <div className="flex-1 min-w-0 overflow-hidden">
+                    <p className="font-medium truncate text-sm max-w-[280px]">{item.title}</p>
                     <div className="flex items-center gap-2 text-xs text-gray-500">
                       {item.duration && (
                         <span>{formatDuration(item.duration)}</span>
@@ -190,7 +190,7 @@ export function MediaPicker({
                     </div>
                   </div>
 
-                  {/* Bouton d'ajout */}
+                  {/* Bouton d'ajout - toujours visible */}
                   <Button
                     size="sm"
                     onClick={() => {
@@ -198,7 +198,7 @@ export function MediaPicker({
                       setOpen(false);
                     }}
                     disabled={linkMedia.isPending}
-                    className="shrink-0"
+                    className="shrink-0 ml-auto"
                   >
                     <Plus className="h-4 w-4 mr-1" />
                     Ajouter
