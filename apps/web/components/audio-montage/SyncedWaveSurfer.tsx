@@ -461,18 +461,31 @@ const SyncedWaveSurfer = memo(
 
           {/* Indicateur de chargement avec pourcentage */}
           {isLoading && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
-              {/* Barre de progression */}
-              <div className="w-3/4 h-1.5 bg-white/20 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-white/70 rounded-full transition-all duration-300"
-                  style={{ width: `${loadingProgress}%` }}
-                />
-              </div>
-              {/* Pourcentage */}
-              <span className="text-[10px] text-white/80 font-mono">
-                {loadingProgress}%
-              </span>
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/50 z-10 rounded">
+              {/* Barre de progression ou animation si pas de pourcentage */}
+              {loadingProgress > 0 ? (
+                <>
+                  <div className="w-3/4 h-2 bg-white/30 rounded-full overflow-hidden shadow-inner">
+                    <div
+                      className="h-full bg-white rounded-full transition-all duration-300 shadow"
+                      style={{ width: `${loadingProgress}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-white font-medium drop-shadow">
+                    Chargement {loadingProgress}%
+                  </span>
+                </>
+              ) : (
+                <>
+                  {/* Animation de chargement indéterminé */}
+                  <div className="w-3/4 h-2 bg-white/30 rounded-full overflow-hidden">
+                    <div className="h-full w-1/3 bg-white rounded-full animate-pulse" />
+                  </div>
+                  <span className="text-xs text-white font-medium drop-shadow animate-pulse">
+                    Chargement de la waveform...
+                  </span>
+                </>
+              )}
             </div>
           )}
 
