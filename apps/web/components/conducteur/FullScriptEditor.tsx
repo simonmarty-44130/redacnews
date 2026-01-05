@@ -17,7 +17,9 @@ import {
   X,
   Maximize2,
   Minimize2,
+  Check,
 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -86,12 +88,15 @@ interface ScriptSection {
   title: string;
   type: RundownItemData['type'];
   duration: number;
+  originalDuration: number;
   startTime: string;
   originalScript: string;
   editedScript: string;
   isEditable: boolean;
   isExpanded: boolean;
   hasChanges: boolean;
+  hasDurationChanges: boolean;
+  isEditingDuration: boolean;
 }
 
 export function FullScriptEditor({
@@ -155,12 +160,15 @@ export function FullScriptEditor({
         title: item.title,
         type: item.type,
         duration: item.duration,
+        originalDuration: item.duration,
         startTime: sectionStartTime,
         originalScript: item.script || '',
         editedScript: item.script || '',
         isEditable: EDITABLE_TYPES.includes(item.type),
         isExpanded: EDITABLE_TYPES.includes(item.type),
         hasChanges: false,
+        hasDurationChanges: false,
+        isEditingDuration: false,
       };
     });
 
@@ -169,13 +177,25 @@ export function FullScriptEditor({
 
   // Calculer si il y a des changements non sauvegardés
   const hasUnsavedChanges = useMemo(() => {
-    return sections.some((s) => s.hasChanges);
+    return sections.some((s) => s.hasChanges || s.hasDurationChanges);
   }, [sections]);
 
   // Nombre de sections modifiées
   const changedCount = useMemo(() => {
-    return sections.filter((s) => s.hasChanges).length;
+    return sections.filter((s) => s.hasChanges || s.hasDurationChanges).length;
   }, [sections]);
+
+  // Recalculer les heures de passage quand les durées changent
+  const recalculateStartTimes = useCallback((updatedSections: ScriptSection[]) => {
+    const baseTime = parse(startTime || '12:00', 'HH:mm', new Date());
+    let currentTime = baseTime;
+
+    return updatedSections.map((section) => {
+      const sectionStartTime = format(currentTime, 'HH:mm:ss');
+      currentTime = addSeconds(currentTime, section.duration);
+      return { ...section, startTime: sectionStartTime };
+    });
+  }, [startTime]);
 
   // Mettre à jour le script d'une section
   const handleScriptChange = useCallback((itemId: string, newScript: string) => {
@@ -213,9 +233,65 @@ export function FullScriptEditor({
     );
   }, [expandAll]);
 
+  // Commencer l'édition de durée
+  const handleStartEditDuration = useCallback((itemId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSections((prev) =>
+      prev.map((s) => ({
+        ...s,
+        isEditingDuration: s.itemId === itemId,
+      }))
+    );
+  }, []);
+
+  // Mettre à jour la durée d'une section
+  const handleDurationChange = useCallback((itemId: string, newDuration: number) => {
+    setSections((prev) => {
+      const updated = prev.map((s) => {
+        if (s.itemId === itemId) {
+          return {
+            ...s,
+            duration: newDuration,
+            hasDurationChanges: newDuration !== s.originalDuration,
+          };
+        }
+        return s;
+      });
+      return recalculateStartTimes(updated);
+    });
+  }, [recalculateStartTimes]);
+
+  // Valider l'édition de durée
+  const handleConfirmDuration = useCallback((itemId: string) => {
+    setSections((prev) =>
+      prev.map((s) => ({
+        ...s,
+        isEditingDuration: false,
+      }))
+    );
+  }, []);
+
+  // Annuler l'édition de durée
+  const handleCancelDuration = useCallback((itemId: string) => {
+    setSections((prev) => {
+      const updated = prev.map((s) => {
+        if (s.itemId === itemId) {
+          return {
+            ...s,
+            duration: s.originalDuration,
+            hasDurationChanges: false,
+            isEditingDuration: false,
+          };
+        }
+        return { ...s, isEditingDuration: false };
+      });
+      return recalculateStartTimes(updated);
+    });
+  }, [recalculateStartTimes]);
+
   // Sauvegarder toutes les modifications
   const handleSaveAll = async () => {
-    const changedSections = sections.filter((s) => s.hasChanges);
+    const changedSections = sections.filter((s) => s.hasChanges || s.hasDurationChanges);
     if (changedSections.length === 0) {
       toast.info('Aucune modification à sauvegarder');
       return;
@@ -225,11 +301,12 @@ export function FullScriptEditor({
     setSaveResult(null);
 
     try {
-      // Sauvegarder chaque section modifiée
+      // Sauvegarder chaque section modifiée (script et/ou durée)
       const promises = changedSections.map((section) =>
         updateItem.mutateAsync({
           id: section.itemId,
-          script: section.editedScript,
+          ...(section.hasChanges && { script: section.editedScript }),
+          ...(section.hasDurationChanges && { duration: section.duration }),
         })
       );
 
@@ -238,11 +315,13 @@ export function FullScriptEditor({
       // Mettre à jour l'état local
       setSections((prev) =>
         prev.map((s) => {
-          if (s.hasChanges) {
+          if (s.hasChanges || s.hasDurationChanges) {
             return {
               ...s,
               originalScript: s.editedScript,
+              originalDuration: s.duration,
               hasChanges: false,
+              hasDurationChanges: false,
             };
           }
           return s;
@@ -442,7 +521,7 @@ export function FullScriptEditor({
                 key={section.itemId}
                 className={cn(
                   'border rounded-lg overflow-hidden',
-                  section.hasChanges && 'ring-2 ring-orange-300',
+                  (section.hasChanges || section.hasDurationChanges) && 'ring-2 ring-orange-300',
                   !section.isEditable && 'bg-gray-50'
                 )}
               >
@@ -475,12 +554,87 @@ export function FullScriptEditor({
 
                   <span className="font-medium flex-1 truncate">{section.title}</span>
 
-                  <span className="flex items-center gap-1 text-sm text-gray-500">
-                    <Clock className="h-3 w-3" />
-                    {formatDuration(section.duration)}
-                  </span>
+                  {/* Durée éditable */}
+                  {section.isEditingDuration ? (
+                    <div
+                      className="flex items-center gap-1"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Clock className="h-3 w-3 text-blue-600" />
+                      <input
+                        type="number"
+                        min="0"
+                        max="999"
+                        value={Math.floor(section.duration / 60)}
+                        onChange={(e) => {
+                          const mins = Math.max(0, parseInt(e.target.value) || 0);
+                          const secs = section.duration % 60;
+                          handleDurationChange(section.itemId, mins * 60 + secs);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleConfirmDuration(section.itemId);
+                          if (e.key === 'Escape') handleCancelDuration(section.itemId);
+                        }}
+                        className="w-10 h-6 text-sm text-center border rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        autoFocus
+                      />
+                      <span className="text-gray-400">:</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="59"
+                        value={(section.duration % 60).toString().padStart(2, '0')}
+                        onChange={(e) => {
+                          const mins = Math.floor(section.duration / 60);
+                          const secs = Math.min(59, Math.max(0, parseInt(e.target.value) || 0));
+                          handleDurationChange(section.itemId, mins * 60 + secs);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleConfirmDuration(section.itemId);
+                          if (e.key === 'Escape') handleCancelDuration(section.itemId);
+                        }}
+                        className="w-10 h-6 text-sm text-center border rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-green-600 hover:text-green-700 hover:bg-green-50"
+                        onClick={() => handleConfirmDuration(section.itemId)}
+                      >
+                        <Check className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-gray-400 hover:text-gray-600"
+                        onClick={() => handleCancelDuration(section.itemId)}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span
+                            className={cn(
+                              'flex items-center gap-1 text-sm cursor-pointer hover:text-blue-600 hover:bg-blue-50 px-2 py-1 rounded transition-colors',
+                              section.hasDurationChanges ? 'text-blue-600 bg-blue-50' : 'text-gray-500'
+                            )}
+                            onClick={(e) => handleStartEditDuration(section.itemId, e)}
+                          >
+                            <Clock className="h-3 w-3" />
+                            {formatDuration(section.duration)}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          Cliquer pour modifier la durée
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
 
-                  {section.hasChanges && (
+                  {(section.hasChanges || section.hasDurationChanges) && (
                     <Badge variant="outline" className="bg-orange-50 text-orange-600 border-orange-200 text-xs">
                       Modifié
                     </Badge>
