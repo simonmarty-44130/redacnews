@@ -190,27 +190,19 @@ export function MediaPicker({
                     </div>
                   </div>
 
-                  {/* Actions d'insertion */}
-                  <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleSelect(item.id, 'INLINE')}
-                      disabled={linkMedia.isPending}
-                      title="Inserer dans le flux"
-                    >
-                      Inline
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleSelect(item.id, 'REFERENCE')}
-                      disabled={linkMedia.isPending}
-                      title="Ajouter en reference"
-                    >
-                      Ref
-                    </Button>
-                  </div>
+                  {/* Bouton d'ajout */}
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      handleSelect(item.id, 'INLINE');
+                      setOpen(false);
+                    }}
+                    disabled={linkMedia.isPending}
+                    className="shrink-0"
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Ajouter
+                  </Button>
                 </div>
               ))}
             </div>
