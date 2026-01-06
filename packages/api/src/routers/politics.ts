@@ -1045,4 +1045,328 @@ export const politicsRouter = router({
         },
       };
     }),
+
+  // ============ LISTING DÉTAILLÉ POUR JUSTIFICATION ARCOM ============
+
+  // Obtenir tous les sujets d'une famille avec le script complet pour justification
+  getDetailedStoriesByFamily: protectedProcedure
+    .input(
+      z.object({
+        family: PoliticalFamilyEnum,
+        startDate: z.date(),
+        endDate: z.date(),
+        electionType: ElectionTypeEnum.optional(),
+        constituency: z.string().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      if (!ctx.organizationId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED' });
+      }
+
+      const stories = await ctx.db.story.findMany({
+        where: {
+          organizationId: ctx.organizationId,
+          createdAt: {
+            gte: input.startDate,
+            lte: input.endDate,
+          },
+          ...(input.electionType && { electionType: input.electionType }),
+          politicalTags: {
+            some: {
+              politicalTag: {
+                family: input.family,
+                ...(input.constituency && { constituency: input.constituency }),
+              },
+            },
+          },
+        },
+        include: {
+          author: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+          politicalTags: {
+            where: {
+              politicalTag: {
+                family: input.family,
+                ...(input.constituency && { constituency: input.constituency }),
+              },
+            },
+            include: {
+              politicalTag: true,
+            },
+          },
+          media: {
+            include: {
+              mediaItem: {
+                select: {
+                  id: true,
+                  title: true,
+                  type: true,
+                  duration: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+
+      // Calculer le temps de parole total pour cette famille
+      let totalSpeakingTime = 0;
+      const detailedStories = stories.map((story) => {
+        // Calculer durée audio
+        const audioDuration = story.media
+          ?.filter((m) => m.mediaItem.type === 'AUDIO' && m.mediaItem.duration)
+          .reduce((sum, m) => sum + (m.mediaItem.duration || 0), 0) || 0;
+
+        const speakingTime = audioDuration > 0
+          ? audioDuration
+          : (story.politicalTags[0]?.speakingTime || 0);
+
+        totalSpeakingTime += speakingTime;
+
+        return {
+          id: story.id,
+          title: story.title,
+          content: story.content, // Le script complet
+          summary: story.summary,
+          createdAt: story.createdAt,
+          status: story.status,
+          electionType: story.electionType,
+          googleDocUrl: story.googleDocUrl,
+          estimatedDuration: story.estimatedDuration,
+          author: {
+            name: [story.author.firstName, story.author.lastName].filter(Boolean).join(' '),
+          },
+          politicalTags: story.politicalTags.map((pt) => ({
+            family: pt.politicalTag.family,
+            partyName: pt.politicalTag.partyName,
+            candidateName: pt.politicalTag.candidateName,
+            constituency: pt.politicalTag.constituency,
+            speakingTime: pt.speakingTime,
+            isMainSubject: pt.isMainSubject,
+          })),
+          media: story.media?.map((m) => ({
+            title: m.mediaItem.title,
+            type: m.mediaItem.type,
+            duration: m.mediaItem.duration,
+          })),
+          calculatedSpeakingTime: speakingTime,
+        };
+      });
+
+      return {
+        family: input.family,
+        period: {
+          startDate: input.startDate,
+          endDate: input.endDate,
+        },
+        electionType: input.electionType,
+        constituency: input.constituency,
+        totalStories: stories.length,
+        totalSpeakingTime,
+        stories: detailedStories,
+      };
+    }),
+
+  // Export détaillé avec scripts pour rapport ARCOM (format texte lisible)
+  exportDetailedReport: protectedProcedure
+    .input(
+      z.object({
+        family: PoliticalFamilyEnum.optional(),
+        startDate: z.date(),
+        endDate: z.date(),
+        electionType: ElectionTypeEnum.optional(),
+        constituency: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.organizationId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED' });
+      }
+
+      // Récupérer tous les sujets politiques de la période
+      const stories = await ctx.db.story.findMany({
+        where: {
+          organizationId: ctx.organizationId,
+          createdAt: {
+            gte: input.startDate,
+            lte: input.endDate,
+          },
+          ...(input.electionType && { electionType: input.electionType }),
+          politicalTags: {
+            some: {
+              ...(input.family && {
+                politicalTag: {
+                  family: input.family,
+                  ...(input.constituency && { constituency: input.constituency }),
+                },
+              }),
+            },
+          },
+        },
+        include: {
+          author: {
+            select: {
+              firstName: true,
+              lastName: true,
+            },
+          },
+          politicalTags: {
+            include: {
+              politicalTag: true,
+            },
+            ...(input.family && {
+              where: {
+                politicalTag: {
+                  family: input.family,
+                },
+              },
+            }),
+          },
+          media: {
+            include: {
+              mediaItem: {
+                select: {
+                  title: true,
+                  type: true,
+                  duration: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'asc',
+        },
+      });
+
+      // Mapper les noms de famille politique
+      const familyNames: Record<string, string> = {
+        EXG: 'Extrême Gauche',
+        GAU: 'Gauche',
+        ECO: 'Écologistes',
+        CEN: 'Centre',
+        DRO: 'Droite',
+        EXD: 'Extrême Droite',
+        DIV: 'Divers',
+        AUT: 'Autres',
+      };
+
+      // Fonction de formatage de durée
+      const formatDuration = (seconds: number): string => {
+        const min = Math.floor(seconds / 60);
+        const sec = seconds % 60;
+        return `${min}:${sec.toString().padStart(2, '0')}`;
+      };
+
+      // Générer le rapport texte détaillé
+      let report = `RAPPORT PLURALISME POLITIQUE - JUSTIFICATION ARCOM\n`;
+      report += `${'='.repeat(60)}\n\n`;
+      report += `Période: du ${input.startDate.toLocaleDateString('fr-FR')} au ${input.endDate.toLocaleDateString('fr-FR')}\n`;
+      if (input.electionType) {
+        report += `Type d'élection: ${input.electionType}\n`;
+      }
+      if (input.family) {
+        report += `Famille politique: ${familyNames[input.family] || input.family}\n`;
+      }
+      if (input.constituency) {
+        report += `Circonscription: ${input.constituency}\n`;
+      }
+      report += `Nombre de sujets: ${stories.length}\n`;
+      report += `Date de génération: ${new Date().toLocaleString('fr-FR')}\n`;
+      report += `\n${'='.repeat(60)}\n\n`;
+
+      // Détail de chaque sujet
+      for (const story of stories) {
+        const authorName = [story.author.firstName, story.author.lastName].filter(Boolean).join(' ');
+
+        // Calculer durée audio
+        const audioDuration = story.media
+          ?.filter((m) => m.mediaItem.type === 'AUDIO' && m.mediaItem.duration)
+          .reduce((sum, m) => sum + (m.mediaItem.duration || 0), 0) || 0;
+        const speakingTime = audioDuration > 0
+          ? audioDuration
+          : (story.politicalTags[0]?.speakingTime || 0);
+
+        report += `${'─'.repeat(60)}\n`;
+        report += `SUJET: ${story.title}\n`;
+        report += `${'─'.repeat(60)}\n`;
+        report += `Date: ${story.createdAt.toLocaleDateString('fr-FR')} à ${story.createdAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}\n`;
+        report += `Auteur: ${authorName}\n`;
+        report += `Statut: ${story.status}\n`;
+        if (story.electionType) {
+          report += `Type d'élection: ${story.electionType}\n`;
+        }
+        report += `Temps de parole: ${formatDuration(speakingTime)}\n`;
+        report += `\n`;
+
+        // Tags politiques
+        report += `ÉTIQUETTES POLITIQUES:\n`;
+        for (const pt of story.politicalTags) {
+          report += `  • ${familyNames[pt.politicalTag.family] || pt.politicalTag.family}`;
+          if (pt.politicalTag.partyName) {
+            report += ` - ${pt.politicalTag.partyName}`;
+          }
+          if (pt.politicalTag.candidateName) {
+            report += ` (${pt.politicalTag.candidateName})`;
+          }
+          if (pt.politicalTag.constituency) {
+            report += ` [${pt.politicalTag.constituency}]`;
+          }
+          if (pt.isMainSubject) {
+            report += ` ★ Sujet principal`;
+          }
+          report += `\n`;
+        }
+        report += `\n`;
+
+        // Médias attachés
+        if (story.media && story.media.length > 0) {
+          report += `MÉDIAS ATTACHÉS:\n`;
+          for (const m of story.media) {
+            const durationStr = m.mediaItem.duration ? ` (${formatDuration(m.mediaItem.duration)})` : '';
+            report += `  • [${m.mediaItem.type}] ${m.mediaItem.title}${durationStr}\n`;
+          }
+          report += `\n`;
+        }
+
+        // Script/Contenu
+        report += `SCRIPT / CONTENU:\n`;
+        report += `${'·'.repeat(40)}\n`;
+        if (story.content) {
+          report += `${story.content}\n`;
+        } else {
+          report += `(Pas de contenu textuel - voir Google Docs si lié)\n`;
+          if (story.googleDocUrl) {
+            report += `Lien Google Docs: ${story.googleDocUrl}\n`;
+          }
+        }
+        report += `${'·'.repeat(40)}\n`;
+        report += `\n\n`;
+      }
+
+      // Résumé final
+      report += `${'='.repeat(60)}\n`;
+      report += `FIN DU RAPPORT\n`;
+      report += `${'='.repeat(60)}\n`;
+
+      const familySuffix = input.family ? `-${input.family}` : '';
+      const filename = `rapport-pluralisme-detaille${familySuffix}-${input.startDate.toISOString().split('T')[0]}-${input.endDate.toISOString().split('T')[0]}.txt`;
+
+      return {
+        format: 'txt',
+        filename,
+        content: report,
+        mimeType: 'text/plain',
+        storyCount: stories.length,
+      };
+    }),
 });

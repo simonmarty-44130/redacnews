@@ -124,6 +124,9 @@ export const storyRouter = router({
       // Vérifier si le story existe d'abord
       const story = await ctx.db.story.findUnique({
         where: { id: input.id },
+        include: {
+          politicalTags: true,
+        },
       });
 
       if (!story) {
@@ -134,6 +137,15 @@ export const storyRouter = router({
       // Vérifier que le story appartient à l'organisation
       if (story.organizationId !== ctx.organizationId) {
         throw new Error('Non autorisé');
+      }
+
+      // Empêcher la suppression des sujets politiques (pour préserver le temps de parole ARCOM)
+      // Ces sujets peuvent uniquement être archivés
+      if (story.politicalTags && story.politicalTags.length > 0) {
+        throw new Error(
+          'Les sujets politiques ne peuvent pas être supprimés pour préserver le suivi du pluralisme (ARCOM). ' +
+          'Vous pouvez uniquement archiver ce sujet.'
+        );
       }
 
       // Dissocier le story des RundownItems (mettre storyId à null)

@@ -40,10 +40,17 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 
 type PeriodPreset = '7d' | '30d' | '90d' | 'custom';
 
@@ -55,6 +62,8 @@ export default function PluralismePage() {
   const [showAddCityDialog, setShowAddCityDialog] = useState(false);
   const [newCityName, setNewCityName] = useState('');
   const [activeTab, setActiveTab] = useState<'global' | 'by-city'>('global');
+  const [showDetailedDialog, setShowDetailedDialog] = useState(false);
+  const [detailedFamily, setDetailedFamily] = useState<PoliticalFamilyCode | undefined>();
 
   // Calculer les dates en fonction de la période
   const { startDate, endDate } = useMemo(() => {
@@ -121,8 +130,46 @@ export default function PluralismePage() {
     }
   );
 
+  // Récupérer les sujets détaillés d'une famille (avec script)
+  const { data: detailedStories, isLoading: loadingDetailed } = trpc.politics.getDetailedStoriesByFamily.useQuery(
+    {
+      family: detailedFamily!,
+      startDate,
+      endDate,
+      electionType,
+      constituency: selectedConstituency,
+    },
+    {
+      enabled: !!detailedFamily && showDetailedDialog,
+    }
+  );
+
   // Export rapport
   const exportReport = trpc.politics.exportReport.useMutation();
+
+  // Export rapport détaillé avec scripts
+  const exportDetailedReport = trpc.politics.exportDetailedReport.useMutation();
+
+  const handleExportDetailed = async (family?: PoliticalFamilyCode) => {
+    const result = await exportDetailedReport.mutateAsync({
+      family,
+      startDate,
+      endDate,
+      electionType,
+      constituency: selectedConstituency,
+    });
+
+    // Créer et télécharger le fichier
+    const blob = new Blob([result.content], { type: result.mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = result.filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const handleExport = async (format: 'json' | 'csv') => {
     const result = await exportReport.mutateAsync({
@@ -178,6 +225,14 @@ export default function PluralismePage() {
             disabled={exportReport.isPending}
           >
             Export JSON
+          </Button>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => handleExportDetailed()}
+            disabled={exportDetailedReport.isPending}
+          >
+            {exportDetailedReport.isPending ? 'Export...' : 'Rapport ARCOM (avec scripts)'}
           </Button>
         </div>
       </div>
@@ -503,9 +558,29 @@ export default function PluralismePage() {
                 <PoliticalDot family={selectedFamily} size="lg" />
                 Sujets {POLITICAL_FAMILIES[selectedFamily].label}
               </CardTitle>
-              <Button variant="ghost" size="sm" onClick={() => setSelectedFamily(undefined)}>
-                Fermer
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setDetailedFamily(selectedFamily);
+                    setShowDetailedDialog(true);
+                  }}
+                >
+                  Voir avec scripts
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleExportDetailed(selectedFamily)}
+                  disabled={exportDetailedReport.isPending}
+                >
+                  {exportDetailedReport.isPending ? 'Export...' : 'Exporter ARCOM'}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setSelectedFamily(undefined)}>
+                  Fermer
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -734,6 +809,166 @@ export default function PluralismePage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Dialog pour afficher le listing détaillé avec scripts */}
+      <Dialog open={showDetailedDialog} onOpenChange={setShowDetailedDialog}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {detailedFamily && (
+                <>
+                  <PoliticalDot family={detailedFamily} size="lg" />
+                  Listing détaillé - {POLITICAL_FAMILIES[detailedFamily].label}
+                </>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {detailedStories && (
+                <>
+                  {detailedStories.totalStories} sujet(s) - Temps de parole total : {formatDurationLong(detailedStories.totalSpeakingTime)}
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex items-center justify-between py-2 border-b">
+            <span className="text-sm text-gray-500">
+              Du {startDate.toLocaleDateString('fr-FR')} au {endDate.toLocaleDateString('fr-FR')}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleExportDetailed(detailedFamily)}
+              disabled={exportDetailedReport.isPending}
+            >
+              {exportDetailedReport.isPending ? 'Export...' : 'Exporter rapport ARCOM'}
+            </Button>
+          </div>
+
+          <ScrollArea className="flex-1 pr-4">
+            {loadingDetailed ? (
+              <div className="py-8 text-center text-gray-500">Chargement...</div>
+            ) : detailedStories && detailedStories.stories.length > 0 ? (
+              <Accordion type="multiple" className="w-full">
+                {detailedStories.stories.map((story, index) => (
+                  <AccordionItem key={story.id} value={story.id}>
+                    <AccordionTrigger className="hover:no-underline">
+                      <div className="flex items-center justify-between w-full pr-4">
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-gray-400 w-6">{index + 1}.</span>
+                          <div className="text-left">
+                            <div className="font-medium">{story.title}</div>
+                            <div className="text-xs text-gray-500">
+                              {new Date(story.createdAt).toLocaleDateString('fr-FR')} - {story.author.name}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {story.politicalTags[0]?.isMainSubject && (
+                            <Badge variant="outline" className="text-xs">Principal</Badge>
+                          )}
+                          <span className="font-mono text-sm">
+                            {formatDuration(story.calculatedSpeakingTime)}
+                          </span>
+                        </div>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <div className="pl-9 space-y-4">
+                        {/* Métadonnées */}
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <span className="text-gray-500">Statut :</span>{' '}
+                            <Badge variant="outline" className="text-xs">{story.status}</Badge>
+                          </div>
+                          {story.electionType && (
+                            <div>
+                              <span className="text-gray-500">Élection :</span>{' '}
+                              {story.electionType}
+                            </div>
+                          )}
+                          <div>
+                            <span className="text-gray-500">Parti/Candidat :</span>{' '}
+                            {story.politicalTags.map((pt, i) => (
+                              <span key={i}>
+                                {pt.partyName || pt.candidateName || '-'}
+                                {pt.constituency && ` [${pt.constituency}]`}
+                              </span>
+                            ))}
+                          </div>
+                          {story.googleDocUrl && (
+                            <div>
+                              <a
+                                href={story.googleDocUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:underline"
+                              >
+                                Voir Google Docs
+                              </a>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Médias attachés */}
+                        {story.media && story.media.length > 0 && (
+                          <div>
+                            <h4 className="text-sm font-medium text-gray-700 mb-2">Médias attachés :</h4>
+                            <ul className="text-sm space-y-1">
+                              {story.media.map((m, i) => (
+                                <li key={i} className="flex items-center gap-2">
+                                  <Badge variant="outline" className="text-xs">
+                                    {m.type}
+                                  </Badge>
+                                  {m.title}
+                                  {m.duration && (
+                                    <span className="text-gray-500">
+                                      ({formatDuration(m.duration)})
+                                    </span>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* Script / Contenu */}
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-700 mb-2">Script / Contenu :</h4>
+                          {story.content ? (
+                            <div className="bg-gray-50 rounded-lg p-4 text-sm whitespace-pre-wrap max-h-60 overflow-y-auto">
+                              {story.content}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-gray-500 italic">
+                              Pas de contenu textuel disponible
+                              {story.googleDocUrl && ' - voir Google Docs'}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Lien vers le sujet */}
+                        <div className="pt-2 border-t">
+                          <a
+                            href={`/sujets/${story.id}`}
+                            className="text-sm text-blue-600 hover:underline"
+                          >
+                            Ouvrir le sujet complet
+                          </a>
+                        </div>
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                ))}
+              </Accordion>
+            ) : (
+              <div className="py-8 text-center text-gray-500">
+                Aucun sujet pour cette famille politique
+              </div>
+            )}
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
