@@ -10,6 +10,7 @@ interface GoogleDocResult {
 
 export const storyRouter = router({
   // List stories
+  // Par défaut, exclut les sujets archivés sauf si on demande explicitement le statut ARCHIVED
   list: protectedProcedure
     .input(
       z.object({
@@ -22,10 +23,16 @@ export const storyRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
+      // Si un statut spécifique est demandé, on filtre dessus
+      // Sinon, on exclut les archivés par défaut
+      const statusFilter = input.status
+        ? { status: input.status }
+        : { status: { not: 'ARCHIVED' as const } };
+
       return ctx.db.story.findMany({
         where: {
           organizationId: ctx.organizationId!,
-          ...(input.status && { status: input.status }),
+          ...statusFilter,
           ...(input.authorId && { authorId: input.authorId }),
           ...(input.category && { category: input.category }),
           ...(input.search && {
