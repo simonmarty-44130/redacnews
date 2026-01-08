@@ -651,3 +651,59 @@ function formatDuration(seconds: number): string {
   const secs = seconds % 60;
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
+
+/**
+ * Met a jour un Google Doc script existant avec les nouvelles donnees du conducteur
+ * Utile quand un conducteur imbrique est lie/modifie
+ */
+export async function updateRundownScript(
+  docId: string,
+  rundown: RundownWithItems
+): Promise<void> {
+  const docs = getDocs();
+
+  // 1. Obtenir la longueur actuelle du document
+  const doc = await docs.documents.get({ documentId: docId });
+  const endIndex = doc.data.body?.content?.slice(-1)[0]?.endIndex || 1;
+
+  // 2. Supprimer tout le contenu existant (sauf le premier caractere obligatoire)
+  if (endIndex > 2) {
+    await docs.documents.batchUpdate({
+      documentId: docId,
+      requestBody: {
+        requests: [
+          {
+            deleteContentRange: {
+              range: {
+                startIndex: 1,
+                endIndex: endIndex - 1,
+              },
+            },
+          },
+        ],
+      },
+    });
+  }
+
+  // 3. Reconstruire et inserer le nouveau contenu
+  const requests = buildScriptContent(rundown);
+
+  if (requests.length > 0) {
+    await docs.documents.batchUpdate({
+      documentId: docId,
+      requestBody: { requests },
+    });
+  }
+
+  // 4. Mettre a jour le titre du document
+  const dateStr = formatDateFr(rundown.date);
+  const newTitle = `Script - ${rundown.show.name} - ${dateStr}`;
+
+  const drive = getDrive();
+  await drive.files.update({
+    fileId: docId,
+    requestBody: {
+      name: newTitle,
+    },
+  });
+}

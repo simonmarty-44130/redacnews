@@ -831,6 +831,16 @@ export const rundownRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Recuperer l'item pour avoir le rundownId parent
+      const item = await ctx.db.rundownItem.findUniqueOrThrow({
+        where: { id: input.itemId },
+        include: {
+          rundown: {
+            select: { id: true, scriptDocId: true },
+          },
+        },
+      });
+
       // Si on lie un conducteur, verifier qu'il existe et appartient a la meme organisation
       if (input.linkedRundownId) {
         const linkedRundown = await ctx.db.rundown.findUniqueOrThrow({
@@ -844,17 +854,13 @@ export const rundownRouter = router({
         }
 
         // Verifier qu'on ne cree pas de boucle (l'element ne peut pas pointer vers son propre conducteur)
-        const item = await ctx.db.rundownItem.findUniqueOrThrow({
-          where: { id: input.itemId },
-        });
-
         if (item.rundownId === input.linkedRundownId) {
           throw new Error('Un element ne peut pas pointer vers son propre conducteur');
         }
       }
 
       // Mettre a jour l'element
-      return ctx.db.rundownItem.update({
+      const updatedItem = await ctx.db.rundownItem.update({
         where: { id: input.itemId },
         data: { linkedRundownId: input.linkedRundownId },
         include: {
@@ -865,6 +871,53 @@ export const rundownRouter = router({
           },
         },
       });
+
+      // Si le conducteur parent a un Google Doc script, le mettre a jour
+      if (item.rundown.scriptDocId) {
+        try {
+          const { updateRundownScript } = await import('../lib/google/rundown-script');
+
+          // Recuperer les donnees completes du conducteur parent
+          const parentRundown = await ctx.db.rundown.findUniqueOrThrow({
+            where: { id: item.rundownId },
+            include: {
+              show: true,
+              items: {
+                orderBy: { position: 'asc' },
+                include: {
+                  story: true,
+                  assignee: true,
+                  media: {
+                    include: { mediaItem: true },
+                  },
+                  linkedRundown: {
+                    include: {
+                      show: true,
+                      items: {
+                        orderBy: { position: 'asc' },
+                        include: {
+                          story: true,
+                          media: {
+                            include: { mediaItem: true },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          });
+
+          // Mettre a jour le Google Doc
+          await updateRundownScript(item.rundown.scriptDocId, parentRundown);
+        } catch (error) {
+          // Ne pas bloquer si la mise a jour du Google Doc echoue
+          console.error('Erreur lors de la mise a jour du Google Doc script:', error);
+        }
+      }
+
+      return updatedItem;
     }),
 
   // Creer un conducteur enfant et le lier automatiquement a un element
@@ -921,11 +974,65 @@ export const rundownRouter = router({
         });
       }
 
+      // Recuperer l'item parent avec son conducteur
+      const parentItem = await ctx.db.rundownItem.findUniqueOrThrow({
+        where: { id: input.parentItemId },
+        include: {
+          rundown: {
+            select: { id: true, scriptDocId: true },
+          },
+        },
+      });
+
       // Lier au parent
       await ctx.db.rundownItem.update({
         where: { id: input.parentItemId },
         data: { linkedRundownId: childRundown.id },
       });
+
+      // Si le conducteur parent a un Google Doc script, le mettre a jour
+      if (parentItem.rundown.scriptDocId) {
+        try {
+          const { updateRundownScript } = await import('../lib/google/rundown-script');
+
+          // Recuperer les donnees completes du conducteur parent
+          const parentRundown = await ctx.db.rundown.findUniqueOrThrow({
+            where: { id: parentItem.rundownId },
+            include: {
+              show: true,
+              items: {
+                orderBy: { position: 'asc' },
+                include: {
+                  story: true,
+                  assignee: true,
+                  media: {
+                    include: { mediaItem: true },
+                  },
+                  linkedRundown: {
+                    include: {
+                      show: true,
+                      items: {
+                        orderBy: { position: 'asc' },
+                        include: {
+                          story: true,
+                          media: {
+                            include: { mediaItem: true },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          });
+
+          // Mettre a jour le Google Doc
+          await updateRundownScript(parentItem.rundown.scriptDocId, parentRundown);
+        } catch (error) {
+          console.error('Erreur lors de la mise a jour du Google Doc script:', error);
+        }
+      }
 
       return ctx.db.rundown.findUniqueOrThrow({
         where: { id: childRundown.id },
@@ -1262,5 +1369,137 @@ export const rundownRouter = router({
       }
 
       return rundown;
+    }),
+
+  // === SYNCHRONISATION GOOGLE DOCS ===
+
+  // Synchroniser les durees depuis les Google Docs des sujets lies
+  // Met a jour les durees des items en fonction du texte en gras dans les Google Docs
+  syncFromGoogleDocs: protectedProcedure
+    .input(z.object({ rundownId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const { estimateDocReadingDuration } = await import('../lib/google/docs');
+
+      // Recuperer le conducteur avec ses items et sujets lies
+      const rundown = await ctx.db.rundown.findUniqueOrThrow({
+        where: { id: input.rundownId },
+        include: {
+          show: true,
+          items: {
+            include: {
+              story: {
+                select: {
+                  id: true,
+                  googleDocId: true,
+                  estimatedDuration: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      // Verifier les droits
+      if (rundown.show.organizationId !== ctx.organizationId) {
+        throw new TRPCError({ code: 'FORBIDDEN' });
+      }
+
+      const updates: Array<{ itemId: string; storyId: string; duration: number; wordCount: number }> = [];
+
+      // Pour chaque item avec un sujet lie ayant un Google Doc
+      for (const item of rundown.items) {
+        if (item.story?.googleDocId) {
+          try {
+            const { duration, wordCount } = await estimateDocReadingDuration(item.story.googleDocId);
+
+            // Mettre a jour la duree estimee du sujet
+            await ctx.db.story.update({
+              where: { id: item.story.id },
+              data: { estimatedDuration: duration },
+            });
+
+            // Mettre a jour la duree de l'item du conducteur
+            await ctx.db.rundownItem.update({
+              where: { id: item.id },
+              data: { duration },
+            });
+
+            updates.push({
+              itemId: item.id,
+              storyId: item.story.id,
+              duration,
+              wordCount,
+            });
+          } catch (error) {
+            console.error(`Erreur sync Google Doc pour item ${item.id}:`, error);
+            // Continuer avec les autres items
+          }
+        }
+      }
+
+      return {
+        rundownId: input.rundownId,
+        updatedItems: updates.length,
+        updates,
+      };
+    }),
+
+  // Synchroniser un seul item depuis son Google Doc
+  syncItemFromGoogleDoc: protectedProcedure
+    .input(z.object({ itemId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const { estimateDocReadingDuration } = await import('../lib/google/docs');
+
+      // Recuperer l'item avec son sujet
+      const item = await ctx.db.rundownItem.findUniqueOrThrow({
+        where: { id: input.itemId },
+        include: {
+          rundown: {
+            include: { show: true },
+          },
+          story: {
+            select: {
+              id: true,
+              googleDocId: true,
+            },
+          },
+        },
+      });
+
+      // Verifier les droits
+      if (item.rundown.show.organizationId !== ctx.organizationId) {
+        throw new TRPCError({ code: 'FORBIDDEN' });
+      }
+
+      if (!item.story?.googleDocId) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: "Cet element n'a pas de Google Doc lie",
+        });
+      }
+
+      const { duration, wordCount, usedBoldOnly } = await estimateDocReadingDuration(item.story.googleDocId);
+
+      // Mettre a jour la duree estimee du sujet
+      await ctx.db.story.update({
+        where: { id: item.story.id },
+        data: { estimatedDuration: duration },
+      });
+
+      // Mettre a jour la duree de l'item
+      const updatedItem = await ctx.db.rundownItem.update({
+        where: { id: item.id },
+        data: { duration },
+        include: {
+          story: true,
+        },
+      });
+
+      return {
+        item: updatedItem,
+        duration,
+        wordCount,
+        usedBoldOnly,
+      };
     }),
 });

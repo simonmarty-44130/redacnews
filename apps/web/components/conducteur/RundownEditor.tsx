@@ -19,7 +19,7 @@ import {
 import { format, addSeconds, parse } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
-import { Clock, AlertTriangle, ChevronLeft, ChevronRight, Presentation, MoreHorizontal, Trash2, ChevronDown, Check, Mail, FileEdit } from 'lucide-react';
+import { Clock, AlertTriangle, ChevronLeft, ChevronRight, Presentation, MoreHorizontal, Trash2, ChevronDown, Check, Mail, FileEdit, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -107,6 +107,13 @@ export function RundownEditor({ rundownId }: RundownEditorProps) {
     onSuccess: () => {
       utils.rundown.get.invalidate({ id: rundownId });
       utils.rundown.list.invalidate();
+    },
+  });
+
+  // Synchronisation des durées depuis les Google Docs
+  const syncFromGoogleDocs = trpc.rundown.syncFromGoogleDocs.useMutation({
+    onSuccess: (data) => {
+      utils.rundown.get.invalidate({ id: rundownId });
     },
   });
 
@@ -217,6 +224,17 @@ export function RundownEditor({ rundownId }: RundownEditorProps) {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {/* Bouton de synchronisation des durées depuis Google Docs */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => syncFromGoogleDocs.mutate({ rundownId })}
+              disabled={syncFromGoogleDocs.isPending}
+              title="Synchroniser les durées depuis les Google Docs des sujets (basé sur le texte en gras)"
+            >
+              <RefreshCw className={cn("h-4 w-4 mr-2", syncFromGoogleDocs.isPending && "animate-spin")} />
+              {syncFromGoogleDocs.isPending ? 'Sync...' : 'Sync GDocs'}
+            </Button>
             <GenerateScriptButton
               rundownId={rundownId}
               rundownTitle={`${rundown.show.name} - ${format(new Date(rundown.date), 'd MMMM yyyy', { locale: fr })}`}
