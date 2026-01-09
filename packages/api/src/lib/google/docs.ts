@@ -261,6 +261,115 @@ export function estimateReadingDuration(wordCount: number): number {
 }
 
 /**
+ * Removes technical markers from text for duration calculation
+ * Technical markers are text between brackets like [JINGLE], [FLASH], [RUBRIQUE X], etc.
+ * These are used by animators to mark cues but shouldn't be counted in reading time
+ */
+export function removeMarkers(text: string): string {
+  // Remove text between brackets: [JINGLE], [FLASH INFO], [>>> RUBRIQUE], etc.
+  return text.replace(/\[.*?\]/g, '');
+}
+
+/**
+ * Gets content from a Google Doc for animation shows (like Tour des Clochers)
+ * For animation shows, ALL text is read (not just bold), except technical markers in brackets
+ * Returns content with markers removed for accurate duration calculation
+ */
+export async function getDocContentForAnimation(docId: string): Promise<{
+  fullText: string;
+  textForDuration: string;
+  wordCount: number;
+}> {
+  const docs = getDocs();
+
+  const doc = await docs.documents.get({ documentId: docId });
+
+  let fullText = '';
+
+  doc.data.body?.content?.forEach((element) => {
+    if (element.paragraph?.elements) {
+      element.paragraph.elements.forEach((e) => {
+        if (e.textRun?.content) {
+          fullText += e.textRun.content;
+        }
+      });
+    }
+  });
+
+  // For animation shows, count all text EXCEPT technical markers
+  const textForDuration = removeMarkers(fullText);
+  const wordCount = textForDuration.trim().split(/\s+/).filter(Boolean).length;
+
+  return {
+    fullText,
+    textForDuration,
+    wordCount,
+  };
+}
+
+/**
+ * Estimates reading duration from Google Doc based on show type
+ * - For news shows (FLASH, JOURNAL): only bold text counts (lancement/pied read by presenter)
+ * - For animation shows (MAGAZINE, CHRONIQUE): all text counts except technical markers in brackets
+ */
+export async function estimateDocReadingDurationByMode(
+  docId: string,
+  mode: 'news' | 'animation'
+): Promise<{
+  duration: number;
+  wordCount: number;
+  mode: 'news' | 'animation';
+  usedBoldOnly: boolean;
+}> {
+  if (mode === 'animation') {
+    // Animation mode: count all text except markers
+    const { wordCount } = await getDocContentForAnimation(docId);
+    const duration = estimateReadingDuration(wordCount);
+
+    return {
+      duration,
+      wordCount,
+      mode: 'animation',
+      usedBoldOnly: false,
+    };
+  } else {
+    // News mode: only count bold text (existing behavior)
+    const { fullText, boldText, hasBoldText } = await getDocContentWithFormatting(docId);
+
+    const textToCount = hasBoldText ? boldText : fullText;
+    const wordCount = textToCount.trim().split(/\s+/).filter(Boolean).length;
+    const duration = estimateReadingDuration(wordCount);
+
+    return {
+      duration,
+      wordCount,
+      mode: 'news',
+      usedBoldOnly: hasBoldText,
+    };
+  }
+}
+
+/**
+ * Determines the duration calculation mode based on show category
+ * FLASH and JOURNAL are news shows (bold text only)
+ * MAGAZINE, CHRONIQUE, and AUTRE are animation shows (all text minus markers)
+ */
+export function getDurationModeFromCategory(
+  category: 'FLASH' | 'JOURNAL' | 'MAGAZINE' | 'CHRONIQUE' | 'AUTRE'
+): 'news' | 'animation' {
+  switch (category) {
+    case 'FLASH':
+    case 'JOURNAL':
+      return 'news';
+    case 'MAGAZINE':
+    case 'CHRONIQUE':
+    case 'AUTRE':
+    default:
+      return 'animation';
+  }
+}
+
+/**
  * Inserts text content into an existing Google Doc
  * Useful for populating docs from template content
  */

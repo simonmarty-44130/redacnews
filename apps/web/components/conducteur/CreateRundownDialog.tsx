@@ -573,7 +573,7 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
           </form>
         ) : !isCreatingShow && step === 'selectStories' ? (
           // Étape de sélection des sujets existants
-          <div className="flex flex-col flex-1 overflow-hidden">
+          <div className="flex flex-col flex-1 min-h-0">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5" />
@@ -585,9 +585,9 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="flex-1 py-4 overflow-hidden flex flex-col gap-4">
+            <div className="flex-1 py-4 flex flex-col gap-4 min-h-0">
               {/* Barre de recherche */}
-              <div className="relative">
+              <div className="relative flex-shrink-0">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <Input
                   placeholder="Rechercher un sujet..."
@@ -598,7 +598,7 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
               </div>
 
               {/* Liste des emplacements à remplir */}
-              <ScrollArea className="flex-1">
+              <ScrollArea className="flex-1 min-h-0 max-h-[40vh]">
                 <div className="space-y-4 pr-4">
                   {storyItems.map((templateItem) => {
                     const selectedStoryId = selectedStories[templateItem.id];
@@ -676,7 +676,7 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
               </ScrollArea>
 
               {/* Résumé */}
-              <div className="text-sm text-gray-600 border-t pt-3">
+              <div className="text-sm text-gray-600 border-t pt-3 flex-shrink-0">
                 <span className="font-medium">{Object.keys(selectedStories).length}</span> sujet(s) existant(s) sélectionné(s) sur{' '}
                 <span className="font-medium">{storyItems.length}</span> emplacement(s).
                 Les autres seront créés automatiquement.

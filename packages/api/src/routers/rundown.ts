@@ -1374,11 +1374,13 @@ export const rundownRouter = router({
   // === SYNCHRONISATION GOOGLE DOCS ===
 
   // Synchroniser les durees depuis les Google Docs des sujets lies
-  // Met a jour les durees des items en fonction du texte en gras dans les Google Docs
+  // Met a jour les durees des items en fonction du contenu des Google Docs
+  // - Pour les FLASH/JOURNAL: seul le texte en gras compte (lancement/pied)
+  // - Pour les MAGAZINE/CHRONIQUE/AUTRE: tout le texte compte sauf marqueurs techniques [...]
   syncFromGoogleDocs: protectedProcedure
     .input(z.object({ rundownId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const { estimateDocReadingDuration } = await import('../lib/google/docs');
+      const { estimateDocReadingDurationByMode, getDurationModeFromCategory } = await import('../lib/google/docs');
 
       // Recuperer le conducteur avec ses items et sujets lies
       const rundown = await ctx.db.rundown.findUniqueOrThrow({
@@ -1404,13 +1406,19 @@ export const rundownRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN' });
       }
 
-      const updates: Array<{ itemId: string; storyId: string; duration: number; wordCount: number }> = [];
+      // Determiner le mode de calcul en fonction de la categorie du Show
+      const durationMode = getDurationModeFromCategory(rundown.show.category);
+
+      const updates: Array<{ itemId: string; storyId: string; duration: number; wordCount: number; mode: string }> = [];
 
       // Pour chaque item avec un sujet lie ayant un Google Doc
       for (const item of rundown.items) {
         if (item.story?.googleDocId) {
           try {
-            const { duration, wordCount } = await estimateDocReadingDuration(item.story.googleDocId);
+            const { duration, wordCount, mode } = await estimateDocReadingDurationByMode(
+              item.story.googleDocId,
+              durationMode
+            );
 
             // Mettre a jour la duree estimee du sujet
             await ctx.db.story.update({
@@ -1429,6 +1437,7 @@ export const rundownRouter = router({
               storyId: item.story.id,
               duration,
               wordCount,
+              mode,
             });
           } catch (error) {
             console.error(`Erreur sync Google Doc pour item ${item.id}:`, error);
@@ -1441,14 +1450,16 @@ export const rundownRouter = router({
         rundownId: input.rundownId,
         updatedItems: updates.length,
         updates,
+        durationMode, // Indiquer le mode utilise pour le feedback
       };
     }),
 
   // Synchroniser un seul item depuis son Google Doc
+  // Utilise le mode de calcul en fonction de la categorie du Show parent
   syncItemFromGoogleDoc: protectedProcedure
     .input(z.object({ itemId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const { estimateDocReadingDuration } = await import('../lib/google/docs');
+      const { estimateDocReadingDurationByMode, getDurationModeFromCategory } = await import('../lib/google/docs');
 
       // Recuperer l'item avec son sujet
       const item = await ctx.db.rundownItem.findUniqueOrThrow({
@@ -1478,7 +1489,13 @@ export const rundownRouter = router({
         });
       }
 
-      const { duration, wordCount, usedBoldOnly } = await estimateDocReadingDuration(item.story.googleDocId);
+      // Determiner le mode de calcul en fonction de la categorie du Show
+      const durationMode = getDurationModeFromCategory(item.rundown.show.category);
+
+      const { duration, wordCount, usedBoldOnly, mode } = await estimateDocReadingDurationByMode(
+        item.story.googleDocId,
+        durationMode
+      );
 
       // Mettre a jour la duree estimee du sujet
       await ctx.db.story.update({
@@ -1500,6 +1517,7 @@ export const rundownRouter = router({
         duration,
         wordCount,
         usedBoldOnly,
+        durationMode: mode,
       };
     }),
 });
