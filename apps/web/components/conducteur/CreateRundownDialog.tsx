@@ -573,7 +573,7 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
           </form>
         ) : !isCreatingShow && step === 'selectStories' ? (
           // Étape de sélection des sujets existants
-          <div className="flex flex-col flex-1 min-h-0">
+          <>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5" />
@@ -585,9 +585,9 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="flex-1 py-4 flex flex-col gap-4 min-h-0">
+            <div className="py-4 space-y-4">
               {/* Barre de recherche */}
-              <div className="relative flex-shrink-0">
+              <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <Input
                   placeholder="Rechercher un sujet..."
@@ -597,86 +597,84 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
                 />
               </div>
 
-              {/* Liste des emplacements à remplir */}
-              <ScrollArea className="flex-1 min-h-0 max-h-[40vh]">
-                <div className="space-y-4 pr-4">
-                  {storyItems.map((templateItem) => {
-                    const selectedStoryId = selectedStories[templateItem.id];
-                    const selectedStory = availableStories?.find(s => s.id === selectedStoryId);
+              {/* Liste des emplacements à remplir - hauteur fixe avec scroll */}
+              <div className="h-[300px] overflow-y-auto border rounded-lg p-2 space-y-3">
+                {storyItems.map((templateItem) => {
+                  const selectedStoryId = selectedStories[templateItem.id];
+                  const selectedStory = availableStories?.find(s => s.id === selectedStoryId);
 
-                    return (
-                      <div key={templateItem.id} className="border rounded-lg p-3 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="font-medium text-sm">{templateItem.title}</div>
-                          <Badge variant="outline" className="text-xs">
-                            {Math.floor(templateItem.duration / 60)}:{(templateItem.duration % 60).toString().padStart(2, '0')}
-                          </Badge>
-                        </div>
-
-                        {selectedStory ? (
-                          <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded p-2">
-                            <div className="flex items-center gap-2">
-                              <Check className="h-4 w-4 text-green-600" />
-                              <span className="text-sm font-medium text-green-800">{selectedStory.title}</span>
-                              {selectedStory.category && (
-                                <Badge variant="secondary" className="text-xs">{selectedStory.category}</Badge>
-                              )}
-                            </div>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                const newSelected = { ...selectedStories };
-                                delete newSelected[templateItem.id];
-                                setSelectedStories(newSelected);
-                              }}
-                              className="h-7 text-xs text-gray-500 hover:text-red-600"
-                            >
-                              Retirer
-                            </Button>
-                          </div>
-                        ) : (
-                          <Select
-                            value=""
-                            onValueChange={(storyId) => {
-                              setSelectedStories(prev => ({
-                                ...prev,
-                                [templateItem.id]: storyId
-                              }));
-                            }}
-                          >
-                            <SelectTrigger className="text-sm">
-                              <SelectValue placeholder="Nouveau sujet (par défaut) ou sélectionner..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {filteredStories.map((story) => (
-                                <SelectItem key={story.id} value={story.id}>
-                                  <div className="flex items-center gap-2">
-                                    <FileText className="h-4 w-4 text-gray-400" />
-                                    <span>{story.title}</span>
-                                    {story.category && (
-                                      <span className="text-xs text-gray-500">({story.category})</span>
-                                    )}
-                                  </div>
-                                </SelectItem>
-                              ))}
-                              {filteredStories.length === 0 && (
-                                <div className="p-2 text-sm text-gray-500 text-center">
-                                  Aucun sujet trouvé
-                                </div>
-                              )}
-                            </SelectContent>
-                          </Select>
-                        )}
+                  return (
+                    <div key={templateItem.id} className="border rounded-lg p-3 space-y-2 bg-white">
+                      <div className="flex items-center justify-between">
+                        <div className="font-medium text-sm">{templateItem.title}</div>
+                        <Badge variant="outline" className="text-xs">
+                          {Math.floor(templateItem.duration / 60)}:{(templateItem.duration % 60).toString().padStart(2, '0')}
+                        </Badge>
                       </div>
-                    );
-                  })}
-                </div>
-              </ScrollArea>
+
+                      {selectedStory ? (
+                        <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded p-2">
+                          <div className="flex items-center gap-2">
+                            <Check className="h-4 w-4 text-green-600" />
+                            <span className="text-sm font-medium text-green-800">{selectedStory.title}</span>
+                            {selectedStory.category && (
+                              <Badge variant="secondary" className="text-xs">{selectedStory.category}</Badge>
+                            )}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const newSelected = { ...selectedStories };
+                              delete newSelected[templateItem.id];
+                              setSelectedStories(newSelected);
+                            }}
+                            className="h-7 text-xs text-gray-500 hover:text-red-600"
+                          >
+                            Retirer
+                          </Button>
+                        </div>
+                      ) : (
+                        <Select
+                          value=""
+                          onValueChange={(storyId) => {
+                            setSelectedStories(prev => ({
+                              ...prev,
+                              [templateItem.id]: storyId
+                            }));
+                          }}
+                        >
+                          <SelectTrigger className="text-sm">
+                            <SelectValue placeholder="Nouveau sujet (par défaut) ou sélectionner..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {filteredStories.map((story) => (
+                              <SelectItem key={story.id} value={story.id}>
+                                <div className="flex items-center gap-2">
+                                  <FileText className="h-4 w-4 text-gray-400" />
+                                  <span>{story.title}</span>
+                                  {story.category && (
+                                    <span className="text-xs text-gray-500">({story.category})</span>
+                                  )}
+                                </div>
+                              </SelectItem>
+                            ))}
+                            {filteredStories.length === 0 && (
+                              <div className="p-2 text-sm text-gray-500 text-center">
+                                Aucun sujet trouvé
+                              </div>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
 
               {/* Résumé */}
-              <div className="text-sm text-gray-600 border-t pt-3 flex-shrink-0">
+              <div className="text-sm text-gray-600 border-t pt-3">
                 <span className="font-medium">{Object.keys(selectedStories).length}</span> sujet(s) existant(s) sélectionné(s) sur{' '}
                 <span className="font-medium">{storyItems.length}</span> emplacement(s).
                 Les autres seront créés automatiquement.
@@ -703,7 +701,7 @@ export function CreateRundownDialog({ onSuccess }: CreateRundownDialogProps) {
                 {isSubmitting ? 'Création...' : 'Créer le conducteur'}
               </Button>
             </DialogFooter>
-          </div>
+          </>
         ) : (
           // Formulaire de création d'émission
           <div>
