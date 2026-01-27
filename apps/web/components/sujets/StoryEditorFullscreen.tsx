@@ -19,7 +19,7 @@ interface StoryEditorFullscreenProps {
 export function StoryEditorFullscreen({ storyId, onBack }: StoryEditorFullscreenProps) {
   const router = useRouter();
   const [isDeleting, setIsDeleting] = useState(false);
-  
+
   const { data: story, isLoading } = trpc.story.get.useQuery(
     { id: storyId },
     { enabled: !isDeleting } // Désactiver la query pendant/après suppression
@@ -52,6 +52,12 @@ export function StoryEditorFullscreen({ storyId, onBack }: StoryEditorFullscreen
     },
   });
 
+  const addGoogleDoc = trpc.story.addGoogleDoc.useMutation({
+    onSuccess: () => {
+      utils.story.get.invalidate({ id: storyId });
+    },
+  });
+
   // Initialize from story data
   useEffect(() => {
     if (story) {
@@ -75,6 +81,10 @@ export function StoryEditorFullscreen({ storyId, onBack }: StoryEditorFullscreen
       setIsDeleting(true); // Désactiver la query AVANT la mutation
       deleteStory.mutate({ id: storyId });
     }
+  };
+
+  const handleAddGoogleDoc = () => {
+    addGoogleDoc.mutate({ storyId });
   };
 
   const handleTitleChange = (newTitle: string) => {
@@ -244,9 +254,13 @@ export function StoryEditorFullscreen({ storyId, onBack }: StoryEditorFullscreen
           <div className="h-full bg-white rounded-lg border flex items-center justify-center">
             <div className="text-center space-y-4">
               <p className="text-gray-500">Aucun Google Doc lie a ce sujet</p>
-              <Button variant="outline">
+              <Button
+                variant="outline"
+                onClick={handleAddGoogleDoc}
+                disabled={addGoogleDoc.isPending}
+              >
                 <ExternalLink className="h-4 w-4 mr-2" />
-                Lier un Google Doc
+                {addGoogleDoc.isPending ? 'Creation en cours...' : 'Creer un Google Doc'}
               </Button>
             </div>
           </div>

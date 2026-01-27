@@ -259,6 +259,38 @@ export const storyRouter = router({
       }
     }),
 
+  // Create and attach a new Google Doc to an existing story
+  addGoogleDoc: protectedProcedure
+    .input(z.object({ storyId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      // Get the story first
+      const story = await ctx.db.story.findUniqueOrThrow({
+        where: { id: input.storyId },
+      });
+
+      // Create Google Doc
+      let googleDoc: GoogleDocResult | null = null;
+
+      try {
+        // Import from local lib
+        const { createStoryDoc } = await import('../lib/google/docs');
+        const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+        googleDoc = await createStoryDoc(story.title, folderId);
+      } catch (error) {
+        console.error('Failed to create Google Doc:', error);
+        throw new Error('Failed to create Google Doc');
+      }
+
+      // Update story with Google Doc info
+      return ctx.db.story.update({
+        where: { id: input.storyId },
+        data: {
+          googleDocId: googleDoc.id,
+          googleDocUrl: googleDoc.url,
+        },
+      });
+    }),
+
   // Link existing Google Doc to story
   linkGoogleDoc: protectedProcedure
     .input(
