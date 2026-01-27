@@ -111,6 +111,7 @@ export const storyRouter = router({
         category: z.string().optional(),
         tags: z.array(z.string()).optional(),
         estimatedDuration: z.number().optional(),
+        authorId: z.string().optional(),
         assigneeId: z.string().nullable().optional(),
         googleDocId: z.string().optional(),
         googleDocUrl: z.string().optional(),

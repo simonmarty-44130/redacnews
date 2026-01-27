@@ -466,6 +466,7 @@ export const rundownRouter = router({
         status: z.enum(['PENDING', 'IN_PROGRESS', 'READY', 'ON_AIR', 'DONE']).optional(),
         notes: z.string().optional(),
         script: z.string().nullable().optional(),
+        assigneeId: z.string().nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
