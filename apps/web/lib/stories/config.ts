@@ -11,6 +11,7 @@ export const STORY_CATEGORIES = [
   'Sport',
   'Meteo',
   'International',
+  'Environnement',
   'Local',
   'Sommaire 07h',
   'Sommaire 08h',
