@@ -152,14 +152,9 @@ export default function AssistantPage() {
 
               <div className="p-4 border-t bg-white/50 backdrop-blur">
                 <ChatInput
-                  value=""
-                  onChange={() => {}}
-                  onSubmit={assistant.sendMessage}
-                  onAttach={assistant.uploadAttachment}
-                  isStreaming={assistant.isStreaming}
+                  onSend={assistant.sendMessage}
                   onStop={assistant.stopStreaming}
-                  attachments={assistant.attachments}
-                  onRemoveAttachment={assistant.removeAttachment}
+                  isStreaming={assistant.isStreaming}
                 />
                 {assistant.totalTokensUsed > 0 && (
                   <div className="mt-2 text-xs text-gray-500 flex items-center gap-4">
