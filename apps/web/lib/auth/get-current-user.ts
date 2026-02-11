@@ -14,12 +14,19 @@ export interface CurrentUser {
   role: string;
 }
 
-// Créer un vérificateur JWT pour Cognito
-const verifier = CognitoJwtVerifier.create({
-  userPoolId: process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID!,
-  tokenUse: 'access',
-  clientId: process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID!,
-});
+// Créer un vérificateur JWT pour Cognito de manière lazy
+let verifier: ReturnType<typeof CognitoJwtVerifier.create> | null = null;
+
+function getVerifier() {
+  if (!verifier) {
+    verifier = CognitoJwtVerifier.create({
+      userPoolId: process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID!,
+      tokenUse: 'access',
+      clientId: process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID!,
+    });
+  }
+  return verifier;
+}
 
 export async function getCurrentUser(): Promise<CurrentUser | null> {
   try {
@@ -45,7 +52,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     }
 
     // Vérifier et décoder le token
-    const payload = await verifier.verify(accessToken);
+    const payload = await getVerifier().verify(accessToken);
 
     if (!payload || !payload.sub) {
       return null;
