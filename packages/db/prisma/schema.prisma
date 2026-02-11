@@ -24,6 +24,9 @@ model Organization {
   shows            Show[]
   stories          Story[]
   users            User[]
+  aiConversations  AIConversation[]
+  aiUsage          AIUsage[]
+  aiSettings       AISettings?
 }
 
 model Constituency {
@@ -60,6 +63,8 @@ model User {
   assignedStories Story[]             @relation("StoryAssignee")
   stories         Story[]             @relation("StoryAuthor")
   organization    Organization        @relation(fields: [organizationId], references: [id])
+  aiConversations AIConversation[]
+  aiUsage         AIUsage[]
 }
 
 model Show {
@@ -561,4 +566,96 @@ enum InvitationStatus {
   ACCEPTED
   EXPIRED
   CANCELLED
+}
+
+// ============ ASSISTANT IA ============
+
+model AIConversation {
+  id             String   @id @default(cuid())
+  title          String?                         // Titre auto-généré ou manuel
+  userId         String
+  organizationId String
+  systemPrompt   String?  @db.Text               // Consigne de cette conversation
+  model          String   @default("claude-sonnet-4-5-20250929")
+  tokenUsageIn   Int      @default(0)            // Tokens input consommés
+  tokenUsageOut  Int      @default(0)            // Tokens output consommés
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user         User              @relation(fields: [userId], references: [id])
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  messages     AIMessage[]
+  attachments  AIAttachment[]
+
+  @@index([userId])
+  @@index([organizationId])
+}
+
+model AIMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  role           AIRole                            // USER ou ASSISTANT
+  content        String   @db.Text
+  tokenCount     Int?                              // Nombre de tokens de ce message
+  createdAt      DateTime @default(now())
+
+  conversation AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+}
+
+enum AIRole {
+  USER
+  ASSISTANT
+}
+
+model AIAttachment {
+  id             String           @id @default(cuid())
+  conversationId String
+  filename       String
+  mimeType       String
+  fileSize       Int                                // bytes
+  s3Key          String
+  s3Url          String
+  status         AttachmentStatus @default(READY)
+  createdAt      DateTime         @default(now())
+
+  conversation AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+}
+
+enum AttachmentStatus {
+  UPLOADING
+  READY
+  ERROR
+}
+
+// Suivi consommation par organisation (pour quotas/facturation)
+model AIUsage {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  model          String
+  tokensIn       Int
+  tokensOut      Int
+  date           DateTime @default(now())         // Pour agrégation journalière
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, date])
+  @@index([userId, date])
+}
+
+// Consigne système par défaut de l'organisation
+model AISettings {
+  id                   String  @id @default(cuid())
+  organizationId       String  @unique
+  defaultSystemPrompt  String? @db.Text
+  defaultModel         String  @default("claude-sonnet-4-5-20250929")
+  monthlyTokenLimit    Int     @default(2000000)   // Quota mensuel en tokens
+  enabled              Boolean @default(true)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
 }

@@ -24,6 +24,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { AssistantPanel, AssistantToggle } from '@/components/assistant';
 
 const navigation = [
   { name: 'Conducteur', href: '/conducteur', icon: LayoutDashboard },
@@ -129,6 +130,10 @@ export default function DashboardLayout({
 
       {/* Main content */}
       <main className="flex-1">{children}</main>
+
+      {/* Assistant IA */}
+      <AssistantPanel />
+      <AssistantToggle />
     </div>
   );
 }
