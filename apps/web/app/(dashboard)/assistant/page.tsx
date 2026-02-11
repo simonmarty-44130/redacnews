@@ -188,10 +188,7 @@ export default function AssistantPage() {
                       <TabsTrigger value="model">Modèle</TabsTrigger>
                     </TabsList>
                     <TabsContent value="prompt" className="mt-4">
-                      <SystemPromptEditor
-                        value={assistant.systemPrompt}
-                        onChange={assistant.setSystemPrompt}
-                      />
+                      <SystemPromptEditor />
                     </TabsContent>
                     <TabsContent value="model" className="mt-4">
                       <div className="space-y-3">
