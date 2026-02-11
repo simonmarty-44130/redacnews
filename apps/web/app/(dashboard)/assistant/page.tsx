@@ -146,7 +146,7 @@ export default function AssistantPage() {
                 </div>
               ) : (
                 <div className="h-[calc(100vh-20rem)]">
-                  <ChatMessageList messages={assistant.messages} />
+                  <ChatMessageList messages={assistant.messages} isStreaming={assistant.isStreaming} />
                 </div>
               )}
 
