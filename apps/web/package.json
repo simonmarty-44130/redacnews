@@ -52,6 +52,7 @@
     "@types/react-syntax-highlighter": "^15.5.13",
     "amazon-cognito-identity-js": "^6.3.6",
     "aws-amplify": "^6.0.0",
+    "aws-jwt-verify": "^5.1.1",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
     "cmdk": "^1.1.1",

@@ -13,6 +13,7 @@ import {
   Radio,
   LogOut,
   Layers,
+  Bot,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -32,6 +33,7 @@ const navigation = [
   { name: 'Mediatheque', href: '/mediatheque', icon: FolderOpen },
   { name: 'Montage', href: '/audio-montage', icon: Layers },
   { name: 'Prompteur', href: '/prompteur', icon: Presentation },
+  { name: 'Assistant IA', href: '/assistant', icon: Bot },
 ];
 
 export default function DashboardLayout({

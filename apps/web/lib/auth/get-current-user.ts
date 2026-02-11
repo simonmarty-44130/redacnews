@@ -1,6 +1,7 @@
-// Fonction pour récupérer l'utilisateur courant côté serveur
+// Fonction pour récupérer l'utilisateur courant côté serveur (API Routes)
 
-import { getCurrentUser as getCognitoUser, fetchAuthSession } from 'aws-amplify/auth';
+import { cookies } from 'next/headers';
+import { CognitoJwtVerifier } from 'aws-jwt-verify';
 import { prisma } from '@redacnews/db';
 
 export interface CurrentUser {
@@ -13,18 +14,48 @@ export interface CurrentUser {
   role: string;
 }
 
+// Créer un vérificateur JWT pour Cognito
+const verifier = CognitoJwtVerifier.create({
+  userPoolId: process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID!,
+  tokenUse: 'access',
+  clientId: process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID!,
+});
+
 export async function getCurrentUser(): Promise<CurrentUser | null> {
   try {
-    // Récupérer l'utilisateur depuis Cognito
-    const cognitoUser = await getCognitoUser();
+    // Récupérer le token depuis les cookies
+    const cookieStore = cookies();
 
-    if (!cognitoUser || !cognitoUser.userId) {
+    // Chercher le token d'accès dans les cookies Amplify
+    let accessToken: string | undefined;
+
+    // Les cookies Amplify sont stockés avec ce pattern
+    const amplifyTokenKey = `CognitoIdentityServiceProvider.${process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID}`;
+
+    // Parcourir tous les cookies pour trouver celui qui contient le token
+    cookieStore.getAll().forEach(cookie => {
+      if (cookie.name.includes('accessToken')) {
+        accessToken = cookie.value;
+      }
+    });
+
+    if (!accessToken) {
+      console.log('No access token found in cookies');
       return null;
     }
 
+    // Vérifier et décoder le token
+    const payload = await verifier.verify(accessToken);
+
+    if (!payload || !payload.sub) {
+      return null;
+    }
+
+    const cognitoId = payload.sub;
+
     // Récupérer l'utilisateur depuis la base de données
     const user = await prisma.user.findUnique({
-      where: { cognitoId: cognitoUser.userId },
+      where: { cognitoId },
       select: {
         id: true,
         email: true,
@@ -37,6 +68,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     });
 
     if (!user) {
+      console.log('User not found in database for cognitoId:', cognitoId);
       return null;
     }
 
