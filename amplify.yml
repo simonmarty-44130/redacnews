@@ -23,6 +23,7 @@ frontend:
         - echo "NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL" >> apps/web/.env.production
         - echo "NEXT_PUBLIC_COGNITO_USER_POOL_ID=$NEXT_PUBLIC_COGNITO_USER_POOL_ID" >> apps/web/.env.production
         - echo "NEXT_PUBLIC_COGNITO_CLIENT_ID=$NEXT_PUBLIC_COGNITO_CLIENT_ID" >> apps/web/.env.production
+        - echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" >> apps/web/.env.production
         - echo "=== .env.production created ===" && head -2 apps/web/.env.production
         - npm run build --prefix apps/web
         # Copy .env.production to standalone for runtime
