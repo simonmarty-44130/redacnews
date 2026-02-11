@@ -156,13 +156,13 @@ export default function AssistantPage() {
                   onStop={assistant.stopStreaming}
                   isStreaming={assistant.isStreaming}
                 />
-                {assistant.totalTokensUsed > 0 && (
+                {(assistant.totalTokensIn + assistant.totalTokensOut) > 0 && (
                   <div className="mt-2 text-xs text-gray-500 flex items-center gap-4">
-                    <span>Tokens utilisés: {assistant.totalTokensUsed.toLocaleString()}</span>
+                    <span>Tokens utilisés: {(assistant.totalTokensIn + assistant.totalTokensOut).toLocaleString()}</span>
                     <span>•</span>
                     <span>
-                      Entrée: {assistant.totalInputTokens.toLocaleString()} | Sortie:{' '}
-                      {assistant.totalOutputTokens.toLocaleString()}
+                      Entrée: {assistant.totalTokensIn.toLocaleString()} | Sortie:{' '}
+                      {assistant.totalTokensOut.toLocaleString()}
                     </span>
                   </div>
                 )}
