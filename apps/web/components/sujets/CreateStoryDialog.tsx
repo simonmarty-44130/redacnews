@@ -25,6 +25,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { trpc } from '@/lib/trpc/client';
 import { STORY_CATEGORIES } from '@/lib/stories/config';
+import { toast } from 'sonner';
 
 interface CreateStoryDialogProps {
   onSuccess?: (storyId: string) => void;
@@ -53,11 +54,29 @@ export function CreateStoryDialog({ onSuccess }: CreateStoryDialogProps) {
   const createWithGoogleDoc = trpc.story.createWithGoogleDoc.useMutation({
     onSuccess: (data) => {
       utils.story.list.invalidate();
+
+      // Vérifier si le Google Doc a été créé avec succès
+      if (data.googleDocCreated) {
+        toast.success('Sujet créé avec Google Doc');
+      } else if (data.googleDocError) {
+        toast.warning(
+          `Sujet créé mais Google Doc non disponible: ${data.googleDocError}`,
+          { duration: 5000 }
+        );
+        console.error('[CreateStoryDialog] Google Doc error:', data.googleDocError);
+      } else {
+        toast.warning('Sujet créé en mode texte local (Google Doc non disponible)');
+      }
+
       setOpen(false);
       resetForm();
       onSuccess?.(data.id);
       // Rediriger vers la page d'edition plein ecran
       router.push(`/sujets/${data.id}`);
+    },
+    onError: (error) => {
+      toast.error(`Erreur lors de la création: ${error.message}`);
+      console.error('[CreateStoryDialog] Mutation error:', error);
     },
   });
 

@@ -182,14 +182,21 @@ export const storyRouter = router({
     .mutation(async ({ ctx, input }) => {
       // Create Google Doc
       let googleDoc: GoogleDocResult | null = null;
+      let googleDocError: string | null = null;
 
       try {
         // Import from local lib
         const { createStoryDoc } = await import('../lib/google/docs');
         const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+        console.log('[createWithGoogleDoc] Creating Google Doc for:', input.title);
+        console.log('[createWithGoogleDoc] Folder ID:', folderId ? 'SET' : 'NOT SET');
         googleDoc = await createStoryDoc(input.title, folderId);
+        console.log('[createWithGoogleDoc] Google Doc created successfully:', googleDoc.id);
       } catch (error) {
-        console.error('Failed to create Google Doc:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error('[createWithGoogleDoc] Failed to create Google Doc:', errorMessage);
+        console.error('[createWithGoogleDoc] Full error:', error);
+        googleDocError = errorMessage;
         // Continue without Google Doc - user can edit in plain text
       }
 
@@ -198,7 +205,7 @@ export const storyRouter = router({
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/(^-|-$)/g, '');
 
-      return ctx.db.story.create({
+      const story = await ctx.db.story.create({
         data: {
           ...input,
           slug: `${slug}-${Date.now()}`,
@@ -209,6 +216,12 @@ export const storyRouter = router({
           googleDocUrl: googleDoc?.url,
         },
       });
+
+      return {
+        ...story,
+        googleDocCreated: !!googleDoc,
+        googleDocError,
+      };
     }),
 
   // Sync content from Google Doc
