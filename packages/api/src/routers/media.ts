@@ -60,13 +60,12 @@ export const mediaRouter = router({
         Bucket: s3Config.bucket,
         Key: key,
         ContentType: input.contentType,
-        ChecksumAlgorithm: undefined, // Désactiver le checksum automatique
       });
 
       const uploadUrl = await getSignedUrl(s3Client, command, {
         expiresIn: 3600,
-        // Désactiver l'ajout du checksum dans l'URL signée
-        unhoistableHeaders: new Set(['x-amz-checksum-crc32']),
+        // Exclure les headers de checksum de la signature
+        unsignableHeaders: new Set(['x-amz-checksum-crc32', 'x-amz-sdk-checksum-algorithm']),
       });
 
       const publicUrl = cloudfrontConfig.domain
