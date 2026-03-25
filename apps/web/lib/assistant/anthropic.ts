@@ -327,7 +327,12 @@ export async function createStreamingMessage({
           // Exécuter tous les outils
           const toolResults = await Promise.all(
             toolUseBlocks.map(async (toolBlock: any) => {
-              const result = await executeTool(toolBlock.name, JSON.parse(toolBlock.input), braveApiKey);
+              // L'input peut être soit un string JSON soit déjà un objet
+              const toolInput = typeof toolBlock.input === 'string'
+                ? JSON.parse(toolBlock.input)
+                : toolBlock.input;
+
+              const result = await executeTool(toolBlock.name, toolInput, braveApiKey);
               return {
                 type: 'tool_result',
                 tool_use_id: toolBlock.id,
