@@ -145,7 +145,7 @@ export default function AssistantPage() {
                   </div>
                 </div>
               ) : (
-                <div className="h-[calc(100vh-20rem)]">
+                <div className="h-[calc(100vh-20rem)] flex flex-col">
                   <ChatMessageList messages={assistant.messages} isStreaming={assistant.isStreaming} />
                 </div>
               )}
