@@ -3,6 +3,16 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getAnthropicCredentials } from '@/lib/aws/secrets';
 import { searchWeb, formatSearchResults } from '@/lib/search/brave-search';
+import {
+  searchStories,
+  searchMedia,
+  getStoryById,
+  getMediaById,
+  formatStoriesResults,
+  formatMediaResults,
+  formatStoryDetails,
+  formatMediaDetails,
+} from '@/lib/assistant/database-tools';
 
 // ⚠️ Ce fichier est SERVEUR UNIQUEMENT — ne jamais importer côté client
 
@@ -66,6 +76,8 @@ Tu peux aider à :
 - Analyser des transcriptions d'interviews
 - Répondre à des questions de culture générale / actualité
 - Rechercher des informations en ligne (actualité, faits, données)
+- Retrouver des sujets archivés dans la base de données
+- Rechercher des sons et interviews dans la médiathèque
 
 Règles :
 - Sois concis et direct, comme un bon papier radio.
@@ -73,7 +85,8 @@ Règles :
 - Indique toujours la durée estimée de lecture quand tu produis un texte destiné à l'antenne.
 - Utilise le système métrique et les conventions françaises (dates, nombres).
 - Réponds en français sauf demande contraire.
-- Tu as accès à Internet via l'outil de recherche web. Utilise-le pour vérifier des faits récents ou trouver des informations à jour.`;
+- Tu as accès à Internet via l'outil de recherche web. Utilise-le pour vérifier des faits récents ou trouver des informations à jour.
+- Tu as accès à la base de données des sujets et à la médiathèque. Utilise ces outils pour retrouver des informations archivées.`;
 
 // Définition des outils disponibles pour Claude
 const TOOLS: Anthropic.Tool[] = [
@@ -93,6 +106,76 @@ const TOOLS: Anthropic.Tool[] = [
       required: ['query'],
     },
   },
+  {
+    name: 'search_stories',
+    description:
+      'Recherche dans les sujets archivés de la base de données. Utilise cet outil quand un journaliste demande à retrouver un ancien sujet, une information dans un sujet passé, ou veut savoir si un sujet a déjà été traité. Recherche dans les titres, contenus, résumés et tags des sujets publiés et validés.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description:
+            'Le mot-clé ou phrase à rechercher dans les sujets. Exemples: "grève SNCF", "maire Nantes", "élections", "budget 2026"',
+        },
+        limit: {
+          type: 'number',
+          description: 'Nombre maximum de résultats à retourner (par défaut: 10)',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'get_story_details',
+    description:
+      'Récupère les détails complets d\'un sujet spécifique par son ID. Utilise cet outil après avoir trouvé un sujet avec search_stories pour obtenir le contenu complet, les médias attachés, et toutes les métadonnées.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        story_id: {
+          type: 'string',
+          description: 'L\'ID du sujet à récupérer (obtenu via search_stories)',
+        },
+      },
+      required: ['story_id'],
+    },
+  },
+  {
+    name: 'search_media',
+    description:
+      'Recherche dans la médiathèque (sons, interviews, jingles, etc.). Utilise cet outil quand un journaliste cherche un son spécifique, une interview archivée, ou veut savoir si un média existe. Recherche dans les titres, descriptions, tags et transcriptions audio.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description:
+            'Le mot-clé ou phrase à rechercher dans les médias. Exemples: "interview maire", "ambiance marché", "virgule JT", "conférence presse"',
+        },
+        limit: {
+          type: 'number',
+          description: 'Nombre maximum de résultats à retourner (par défaut: 10)',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'get_media_details',
+    description:
+      'Récupère les détails complets d\'un média spécifique par son ID. Utilise cet outil après avoir trouvé un média avec search_media pour obtenir la transcription complète, les métadonnées, et les collections associées.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        media_id: {
+          type: 'string',
+          description: 'L\'ID du média à récupérer (obtenu via search_media)',
+        },
+      },
+      required: ['media_id'],
+    },
+  },
 ];
 
 /**
@@ -103,8 +186,25 @@ async function executeTool(toolName: string, toolInput: any, braveApiKey?: strin
 
   switch (toolName) {
     case 'web_search':
-      const results = await searchWeb(toolInput.query, 5, braveApiKey);
-      return formatSearchResults(results);
+      const webResults = await searchWeb(toolInput.query, 5, braveApiKey);
+      return formatSearchResults(webResults);
+
+    case 'search_stories':
+      const stories = await searchStories(toolInput.query, toolInput.limit || 10);
+      return formatStoriesResults(stories);
+
+    case 'get_story_details':
+      const story = await getStoryById(toolInput.story_id);
+      return formatStoryDetails(story);
+
+    case 'search_media':
+      const mediaItems = await searchMedia(toolInput.query, toolInput.limit || 10);
+      return formatMediaResults(mediaItems);
+
+    case 'get_media_details':
+      const media = await getMediaById(toolInput.media_id);
+      return formatMediaDetails(media);
+
     default:
       return `Erreur: Outil inconnu "${toolName}"`;
   }
