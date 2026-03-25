@@ -109,7 +109,7 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: 'search_stories',
     description:
-      'Recherche dans les sujets archivés de la base de données. Utilise cet outil quand un journaliste demande à retrouver un ancien sujet, une information dans un sujet passé, ou veut savoir si un sujet a déjà été traité. Recherche dans les titres, contenus, résumés et tags des sujets publiés et validés.',
+      'Recherche dans les sujets archivés de la base de données. Utilise cet outil quand un journaliste demande à retrouver un ancien sujet, une information dans un sujet passé, ou veut savoir si un sujet a déjà été traité. Recherche dans les titres, contenus, résumés et tags des sujets publiés et validés. Par défaut, retourne jusqu\'à 100 résultats pour être exhaustif.',
     input_schema: {
       type: 'object',
       properties: {
@@ -120,7 +120,7 @@ const TOOLS: Anthropic.Tool[] = [
         },
         limit: {
           type: 'number',
-          description: 'Nombre maximum de résultats à retourner (par défaut: 10)',
+          description: 'Nombre maximum de résultats à retourner (par défaut: 100, utilise cette valeur pour être exhaustif)',
         },
       },
       required: ['query'],
@@ -144,7 +144,7 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: 'search_media',
     description:
-      'Recherche dans la médiathèque (sons, interviews, jingles, etc.). Utilise cet outil quand un journaliste cherche un son spécifique, une interview archivée, ou veut savoir si un média existe. Recherche dans les titres, descriptions, tags et transcriptions audio.',
+      'Recherche dans la médiathèque (sons, interviews, jingles, etc.). Utilise cet outil quand un journaliste cherche un son spécifique, une interview archivée, ou veut savoir si un média existe. Recherche dans les titres, descriptions, tags et transcriptions audio. Par défaut, retourne jusqu\'à 100 résultats pour être exhaustif.',
     input_schema: {
       type: 'object',
       properties: {
@@ -155,7 +155,7 @@ const TOOLS: Anthropic.Tool[] = [
         },
         limit: {
           type: 'number',
-          description: 'Nombre maximum de résultats à retourner (par défaut: 10)',
+          description: 'Nombre maximum de résultats à retourner (par défaut: 100, utilise cette valeur pour être exhaustif)',
         },
       },
       required: ['query'],

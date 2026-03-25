@@ -6,7 +6,7 @@ import { db } from '@/lib/db';
  * Recherche dans les sujets (stories)
  * Recherche par titre, contenu, tags
  */
-export async function searchStories(query: string, limit: number = 10) {
+export async function searchStories(query: string, limit: number = 100) {
   try {
     const stories = await db.story.findMany({
       where: {
@@ -99,7 +99,7 @@ export async function getStoryById(storyId: string) {
  * Recherche dans la médiathèque
  * Recherche par titre, description, tags, transcription
  */
-export async function searchMedia(query: string, limit: number = 10) {
+export async function searchMedia(query: string, limit: number = 100) {
   try {
     const mediaItems = await db.mediaItem.findMany({
       where: {
@@ -201,18 +201,15 @@ export function formatStoriesResults(stories: any[]): string {
             .padStart(2, '0')}`
         : 'N/A';
 
-      let result = `${index + 1}. ${story.title}\n`;
-      result += `   ID: ${story.id}\n`;
-      result += `   Auteur: ${author} | Date: ${dateStr} | Durée: ${duration}\n`;
-      result += `   Statut: ${story.status} | Catégorie: ${story.category || 'N/A'}\n`;
+      let result = `${index + 1}. **${story.title}**\n`;
+      result += `   🔗 [Ouvrir le sujet](https://redacnews.link/sujets/${story.id})\n`;
+      result += `   📅 ${dateStr} | ⏱️ ${duration} | ✍️ ${author}\n`;
+      result += `   📊 ${story.status} | 📁 ${story.category || 'N/A'}\n`;
       if (story.tags && story.tags.length > 0) {
-        result += `   Tags: ${story.tags.join(', ')}\n`;
+        result += `   🏷️ ${story.tags.join(', ')}\n`;
       }
       if (story.summary) {
-        result += `   Résumé: ${story.summary.substring(0, 150)}${story.summary.length > 150 ? '...' : ''}\n`;
-      }
-      if (story.content) {
-        result += `   Contenu (extrait): ${story.content.substring(0, 200)}${story.content.length > 200 ? '...' : ''}\n`;
+        result += `   📝 ${story.summary.substring(0, 200)}${story.summary.length > 200 ? '...' : ''}\n`;
       }
 
       return result;
@@ -242,19 +239,20 @@ export function formatMediaResults(mediaItems: any[]): string {
         ? `${Math.floor(media.duration / 60)}:${(media.duration % 60).toString().padStart(2, '0')}`
         : 'N/A';
 
-      let result = `${index + 1}. ${media.title}\n`;
-      result += `   ID: ${media.id}\n`;
-      result += `   Type: ${media.type} | Durée: ${duration} | Uploadé par: ${uploader} le ${dateStr}\n`;
+      let result = `${index + 1}. **${media.title}**\n`;
+      result += `   🔗 [Ouvrir dans la médiathèque](https://redacnews.link/mediatheque?id=${media.id})\n`;
+      result += `   🎵 ${media.type} | ⏱️ ${duration} | 📅 ${dateStr}\n`;
+      result += `   👤 Uploadé par ${uploader}\n`;
       if (media.description) {
-        result += `   Description: ${media.description}\n`;
+        result += `   📝 ${media.description}\n`;
       }
       if (media.tags && media.tags.length > 0) {
-        result += `   Tags: ${media.tags.join(', ')}\n`;
+        result += `   🏷️ ${media.tags.join(', ')}\n`;
       }
       if (media.transcription && media.transcriptionStatus === 'COMPLETED') {
-        result += `   Transcription (extrait): ${media.transcription.substring(0, 200)}${media.transcription.length > 200 ? '...' : ''}\n`;
+        result += `   📄 Transcription: ${media.transcription.substring(0, 200)}${media.transcription.length > 200 ? '...' : ''}\n`;
       } else if (media.transcriptionStatus === 'PENDING' || media.transcriptionStatus === 'IN_PROGRESS') {
-        result += `   Transcription: En cours...\n`;
+        result += `   ⏳ Transcription en cours...\n`;
       }
 
       return result;
