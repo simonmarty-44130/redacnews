@@ -1,7 +1,20 @@
 // Helper pour récupérer les secrets depuis AWS Secrets Manager
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 
-const client = new SecretsManagerClient({ region: process.env.AWS_REGION || 'eu-west-3' });
+// Configurer le client avec les credentials explicites si disponibles
+const clientConfig: any = {
+  region: process.env.MY_AWS_REGION || process.env.AWS_REGION || 'eu-west-3',
+};
+
+// Utiliser les credentials explicites si disponibles (pour Amplify)
+if (process.env.MY_AWS_ACCESS_KEY_ID && process.env.MY_AWS_SECRET_ACCESS_KEY) {
+  clientConfig.credentials = {
+    accessKeyId: process.env.MY_AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.MY_AWS_SECRET_ACCESS_KEY,
+  };
+}
+
+const client = new SecretsManagerClient(clientConfig);
 
 // Cache des secrets en mémoire pour éviter les appels répétés
 const secretsCache = new Map<string, { value: any; timestamp: number }>();
