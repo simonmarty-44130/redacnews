@@ -22,10 +22,15 @@ interface BraveSearchResponse {
 /**
  * Effectue une recherche web avec l'API Brave Search
  */
-export async function searchWeb(query: string, count: number = 5): Promise<BraveSearchResult[]> {
-  const apiKey = process.env.BRAVE_SEARCH_API_KEY;
+export async function searchWeb(
+  query: string,
+  count: number = 5,
+  apiKey?: string
+): Promise<BraveSearchResult[]> {
+  // Utiliser la clé fournie ou fallback sur l'env var (pour développement local)
+  const searchApiKey = apiKey || process.env.BRAVE_SEARCH_API_KEY;
 
-  if (!apiKey) {
+  if (!searchApiKey) {
     console.warn('BRAVE_SEARCH_API_KEY not set, web search disabled');
     return [];
   }
@@ -42,7 +47,7 @@ export async function searchWeb(query: string, count: number = 5): Promise<Brave
       headers: {
         'Accept': 'application/json',
         'Accept-Encoding': 'gzip',
-        'X-Subscription-Token': apiKey,
+        'X-Subscription-Token': searchApiKey,
       },
     });
 

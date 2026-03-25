@@ -41,6 +41,7 @@ export async function getSecret<T = Record<string, any>>(secretName: string): Pr
 export interface AnthropicSecret {
   apiKey: string;
   defaultModel: string;
+  braveSearchApiKey?: string;
 }
 
 // Helpers spécifiques pour les secrets RédacNews

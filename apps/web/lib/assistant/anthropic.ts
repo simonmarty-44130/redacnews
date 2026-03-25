@@ -6,17 +6,18 @@ import { searchWeb, formatSearchResults } from '@/lib/search/brave-search';
 
 // ⚠️ Ce fichier est SERVEUR UNIQUEMENT — ne jamais importer côté client
 
-// Cache du client Anthropic
+// Cache du client Anthropic et credentials
 let anthropicClient: Anthropic | null = null;
 let defaultModel: string | null = null;
+let braveSearchApiKey: string | null = null;
 
 /**
  * Récupère ou initialise le client Anthropic
  * Utilise AWS Secrets Manager pour récupérer la clé API
  */
-async function getAnthropicClient(): Promise<{ client: Anthropic; model: string }> {
+async function getAnthropicClient(): Promise<{ client: Anthropic; model: string; braveApiKey?: string }> {
   if (anthropicClient && defaultModel) {
-    return { client: anthropicClient, model: defaultModel };
+    return { client: anthropicClient, model: defaultModel, braveApiKey: braveSearchApiKey || undefined };
   }
 
   try {
@@ -24,6 +25,7 @@ async function getAnthropicClient(): Promise<{ client: Anthropic; model: string 
     const credentials = await getAnthropicCredentials();
     anthropicClient = new Anthropic({ apiKey: credentials.apiKey });
     defaultModel = credentials.defaultModel;
+    braveSearchApiKey = credentials.braveSearchApiKey || null;
     console.log('✅ Anthropic credentials loaded from Secrets Manager');
   } catch (error) {
     // Fallback sur les variables d'environnement si Secrets Manager échoue
@@ -35,9 +37,14 @@ async function getAnthropicClient(): Promise<{ client: Anthropic; model: string 
 
     anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     defaultModel = process.env.ANTHROPIC_DEFAULT_MODEL || 'claude-sonnet-4-5-20250929';
+    braveSearchApiKey = process.env.BRAVE_SEARCH_API_KEY || null;
   }
 
-  return { client: anthropicClient, model: defaultModel };
+  return {
+    client: anthropicClient,
+    model: defaultModel,
+    braveApiKey: braveSearchApiKey || undefined
+  };
 }
 
 // System prompt de base injecté pour toutes les conversations RédacNews
@@ -91,12 +98,12 @@ const TOOLS: Anthropic.Tool[] = [
 /**
  * Exécute un outil demandé par Claude
  */
-async function executeTool(toolName: string, toolInput: any): Promise<string> {
+async function executeTool(toolName: string, toolInput: any, braveApiKey?: string): Promise<string> {
   console.log(`🔧 Executing tool: ${toolName}`, toolInput);
 
   switch (toolName) {
     case 'web_search':
-      const results = await searchWeb(toolInput.query, 5);
+      const results = await searchWeb(toolInput.query, 5, braveApiKey);
       return formatSearchResults(results);
     default:
       return `Erreur: Outil inconnu "${toolName}"`;
@@ -120,8 +127,8 @@ export async function createStreamingMessage({
   model,
   maxTokens = 4096,
 }: CreateMessageParams): Promise<ReadableStream> {
-  // Récupérer le client Anthropic et le modèle par défaut
-  const { client, model: defaultModelValue } = await getAnthropicClient();
+  // Récupérer le client Anthropic, le modèle et la clé Brave
+  const { client, model: defaultModelValue, braveApiKey } = await getAnthropicClient();
   const selectedModel = model || defaultModelValue;
 
   // Combiner le system prompt de base avec celui de l'utilisateur
@@ -220,7 +227,7 @@ export async function createStreamingMessage({
           // Exécuter tous les outils
           const toolResults = await Promise.all(
             toolUseBlocks.map(async (toolBlock: any) => {
-              const result = await executeTool(toolBlock.name, JSON.parse(toolBlock.input));
+              const result = await executeTool(toolBlock.name, JSON.parse(toolBlock.input), braveApiKey);
               return {
                 type: 'tool_result',
                 tool_use_id: toolBlock.id,
