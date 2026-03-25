@@ -5,13 +5,47 @@ import { User, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { AssistantMessage } from '@/types/assistant';
+import { CreateStoryButton } from './CreateStoryButton';
+import { useMemo } from 'react';
 
 interface ChatMessageProps {
   message: AssistantMessage;
 }
 
+interface StoryData {
+  title: string;
+  content?: string;
+  category?: string;
+  tags?: string[];
+  estimatedDuration?: number;
+}
+
 export function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === 'user';
+
+  // Extract story creation data if present in assistant message
+  const { cleanContent, storyData } = useMemo(() => {
+    if (isUser || !message.content) {
+      return { cleanContent: message.content, storyData: null };
+    }
+
+    // Look for the marker: :::CREATE_STORY_DATA:::...:::
+    const markerRegex = /:::CREATE_STORY_DATA:::([\s\S]+?):::/;
+    const match = message.content.match(markerRegex);
+
+    if (match) {
+      try {
+        const data = JSON.parse(match[1]) as StoryData;
+        const cleanedContent = message.content.replace(markerRegex, '').trim();
+        return { cleanContent: cleanedContent, storyData: data };
+      } catch (e) {
+        console.error('Failed to parse story data:', e);
+        return { cleanContent: message.content, storyData: null };
+      }
+    }
+
+    return { cleanContent: message.content, storyData: null };
+  }, [message.content, isUser]);
 
   return (
     <div className={cn('flex gap-3', isUser && 'flex-row-reverse')}>
@@ -38,11 +72,18 @@ export function ChatMessage({ message }: ChatMessageProps) {
           ) : (
             <div className="prose prose-sm dark:prose-invert max-w-none">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {message.content}
+                {cleanContent}
               </ReactMarkdown>
             </div>
           )}
         </div>
+
+        {/* Show create story button if data is present */}
+        {!isUser && storyData && (
+          <div className="max-w-[85%]">
+            <CreateStoryButton storyData={storyData} />
+          </div>
+        )}
 
         {message.attachments && message.attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
