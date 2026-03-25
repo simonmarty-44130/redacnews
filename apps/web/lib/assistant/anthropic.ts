@@ -164,11 +164,11 @@ Après avoir rédigé un papier complet pour un journaliste, tu peux lui propose
 :::CREATE_STORY_DATA:::{"title":"Titre du sujet","content":"[Le texte complet du papier]","category":"Actualité locale","estimatedDuration":90}:::
 
 **Paramètres disponibles :**
-- `title` (obligatoire) : Titre du sujet
-- `content` (optionnel) : Texte complet du papier
-- `category` (optionnel) : Catégorie du sujet
-- `tags` (optionnel) : Array de tags
-- `estimatedDuration` (optionnel) : Durée estimée en secondes
+- \`title\` (obligatoire) : Titre du sujet
+- \`content\` (optionnel) : Texte complet du papier
+- \`category\` (optionnel) : Catégorie du sujet
+- \`tags\` (optionnel) : Array de tags
+- \`estimatedDuration\` (optionnel) : Durée estimée en secondes
 
 **Quand proposer la création d'un sujet :**
 - Quand tu as rédigé un papier radio complet (intro, déroulé, conclusion)
