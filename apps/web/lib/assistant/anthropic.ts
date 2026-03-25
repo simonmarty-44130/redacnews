@@ -1,14 +1,43 @@
 // Client API Anthropic côté serveur uniquement
 
 import Anthropic from '@anthropic-ai/sdk';
+import { getAnthropicCredentials } from '@/lib/aws/secrets';
 
 // ⚠️ Ce fichier est SERVEUR UNIQUEMENT — ne jamais importer côté client
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!,
-});
+// Cache du client Anthropic
+let anthropicClient: Anthropic | null = null;
+let defaultModel: string | null = null;
 
-const DEFAULT_MODEL = process.env.ANTHROPIC_DEFAULT_MODEL || 'claude-sonnet-4-5-20250929';
+/**
+ * Récupère ou initialise le client Anthropic
+ * Utilise AWS Secrets Manager pour récupérer la clé API
+ */
+async function getAnthropicClient(): Promise<{ client: Anthropic; model: string }> {
+  if (anthropicClient && defaultModel) {
+    return { client: anthropicClient, model: defaultModel };
+  }
+
+  try {
+    // Tenter de récupérer depuis Secrets Manager
+    const credentials = await getAnthropicCredentials();
+    anthropicClient = new Anthropic({ apiKey: credentials.apiKey });
+    defaultModel = credentials.defaultModel;
+    console.log('✅ Anthropic credentials loaded from Secrets Manager');
+  } catch (error) {
+    // Fallback sur les variables d'environnement si Secrets Manager échoue
+    console.warn('⚠️  Failed to load from Secrets Manager, falling back to env vars:', error);
+
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new Error('ANTHROPIC_API_KEY is not set in environment variables or Secrets Manager');
+    }
+
+    anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    defaultModel = process.env.ANTHROPIC_DEFAULT_MODEL || 'claude-sonnet-4-5-20250929';
+  }
+
+  return { client: anthropicClient, model: defaultModel };
+}
 
 // System prompt de base injecté pour toutes les conversations RédacNews
 const BASE_SYSTEM_PROMPT = `Tu es l'assistant IA intégré à RédacNews, un outil de gestion de rédaction pour les radios.
@@ -50,16 +79,20 @@ interface CreateMessageParams {
 export async function createStreamingMessage({
   messages,
   systemPrompt,
-  model = DEFAULT_MODEL,
+  model,
   maxTokens = 4096,
 }: CreateMessageParams): Promise<ReadableStream> {
+  // Récupérer le client Anthropic et le modèle par défaut
+  const { client, model: defaultModelValue } = await getAnthropicClient();
+  const selectedModel = model || defaultModelValue;
+
   // Combiner le system prompt de base avec celui de l'utilisateur
   const fullSystemPrompt = systemPrompt
     ? `${BASE_SYSTEM_PROMPT}\n\n--- Consignes supplémentaires de l'utilisateur ---\n${systemPrompt}`
     : BASE_SYSTEM_PROMPT;
 
-  const stream = await anthropic.messages.stream({
-    model,
+  const stream = await client.messages.stream({
+    model: selectedModel,
     max_tokens: maxTokens,
     system: fullSystemPrompt,
     messages,
