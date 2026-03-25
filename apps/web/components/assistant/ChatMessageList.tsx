@@ -12,13 +12,22 @@ interface ChatMessageListProps {
 
 export function ChatMessageList({ messages, isStreaming }: ChatMessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll au dernier message
+  // Auto-scroll au dernier message quand les messages changent
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Auto-scroll pendant le streaming (plus fréquent)
+  useEffect(() => {
+    if (isStreaming) {
+      const interval = setInterval(() => {
+        bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 500);
+      return () => clearInterval(interval);
+    }
+  }, [isStreaming]);
 
   if (messages.length === 0) {
     return (
@@ -35,7 +44,7 @@ export function ChatMessageList({ messages, isStreaming }: ChatMessageListProps)
   }
 
   return (
-    <ScrollArea className="flex-1 p-4" ref={scrollRef}>
+    <ScrollArea className="flex-1 p-4">
       <div className="space-y-4">
         {messages.map((message) => (
           <ChatMessage key={message.id} message={message} />
@@ -50,6 +59,8 @@ export function ChatMessageList({ messages, isStreaming }: ChatMessageListProps)
             <span>Claude réfléchit...</span>
           </div>
         )}
+        {/* Élément invisible pour forcer le scroll en bas */}
+        <div ref={bottomRef} className="h-1" />
       </div>
     </ScrollArea>
   );
