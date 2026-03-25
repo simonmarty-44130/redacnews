@@ -37,9 +37,10 @@ async function getAnthropicClient(): Promise<{ client: Anthropic; model: string;
     defaultModel = credentials.defaultModel;
     braveSearchApiKey = credentials.braveSearchApiKey || null;
     console.log('✅ Anthropic credentials loaded from Secrets Manager');
-  } catch (error) {
+  } catch (error: any) {
     // Fallback sur les variables d'environnement si Secrets Manager échoue
-    console.warn('⚠️  Failed to load from Secrets Manager, falling back to env vars:', error);
+    console.error('⚠️  Failed to load from Secrets Manager:', error?.message || error);
+    console.log('📝 Falling back to environment variables...');
 
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new Error('ANTHROPIC_API_KEY is not set in environment variables or Secrets Manager');
@@ -48,6 +49,7 @@ async function getAnthropicClient(): Promise<{ client: Anthropic; model: string;
     anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     defaultModel = process.env.ANTHROPIC_DEFAULT_MODEL || 'claude-sonnet-4-5-20250929';
     braveSearchApiKey = process.env.BRAVE_SEARCH_API_KEY || null;
+    console.log('✅ Using credentials from environment variables');
   }
 
   return {
