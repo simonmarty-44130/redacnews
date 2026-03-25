@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Music, Tag, Layers, Vote } from 'lucide-react';
+import { Music, Tag, Layers, Vote, Calendar } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -18,11 +18,15 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { MediaPicker } from './MediaPicker';
 import { PoliticalTagSelector } from '@/components/politics';
 import { trpc } from '@/lib/trpc/client';
 import type { ElectionTypeCode } from '@/lib/politics/config';
 import { STORY_CATEGORIES } from '@/lib/stories/config';
+import { format } from 'date-fns';
+import { fr } from 'date-fns/locale';
 
 const STATUS_OPTIONS = [
   { value: 'DRAFT', label: 'Brouillon', color: 'bg-gray-500' },
@@ -38,8 +42,10 @@ interface StoryBottomBarProps {
   category: string;
   mediaCount: number;
   estimatedDuration?: number | null;
+  publishedAt?: Date | null;
   onStatusChange: (status: string) => void;
   onCategoryChange: (category: string) => void;
+  onPublishedAtChange?: (date: Date | null) => void;
 }
 
 export function StoryBottomBar({
@@ -48,13 +54,18 @@ export function StoryBottomBar({
   category,
   mediaCount,
   estimatedDuration,
+  publishedAt,
   onStatusChange,
   onCategoryChange,
+  onPublishedAtChange,
 }: StoryBottomBarProps) {
   const router = useRouter();
   const currentStatus = STATUS_OPTIONS.find((s) => s.value === status);
   const [electionType, setElectionType] = useState<ElectionTypeCode | null>(null);
   const [pluralismOpen, setPluralismOpen] = useState(false);
+  const [dateInput, setDateInput] = useState(
+    publishedAt ? format(new Date(publishedAt), 'yyyy-MM-dd') : ''
+  );
 
   // Récupérer le nombre de tags politiques associés
   const { data: politicalTags } = trpc.politics.getStoryTags.useQuery(
@@ -74,6 +85,16 @@ export function StoryBottomBar({
 
   const handleMontage = () => {
     router.push(`/audio-editor?story=${storyId}`);
+  };
+
+  const handleDateChange = (value: string) => {
+    setDateInput(value);
+    if (value && onPublishedAtChange) {
+      const date = new Date(value);
+      onPublishedAtChange(date);
+    } else if (!value && onPublishedAtChange) {
+      onPublishedAtChange(null);
+    }
   };
 
   return (
@@ -118,6 +139,44 @@ export function StoryBottomBar({
             </SelectContent>
           </Select>
         </div>
+
+        <div className="h-4 w-px bg-gray-200" />
+
+        {/* Broadcast date */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              className="h-8 px-2 text-sm hover:bg-gray-100"
+            >
+              <Calendar className="h-4 w-4 mr-2 text-gray-400" />
+              {publishedAt
+                ? format(new Date(publishedAt), 'dd/MM/yyyy', { locale: fr })
+                : 'Date de diffusion'}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-3">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Date de diffusion</label>
+              <Input
+                type="date"
+                value={dateInput}
+                onChange={(e) => handleDateChange(e.target.value)}
+                className="w-full"
+              />
+              {dateInput && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleDateChange('')}
+                  className="w-full text-xs"
+                >
+                  Effacer la date
+                </Button>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
 
       {/* Right: Media & Pluralism */}

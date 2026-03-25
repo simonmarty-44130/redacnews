@@ -108,6 +108,13 @@ export function StoryEditorFullscreen({ storyId, onBack }: StoryEditorFullscreen
     });
   };
 
+  const handlePublishedAtChange = (newDate: Date | null) => {
+    updateStory.mutate({
+      id: storyId,
+      publishedAt: newDate,
+    });
+  };
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -238,8 +245,10 @@ export function StoryEditorFullscreen({ storyId, onBack }: StoryEditorFullscreen
         category={category}
         mediaCount={story.media?.length || 0}
         estimatedDuration={story.estimatedDuration}
+        publishedAt={story.publishedAt}
         onStatusChange={handleStatusChange}
         onCategoryChange={handleCategoryChange}
+        onPublishedAtChange={handlePublishedAtChange}
       />
 
       {/* MAIN CONTENT - Google Docs Full Screen */}

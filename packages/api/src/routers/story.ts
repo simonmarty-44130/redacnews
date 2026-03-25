@@ -115,6 +115,7 @@ export const storyRouter = router({
         assigneeId: z.string().nullable().optional(),
         googleDocId: z.string().optional(),
         googleDocUrl: z.string().optional(),
+        publishedAt: z.date().nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {

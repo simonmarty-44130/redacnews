@@ -1,8 +1,8 @@
 'use client';
 
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { FileText, Clock, User } from 'lucide-react';
+import { FileText, Clock, User, Calendar } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -13,6 +13,7 @@ interface Story {
   status: 'DRAFT' | 'IN_REVIEW' | 'APPROVED' | 'PUBLISHED' | 'ARCHIVED';
   category?: string | null;
   estimatedDuration?: number | null;
+  publishedAt?: Date | null;
   updatedAt: Date;
   author: {
     firstName?: string | null;
@@ -80,6 +81,12 @@ export function StoryCard({ story, isSelected, onClick }: StoryCardProps) {
             {story.category && (
               <Badge variant="outline" className="text-xs">
                 {story.category}
+              </Badge>
+            )}
+            {story.publishedAt && (
+              <Badge variant="outline" className="text-xs flex items-center gap-1">
+                <Calendar className="h-3 w-3" />
+                {format(new Date(story.publishedAt), 'dd/MM/yyyy', { locale: fr })}
               </Badge>
             )}
             <span className="text-xs text-gray-400 ml-auto">
