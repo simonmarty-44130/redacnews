@@ -252,6 +252,13 @@ export class ToneEngine {
     const duration = ref.outPoint - ref.inPoint;
     const now = safeTime(Tone.Transport.seconds);
 
+    // 🔍 DEBUG: Vérifier que le fadeGain est bien dans la chaîne
+    console.log('[ToneEngine] scheduleFades DEBUG:', {
+      fadeGainConnected: ref.fadeGain.numberOfOutputs > 0,
+      fadeGainValue: ref.fadeGain.gain.value,
+      playerConnected: ref.player.numberOfOutputs > 0,
+    });
+
     // Annuler toutes les automations précédentes sur ce gain
     ref.fadeGain.gain.cancelScheduledValues(now);
 
