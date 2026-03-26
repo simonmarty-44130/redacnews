@@ -2,14 +2,14 @@
 // Moteur de synchronisation multi-piste base sur Tone.js
 // Remplace SyncEngine.ts pour une synchronisation sample-accurate
 
-import * as Tone from 'tone';
+import { Transport, Player, Volume, context, start as startAudioContext, gainToDb } from 'tone';
 
 /**
  * Reference vers un clip audio synchronise via Tone.js
  */
 export interface ToneClipRef {
-  player: Tone.Player;
-  volume: Tone.Volume;
+  player: Player;
+  volume: Volume;
   startTime: number; // Position sur la timeline globale
   inPoint: number; // Point d'entree dans le fichier source
   outPoint: number; // Point de sortie dans le fichier source
@@ -43,7 +43,7 @@ export class ToneEngine {
     if (this.isInitialized) return;
 
     try {
-      await Tone.start();
+      await startAudioContext();
       console.log('[ToneEngine] AudioContext started');
       this.isInitialized = true;
     } catch (error) {
@@ -71,7 +71,7 @@ export class ToneEngine {
     await this.init();
 
     // Creer le Player Tone.js
-    const player = new Tone.Player({
+    const player = new Player({
       url: sourceUrl,
       fadeIn: 0.001, // Fade minimal pour eviter les clics
       fadeOut: 0.001,
@@ -88,7 +88,7 @@ export class ToneEngine {
     player.sync().start(startTime, inPoint);
 
     // Creer le noeud de volume
-    const volumeNode = new Tone.Volume(Tone.gainToDb(volume)).toDestination();
+    const volumeNode = new Volume(gainToDb(volume)).toDestination();
     player.connect(volumeNode);
 
     // Stocker la reference
@@ -156,7 +156,7 @@ export class ToneEngine {
 
     // Mettre a jour le volume
     if (updates.volume !== undefined) {
-      ref.volume.volume.value = Tone.gainToDb(updates.volume);
+      ref.volume.volume.value = gainToDb(updates.volume);
     }
 
     // Re-scheduler le player si le timing a change
@@ -185,11 +185,11 @@ export class ToneEngine {
   // ============ Getters ============
 
   get isPlaying(): boolean {
-    return Tone.Transport.state === 'started';
+    return Transport.state === 'started';
   }
 
   get globalTime(): number {
-    return Tone.Transport.seconds;
+    return Transport.seconds;
   }
 
   get duration(): number {
@@ -221,10 +221,10 @@ export class ToneEngine {
 
     this.updateInterval = window.setInterval(() => {
       if (this.isPlaying) {
-        this.notifyTimeUpdate(Tone.Transport.seconds);
+        this.notifyTimeUpdate(Transport.seconds);
 
         // Arreter automatiquement a la fin
-        if (this._duration > 0 && Tone.Transport.seconds >= this._duration) {
+        if (this._duration > 0 && Transport.seconds >= this._duration) {
           this.stop();
         }
       }
@@ -251,7 +251,7 @@ export class ToneEngine {
 
     // Positionner le curseur
     if (fromTime !== undefined) {
-      Tone.Transport.seconds = fromTime;
+      Transport.seconds = fromTime;
     }
 
     // Verifier que tous les clips sont prets
@@ -261,11 +261,11 @@ export class ToneEngine {
     }
 
     // Demarrer le Transport
-    Tone.Transport.start();
+    Transport.start();
     this.notifyPlayState(true);
     this.startTimeUpdates();
 
-    console.log(`[ToneEngine] Playing from ${Tone.Transport.seconds.toFixed(2)}s`);
+    console.log(`[ToneEngine] Playing from ${Transport.seconds.toFixed(2)}s`);
   }
 
   /**
@@ -273,7 +273,7 @@ export class ToneEngine {
    */
   pause(): void {
     console.log('[ToneEngine] pause()');
-    Tone.Transport.pause();
+    Transport.pause();
     this.notifyPlayState(false);
     this.stopTimeUpdates();
   }
@@ -283,8 +283,8 @@ export class ToneEngine {
    */
   stop(): void {
     console.log('[ToneEngine] stop()');
-    Tone.Transport.stop();
-    Tone.Transport.seconds = 0;
+    Transport.stop();
+    Transport.seconds = 0;
     this.notifyPlayState(false);
     this.notifyTimeUpdate(0);
     this.stopTimeUpdates();
@@ -297,17 +297,17 @@ export class ToneEngine {
     const wasPlaying = this.isPlaying;
 
     if (wasPlaying) {
-      Tone.Transport.pause();
+      Transport.pause();
     }
 
-    Tone.Transport.seconds = Math.max(0, Math.min(time, this._duration));
-    this.notifyTimeUpdate(Tone.Transport.seconds);
+    Transport.seconds = Math.max(0, Math.min(time, this._duration));
+    this.notifyTimeUpdate(Transport.seconds);
 
     if (wasPlaying) {
-      Tone.Transport.start();
+      Transport.start();
     }
 
-    console.log(`[ToneEngine] Seeked to ${Tone.Transport.seconds.toFixed(2)}s`);
+    console.log(`[ToneEngine] Seeked to ${Transport.seconds.toFixed(2)}s`);
   }
 
   // ============ Cleanup ============
