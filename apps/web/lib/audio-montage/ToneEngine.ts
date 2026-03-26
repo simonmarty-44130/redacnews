@@ -93,7 +93,9 @@ export class ToneEngine {
         if (ref) {
           ref.isReady = true;
           // Synchroniser APRES le chargement
-          ref.player.sync().start(ref.startTime, ref.inPoint);
+          // start(time, offset, duration) - duration = outPoint - inPoint
+          const duration = ref.outPoint - ref.inPoint;
+          ref.player.sync().start(ref.startTime, ref.inPoint, duration);
         }
       },
     });
@@ -170,9 +172,10 @@ export class ToneEngine {
     }
 
     // Re-scheduler le player si le timing a change ET que le clip est pret
-    if ((updates.startTime !== undefined || updates.inPoint !== undefined) && ref.isReady) {
+    if ((updates.startTime !== undefined || updates.inPoint !== undefined || updates.outPoint !== undefined) && ref.isReady) {
       ref.player.unsync();
-      ref.player.sync().start(ref.startTime, ref.inPoint);
+      const duration = ref.outPoint - ref.inPoint;
+      ref.player.sync().start(ref.startTime, ref.inPoint, duration);
     }
 
     this.updateDuration();
