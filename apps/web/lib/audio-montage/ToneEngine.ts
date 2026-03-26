@@ -209,9 +209,20 @@ export class ToneEngine {
     }
 
     // Re-scheduler les fades si les fades ou le timing ont changé
-    if ((updates.fadeInDuration !== undefined || updates.fadeOutDuration !== undefined ||
-         updates.startTime !== undefined || updates.outPoint !== undefined) && ref.isReady) {
+    // NOTE: On ne schedule QUE si isReady ET si le Transport joue
+    // Sinon, scheduleFades sera appelé automatiquement au prochain play()
+    const shouldRescheduleFades = (
+      updates.fadeInDuration !== undefined ||
+      updates.fadeOutDuration !== undefined ||
+      updates.startTime !== undefined ||
+      updates.outPoint !== undefined
+    );
+
+    if (shouldRescheduleFades && ref.isReady && Tone.Transport.state === 'started') {
+      console.log(`[ToneEngine] updateClip: Re-scheduling fades (Transport is playing)`);
       this.scheduleFades(ref);
+    } else if (shouldRescheduleFades && ref.isReady) {
+      console.log(`[ToneEngine] updateClip: Fades updated, will be scheduled at next play()`);
     }
 
     this.updateDuration();
@@ -420,6 +431,13 @@ export class ToneEngine {
       console.error('[ToneEngine] Cannot play: some clips are not ready:', notReady);
       throw new Error('Cannot play: some clips are not ready yet');
     }
+
+    // Re-scheduler TOUS les fades AVANT de démarrer
+    // (car ils peuvent avoir été modifiés pendant la pause)
+    console.log('[ToneEngine] Re-scheduling all fades before play...');
+    this.clips.forEach((ref) => {
+      this.scheduleFades(ref);
+    });
 
     // Demarrer le Transport
     Tone.Transport.start();
