@@ -230,6 +230,7 @@ export class ToneEngine {
     // Si pas de fade, rester à 1 (volume normal)
     if (ref.fadeInDuration === 0 && ref.fadeOutDuration === 0) {
       ref.fadeGain.gain.setValueAtTime(1, now);
+      console.log('[ToneEngine] scheduleFades: no fades, gain=1');
       return;
     }
 
@@ -238,49 +239,75 @@ export class ToneEngine {
     const fadeInEnd = startTime + ref.fadeInDuration;
     const fadeOutStart = endTime - ref.fadeOutDuration;
 
-    // Déterminer où nous sommes dans le clip
-    const currentTime = now;
+    console.log('[ToneEngine] scheduleFades:', {
+      now,
+      startTime,
+      endTime,
+      fadeInDuration: ref.fadeInDuration,
+      fadeOutDuration: ref.fadeOutDuration,
+      fadeInEnd,
+      fadeOutStart,
+    });
 
-    // Fade in : 0 -> 1
+    // Stratégie simplifiée : TOUJOURS programmer depuis maintenant (now)
+    // en tenant compte de où nous sommes dans la lecture
+
+    // Point de départ : quelle est la valeur du gain MAINTENANT ?
+    let currentGainValue = 1; // Par défaut
+
+    // Si on est avant le clip, on commence à 0 si fade in
+    if (now < startTime) {
+      currentGainValue = ref.fadeInDuration > 0 ? 0 : 1;
+      ref.fadeGain.gain.setValueAtTime(currentGainValue, now);
+    }
+
+    // ========== FADE IN ==========
     if (ref.fadeInDuration > 0) {
-      if (currentTime < startTime) {
-        // Le clip n'a pas encore commencé : programme le fade normalement
+      if (now < startTime) {
+        // Clip pas encore commencé : fade 0→1
         ref.fadeGain.gain.setValueAtTime(0, startTime);
         ref.fadeGain.gain.linearRampToValueAtTime(1, fadeInEnd);
-      } else if (currentTime < fadeInEnd) {
-        // On est au milieu du fade in : calculer la valeur actuelle et continuer
-        const progress = (currentTime - startTime) / ref.fadeInDuration;
-        const currentGain = Math.max(0, Math.min(1, progress));
-        ref.fadeGain.gain.setValueAtTime(currentGain, now);
+        console.log('[ToneEngine]   → Fade IN: 0@' + startTime.toFixed(2) + ' → 1@' + fadeInEnd.toFixed(2));
+      } else if (now >= startTime && now < fadeInEnd) {
+        // En plein fade in : calculer où on en est
+        const progress = (now - startTime) / ref.fadeInDuration;
+        currentGainValue = Math.max(0.001, Math.min(1, progress)); // min 0.001 pour éviter les bugs
+        ref.fadeGain.gain.setValueAtTime(currentGainValue, now);
         ref.fadeGain.gain.linearRampToValueAtTime(1, fadeInEnd);
+        console.log('[ToneEngine]   → Fade IN (mid): ' + currentGainValue.toFixed(3) + '@' + now.toFixed(2) + ' → 1@' + fadeInEnd.toFixed(2));
       } else {
-        // Le fade in est déjà passé : volume à 1
+        // Fade in déjà passé
+        currentGainValue = 1;
         ref.fadeGain.gain.setValueAtTime(1, now);
+        console.log('[ToneEngine]   → Fade IN (done): 1@' + now.toFixed(2));
       }
     } else {
-      // Pas de fade in : volume à 1 dès le début
-      if (currentTime >= startTime) {
+      // Pas de fade in : on commence à 1 dès le début du clip
+      if (now >= startTime) {
         ref.fadeGain.gain.setValueAtTime(1, now);
       } else {
         ref.fadeGain.gain.setValueAtTime(1, startTime);
       }
     }
 
-    // Fade out : 1 -> 0
-    if (ref.fadeOutDuration > 0 && fadeOutStart > fadeInEnd) {
-      if (currentTime < fadeOutStart) {
-        // Le fade out n'a pas encore commencé
+    // ========== FADE OUT ==========
+    if (ref.fadeOutDuration > 0) {
+      if (now < fadeOutStart) {
+        // Fade out pas encore commencé : programme 1→0
         ref.fadeGain.gain.setValueAtTime(1, fadeOutStart);
-        ref.fadeGain.gain.linearRampToValueAtTime(0, endTime);
-      } else if (currentTime < endTime) {
-        // On est au milieu du fade out : calculer la valeur actuelle et continuer
-        const progress = (currentTime - fadeOutStart) / ref.fadeOutDuration;
-        const currentGain = Math.max(0, Math.min(1, 1 - progress));
-        ref.fadeGain.gain.setValueAtTime(currentGain, now);
-        ref.fadeGain.gain.linearRampToValueAtTime(0, endTime);
+        ref.fadeGain.gain.linearRampToValueAtTime(0.001, endTime); // 0.001 au lieu de 0
+        console.log('[ToneEngine]   → Fade OUT: 1@' + fadeOutStart.toFixed(2) + ' → 0@' + endTime.toFixed(2));
+      } else if (now >= fadeOutStart && now < endTime) {
+        // En plein fade out
+        const progress = (now - fadeOutStart) / ref.fadeOutDuration;
+        currentGainValue = Math.max(0.001, Math.min(1, 1 - progress));
+        ref.fadeGain.gain.setValueAtTime(currentGainValue, now);
+        ref.fadeGain.gain.linearRampToValueAtTime(0.001, endTime);
+        console.log('[ToneEngine]   → Fade OUT (mid): ' + currentGainValue.toFixed(3) + '@' + now.toFixed(2) + ' → 0@' + endTime.toFixed(2));
       } else {
-        // Le fade out est déjà passé : volume à 0
-        ref.fadeGain.gain.setValueAtTime(0, now);
+        // Fade out déjà passé
+        ref.fadeGain.gain.setValueAtTime(0.001, now);
+        console.log('[ToneEngine]   → Fade OUT (done): 0@' + now.toFixed(2));
       }
     }
   }
