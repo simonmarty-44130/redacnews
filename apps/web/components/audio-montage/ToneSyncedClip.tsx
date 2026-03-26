@@ -266,7 +266,7 @@ const ToneSyncedClip = memo(
           });
         }
       };
-    }, [sourceUrl, clipId, color, height, sourceDuration, onDurationDetected, onError]);
+    }, [sourceUrl, clipId, color, height, sourceDuration]); // Retiré onDurationDetected et onError des deps
 
     // ============ AFFICHAGE AVEC TRIM ============
 

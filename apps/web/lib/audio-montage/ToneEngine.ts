@@ -85,8 +85,8 @@ export class ToneEngine {
     // Creer le Player Tone.js et attendre qu'il soit charge
     const player = new Tone.Player({
       url: sourceUrl,
-      fadeIn: 0.001, // Fade minimal pour eviter les clics
-      fadeOut: 0.001,
+      fadeIn: fadeInDuration || 0.001, // Fade in (ou minimal pour eviter les clics)
+      fadeOut: fadeOutDuration || 0.001, // Fade out (ou minimal pour eviter les clics)
       onload: () => {
         console.log(`[ToneEngine] Clip ${clipId} loaded`);
         const ref = this.clips.get(clipId);
