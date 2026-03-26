@@ -189,6 +189,13 @@ export class ToneEngine {
       return;
     }
 
+    // Mémoriser les anciennes valeurs pour détecter les vrais changements
+    const oldStartTime = ref.startTime;
+    const oldInPoint = ref.inPoint;
+    const oldOutPoint = ref.outPoint;
+    const oldFadeInDuration = ref.fadeInDuration;
+    const oldFadeOutDuration = ref.fadeOutDuration;
+
     // Mettre a jour les proprietes
     if (updates.startTime !== undefined) ref.startTime = updates.startTime;
     if (updates.inPoint !== undefined) ref.inPoint = updates.inPoint;
@@ -201,28 +208,30 @@ export class ToneEngine {
       ref.volume.volume.value = gainToDb(updates.volume);
     }
 
-    // Re-scheduler le player si le timing a change ET que le clip est pret
-    if ((updates.startTime !== undefined || updates.inPoint !== undefined || updates.outPoint !== undefined) && ref.isReady) {
+    // Détecter les vrais changements de timing
+    const timingChanged = (
+      (updates.startTime !== undefined && oldStartTime !== updates.startTime) ||
+      (updates.inPoint !== undefined && oldInPoint !== updates.inPoint) ||
+      (updates.outPoint !== undefined && oldOutPoint !== updates.outPoint)
+    );
+
+    // Détecter les vrais changements de fades
+    const fadesChanged = (
+      (updates.fadeInDuration !== undefined && oldFadeInDuration !== updates.fadeInDuration) ||
+      (updates.fadeOutDuration !== undefined && oldFadeOutDuration !== updates.fadeOutDuration)
+    );
+
+    // Re-scheduler le player si le timing a changé ET que le clip est prêt
+    if (timingChanged && ref.isReady) {
       ref.player.unsync();
       const duration = ref.outPoint - ref.inPoint;
       ref.player.sync().start(ref.startTime, ref.inPoint, duration);
     }
 
-    // Re-scheduler les fades si les fades ou le timing ont changé
-    // NOTE: On ne schedule QUE si isReady ET si le Transport joue
-    // Sinon, scheduleFades sera appelé automatiquement au prochain play()
-    const shouldRescheduleFades = (
-      updates.fadeInDuration !== undefined ||
-      updates.fadeOutDuration !== undefined ||
-      updates.startTime !== undefined ||
-      updates.outPoint !== undefined
-    );
-
-    if (shouldRescheduleFades && ref.isReady && Tone.Transport.state === 'started') {
-      console.log(`[ToneEngine] updateClip: Re-scheduling fades (Transport is playing)`);
+    // Re-scheduler les fades UNIQUEMENT si elles ont vraiment changé ou si le timing a changé
+    if ((fadesChanged || timingChanged) && ref.isReady) {
+      console.log(`[ToneEngine] updateClip: Re-scheduling fades (fades changed: ${fadesChanged}, timing changed: ${timingChanged})`);
       this.scheduleFades(ref);
-    } else if (shouldRescheduleFades && ref.isReady) {
-      console.log(`[ToneEngine] updateClip: Fades updated, will be scheduled at next play()`);
     }
 
     this.updateDuration();
