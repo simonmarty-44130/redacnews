@@ -3,10 +3,15 @@
 export * from './types';
 export * from './constants';
 
-// SyncEngine - Nouveau systeme de synchronisation base sur WaveSurfer.js
-// Chaque clip est une instance WaveSurfer independante, coordonnee par SyncEngine
+// ToneEngine - Moteur de synchronisation moderne base sur Tone.js
+// Synchronisation sample-accurate, pas de drift, fiable
+export { ToneEngine, getToneEngine, resetToneEngine } from './ToneEngine';
+export type { ToneClipRef, TimeUpdateCallback, PlayStateCallback } from './ToneEngine';
+
+// SyncEngine - DEPRECATED - Ancien systeme (problemes de sync)
+// Garde pour compatibilite temporaire
 export { SyncEngine, getSyncEngine, resetSyncEngine } from './SyncEngine';
-export type { SyncedClipRef, TimeUpdateCallback, PlayStateCallback } from './SyncEngine';
+export type { SyncedClipRef } from './SyncEngine';
 
 // MultiTrackEngine - Ancien moteur (conserve pour compatibilite et export WAV)
 export { MultiTrackEngine, getMultiTrackEngine } from './MultiTrackEngine';

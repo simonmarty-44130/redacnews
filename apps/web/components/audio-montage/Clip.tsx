@@ -7,11 +7,12 @@ import { X, GripVertical, Volume2, VolumeX } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TRACK_HEIGHT, MIN_CLIP_DURATION } from '@/lib/audio-montage/constants';
 import type { ClipWithComputed } from '@/lib/audio-montage/types';
-import { SyncedWaveSurfer } from './SyncedWaveSurfer';
-import type { SyncedClipRef } from '@/lib/audio-montage/SyncEngine';
+import { ToneSyncedClip } from './ToneSyncedClip';
 
 // Ref exposee pour le controle de lecture du clip
-// Compatible avec SyncedClipRef du SyncEngine
+// REMARQUE: Avec ToneEngine, ces méthodes ne sont plus nécessaires
+// car Tone.js gère tout automatiquement. On garde l'interface
+// pour la compatibilité mais les méthodes ne font rien.
 export interface ClipRef {
   play: () => void;
   pause: () => void;
@@ -73,7 +74,6 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
   onDurationDetected,
 }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const syncedWaveSurferRef = useRef<SyncedClipRef | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isTrimming, setIsTrimming] = useState<'left' | 'right' | null>(null);
   const [trimStart, setTrimStart] = useState({ x: 0, inPoint: 0, outPoint: 0 });
@@ -87,15 +87,16 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
   const effectiveVolume = trackMuted ? 0 : trackVolume * clip.volume;
 
   // Exposer les methodes de controle via ref
-  // Compatible avec l'ancienne interface ClipRef
+  // REMARQUE: Avec ToneEngine, ces méthodes sont des no-ops
+  // car Tone.js gère automatiquement la lecture de tous les clips
   useImperativeHandle(ref, () => ({
-    play: () => syncedWaveSurferRef.current?.play(),
-    pause: () => syncedWaveSurferRef.current?.pause(),
-    stop: () => syncedWaveSurferRef.current?.stop(),
-    seekToGlobalTime: (globalTime: number) => syncedWaveSurferRef.current?.seekTo(globalTime),
-    setVolume: (volume: number) => syncedWaveSurferRef.current?.setVolume(volume),
-    isReady: () => syncedWaveSurferRef.current?.isReady() || false,
-    isPlaying: () => syncedWaveSurferRef.current?.isCurrentlyPlaying() || false,
+    play: () => {}, // Géré par ToneEngine
+    pause: () => {}, // Géré par ToneEngine
+    stop: () => {}, // Géré par ToneEngine
+    seekToGlobalTime: () => {}, // Géré par ToneEngine
+    setVolume: () => {}, // Géré par ToneEngine
+    isReady: () => true, // Toujours prêt avec ToneEngine
+    isPlaying: () => false, // État géré globalement par ToneEngine
   }));
 
   const width = Math.max(clip.duration * zoom, 20); // Minimum 20px de large
@@ -308,12 +309,9 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
         }
       }}
     >
-      {/* SyncedWaveSurfer - Couche de fond avec lecture audio synchronisee */}
+      {/* ToneSyncedClip - Couche de fond avec lecture audio synchronisee via Tone.js */}
       <div className="absolute inset-0">
-        <SyncedWaveSurfer
-          ref={(instance) => {
-            syncedWaveSurferRef.current = instance;
-          }}
+        <ToneSyncedClip
           clipId={clip.id}
           sourceUrl={clip.sourceUrl}
           sourceDuration={clip.sourceDuration}
@@ -321,7 +319,7 @@ export const Clip = forwardRef<ClipRef, ClipProps>(function Clip({
           inPoint={clip.inPoint}
           outPoint={clip.outPoint}
           volume={effectiveVolume}
-          clipVolume={clipVolume}
+          clipVolume={clip.volume}
           fadeInDuration={clip.fadeInDuration}
           fadeOutDuration={clip.fadeOutDuration}
           color={trackColor}

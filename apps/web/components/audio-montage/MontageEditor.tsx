@@ -24,7 +24,7 @@ import {
   DEFAULT_TRACKS,
   FIXED_TRACKS_MODE,
 } from '@/lib/audio-montage';
-import { getSyncEngine, resetSyncEngine } from '@/lib/audio-montage/SyncEngine';
+import { getToneEngine, resetToneEngine } from '@/lib/audio-montage/ToneEngine';
 import type {
   MontageProject,
   Track,
@@ -120,8 +120,8 @@ export function MontageEditor({
   // Note: Maintenant les clips s'enregistrent eux-memes aupres du SyncEngine
   const clipRefsRef = useRef<Map<string, ClipRef | null>>(new Map());
 
-  // Reference au SyncEngine
-  const syncEngine = getSyncEngine();
+  // Reference au ToneEngine (nouveau moteur de synchronisation)
+  const toneEngine = getToneEngine();
 
   // Initialiser les pistes par défaut si manquantes (mode FIXED_TRACKS_MODE)
   // Utilise un ref pour éviter la double exécution en React StrictMode
@@ -213,13 +213,13 @@ export function MontageEditor({
     clips: track.clips.map(enrichClip),
   }));
 
-  // S'abonner aux evenements du SyncEngine
+  // S'abonner aux evenements du ToneEngine
   useEffect(() => {
-    const unsubTime = syncEngine.onTimeUpdate((time) => {
+    const unsubTime = toneEngine.onTimeUpdate((time) => {
       setCurrentTime(time);
     });
 
-    const unsubPlay = syncEngine.onPlayStateChange((playing) => {
+    const unsubPlay = toneEngine.onPlayStateChange((playing) => {
       setIsPlaying(playing);
     });
 
@@ -227,35 +227,35 @@ export function MontageEditor({
       unsubTime();
       unsubPlay();
     };
-  }, [syncEngine]);
+  }, [toneEngine]);
 
   // Cleanup au demontage du composant
   useEffect(() => {
     return () => {
-      resetSyncEngine();
+      resetToneEngine();
     };
   }, []);
 
-  // Controles de lecture via SyncEngine
-  const handlePlay = useCallback(() => {
+  // Controles de lecture via ToneEngine
+  const handlePlay = useCallback(async () => {
     console.log('[MontageEditor] play() from', currentTime.toFixed(2));
-    syncEngine.play(currentTime);
-  }, [currentTime, syncEngine]);
+    await toneEngine.play(currentTime);
+  }, [currentTime, toneEngine]);
 
   const handlePause = useCallback(() => {
     console.log('[MontageEditor] pause()');
-    syncEngine.pause();
-  }, [syncEngine]);
+    toneEngine.pause();
+  }, [toneEngine]);
 
   const handleStop = useCallback(() => {
     console.log('[MontageEditor] stop()');
-    syncEngine.stop();
-  }, [syncEngine]);
+    toneEngine.stop();
+  }, [toneEngine]);
 
   const handleSeek = useCallback((time: number) => {
     console.log('[MontageEditor] seek() to', time.toFixed(2));
-    syncEngine.seek(Math.max(0, time));
-  }, [syncEngine]);
+    toneEngine.seek(Math.max(0, time));
+  }, [toneEngine]);
 
   const handleMasterVolumeChange = useCallback((volume: number) => {
     setMasterVolume(volume);
