@@ -79,7 +79,10 @@ export class ToneEngine {
     // S'assurer que l'AudioContext est demarre
     await this.init();
 
-    // Creer le Player Tone.js
+    // Creer le noeud de volume d'abord
+    const volumeNode = new Tone.Volume(gainToDb(volume)).toDestination();
+
+    // Creer le Player Tone.js et attendre qu'il soit charge
     const player = new Tone.Player({
       url: sourceUrl,
       fadeIn: 0.001, // Fade minimal pour eviter les clics
@@ -89,18 +92,16 @@ export class ToneEngine {
         const ref = this.clips.get(clipId);
         if (ref) {
           ref.isReady = true;
+          // Synchroniser APRES le chargement
+          ref.player.sync().start(ref.startTime, ref.inPoint);
         }
       },
     });
 
-    // Synchroniser avec le Transport
-    player.sync().start(startTime, inPoint);
-
-    // Creer le noeud de volume
-    const volumeNode = new Tone.Volume(gainToDb(volume)).toDestination();
+    // Connecter le player au volume
     player.connect(volumeNode);
 
-    // Stocker la reference
+    // Stocker la reference (isReady = false jusqu'au onload)
     this.clips.set(clipId, {
       player,
       volume: volumeNode,
@@ -168,8 +169,8 @@ export class ToneEngine {
       ref.volume.volume.value = gainToDb(updates.volume);
     }
 
-    // Re-scheduler le player si le timing a change
-    if (updates.startTime !== undefined || updates.inPoint !== undefined) {
+    // Re-scheduler le player si le timing a change ET que le clip est pret
+    if ((updates.startTime !== undefined || updates.inPoint !== undefined) && ref.isReady) {
       ref.player.unsync();
       ref.player.sync().start(ref.startTime, ref.inPoint);
     }
