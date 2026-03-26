@@ -94,13 +94,36 @@ export class ToneEngine {
         const ref = this.clips.get(clipId);
         if (ref) {
           ref.isReady = true;
-          // Synchroniser APRES le chargement
-          // start(time, offset, duration) - duration = outPoint - inPoint
-          const duration = ref.outPoint - ref.inPoint;
-          ref.player.sync().start(ref.startTime, ref.inPoint, duration);
 
-          // Programmer les fades
-          this.scheduleFades(ref);
+          // ⚠️ NE PAS synchroniser si le Transport joue déjà
+          // Cela cause "buffer is not set" car le player n'est pas encore totalement prêt
+          const transportState = Tone.Transport.state;
+
+          if (transportState === 'stopped') {
+            // Transport arrêté : on peut synchroniser normalement
+            const duration = ref.outPoint - ref.inPoint;
+            ref.player.sync().start(ref.startTime, ref.inPoint, duration);
+            this.scheduleFades(ref);
+          } else {
+            // Transport en cours : on synchronise et on démarre manuellement si nécessaire
+            console.warn(`[ToneEngine] Clip ${clipId} loaded while Transport is ${transportState}`);
+            const duration = ref.outPoint - ref.inPoint;
+            ref.player.sync();
+
+            // Si on est déjà passé le point de départ, ne rien faire
+            // Sinon, programmer le démarrage
+            const currentTime = Tone.Transport.seconds;
+            if (currentTime < ref.startTime) {
+              ref.player.start(ref.startTime, ref.inPoint, duration);
+            } else if (currentTime < ref.startTime + duration) {
+              // On est au milieu du clip, démarrer avec offset
+              const offset = ref.inPoint + (currentTime - ref.startTime);
+              const remainingDuration = duration - (currentTime - ref.startTime);
+              ref.player.start(currentTime, offset, remainingDuration);
+            }
+
+            this.scheduleFades(ref);
+          }
         }
       },
     });
@@ -317,10 +340,27 @@ export class ToneEngine {
       Tone.Transport.seconds = fromTime;
     }
 
-    // Verifier que tous les clips sont prets
+    // ⚠️ ATTENDRE que tous les clips soient prêts avant de démarrer
+    const maxWaitTime = 5000; // 5 secondes max
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < maxWaitTime) {
+      const allReady = Array.from(this.clips.values()).every((ref) => ref.isReady);
+      if (allReady) {
+        break;
+      }
+      console.warn('[ToneEngine] Waiting for clips to load...');
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    // Vérifier une dernière fois
     const allReady = Array.from(this.clips.values()).every((ref) => ref.isReady);
     if (!allReady) {
-      console.warn('[ToneEngine] Some clips are not ready yet');
+      const notReady = Array.from(this.clips.entries())
+        .filter(([_, ref]) => !ref.isReady)
+        .map(([id]) => id);
+      console.error('[ToneEngine] Cannot play: some clips are not ready:', notReady);
+      throw new Error('Cannot play: some clips are not ready yet');
     }
 
     // Demarrer le Transport
