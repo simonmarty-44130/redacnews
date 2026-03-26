@@ -92,7 +92,7 @@ const ToneSyncedClip = memo(
     useEffect(() => {
       const engine = getToneEngine();
 
-      // Enregistrer le clip dans le moteur Tone.js
+      // Enregistrer le clip dans le moteur Tone.js (sans fades initialement)
       engine
         .register(
           clipId,
@@ -101,8 +101,8 @@ const ToneSyncedClip = memo(
           inPoint,
           outPoint,
           volume,
-          fadeInDuration,
-          fadeOutDuration
+          0, // fadeInDuration initialisé à 0
+          0  // fadeOutDuration initialisé à 0
         )
         .then(() => {
           if (isMountedRef.current) {
@@ -128,8 +128,7 @@ const ToneSyncedClip = memo(
       inPoint,
       outPoint,
       volume,
-      fadeInDuration,
-      fadeOutDuration,
+      // fadeInDuration et fadeOutDuration retirés - gérés par updateClip
       onReady,
       onError,
     ]);
