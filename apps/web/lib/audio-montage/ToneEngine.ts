@@ -14,6 +14,14 @@ function gainToDb(gain: number): number {
 }
 
 /**
+ * Sécuriser un temps pour l'API Web Audio
+ * Évite les erreurs RangeError dues aux imprécisions flottantes
+ */
+function safeTime(time: number): number {
+  return Math.max(0, time);
+}
+
+/**
  * Reference vers un clip audio synchronise via Tone.js
  */
 export interface ToneClipRef {
@@ -242,7 +250,7 @@ export class ToneEngine {
    */
   private scheduleFades(ref: ToneClipRef): void {
     const duration = ref.outPoint - ref.inPoint;
-    const now = Tone.Transport.seconds;
+    const now = safeTime(Tone.Transport.seconds);
 
     // Annuler toutes les automations précédentes sur ce gain
     ref.fadeGain.gain.cancelScheduledValues(now);
@@ -254,10 +262,10 @@ export class ToneEngine {
       return;
     }
 
-    const startTime = ref.startTime;
-    const endTime = startTime + duration;
-    const fadeInEnd = startTime + ref.fadeInDuration;
-    const fadeOutStart = endTime - ref.fadeOutDuration;
+    const startTime = safeTime(ref.startTime);
+    const endTime = safeTime(startTime + duration);
+    const fadeInEnd = safeTime(startTime + ref.fadeInDuration);
+    const fadeOutStart = safeTime(endTime - ref.fadeOutDuration);
 
     console.log('[ToneEngine] scheduleFades:', {
       now,
