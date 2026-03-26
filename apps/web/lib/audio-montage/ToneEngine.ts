@@ -18,6 +18,7 @@ function gainToDb(gain: number): number {
  */
 export interface ToneClipRef {
   player: Tone.Player;
+  fadeGain: Tone.Gain; // Gain node pour les fades in/out
   volume: Tone.Volume;
   startTime: number; // Position sur la timeline globale
   inPoint: number; // Point d'entree dans le fichier source
@@ -79,14 +80,15 @@ export class ToneEngine {
     // S'assurer que l'AudioContext est demarre
     await this.init();
 
-    // Creer le noeud de volume d'abord
+    // Creer la chaine audio : Player -> Fade Gain -> Volume -> Destination
+    const fadeGain = new Tone.Gain(1); // Gain pour les fades (commence à 1 = pas de fade)
     const volumeNode = new Tone.Volume(gainToDb(volume)).toDestination();
 
     // Creer le Player Tone.js et attendre qu'il soit charge
     const player = new Tone.Player({
       url: sourceUrl,
-      fadeIn: fadeInDuration || 0.001, // Fade in (ou minimal pour eviter les clics)
-      fadeOut: fadeOutDuration || 0.001, // Fade out (ou minimal pour eviter les clics)
+      fadeIn: 0.001, // Fade minimal pour eviter les clics
+      fadeOut: 0.001,
       onload: () => {
         console.log(`[ToneEngine] Clip ${clipId} loaded`);
         const ref = this.clips.get(clipId);
@@ -96,16 +98,20 @@ export class ToneEngine {
           // start(time, offset, duration) - duration = outPoint - inPoint
           const duration = ref.outPoint - ref.inPoint;
           ref.player.sync().start(ref.startTime, ref.inPoint, duration);
+
+          // Programmer les fades
+          this.scheduleFades(ref);
         }
       },
     });
 
-    // Connecter le player au volume
-    player.connect(volumeNode);
+    // Connecter : Player -> Fade Gain -> Volume -> Destination
+    player.chain(fadeGain, volumeNode);
 
     // Stocker la reference (isReady = false jusqu'au onload)
     this.clips.set(clipId, {
       player,
+      fadeGain,
       volume: volumeNode,
       startTime,
       inPoint,
@@ -129,6 +135,7 @@ export class ToneEngine {
       try {
         ref.player.unsync();
         ref.player.dispose();
+        ref.fadeGain.dispose();
         ref.volume.dispose();
       } catch (error) {
         console.warn(`[ToneEngine] Error disposing clip ${clipId}:`, error);
@@ -178,7 +185,50 @@ export class ToneEngine {
       ref.player.sync().start(ref.startTime, ref.inPoint, duration);
     }
 
+    // Re-scheduler les fades si les fades ou le timing ont changé
+    if ((updates.fadeInDuration !== undefined || updates.fadeOutDuration !== undefined ||
+         updates.startTime !== undefined || updates.outPoint !== undefined) && ref.isReady) {
+      this.scheduleFades(ref);
+    }
+
     this.updateDuration();
+  }
+
+  /**
+   * Programmer les fades in/out pour un clip
+   */
+  private scheduleFades(ref: ToneClipRef): void {
+    const duration = ref.outPoint - ref.inPoint;
+
+    // Annuler toutes les automations précédentes sur ce gain
+    ref.fadeGain.gain.cancelScheduledValues(0);
+
+    // Si pas de fade, rester à 1 (volume normal)
+    if (ref.fadeInDuration === 0 && ref.fadeOutDuration === 0) {
+      ref.fadeGain.gain.setValueAtTime(1, 0);
+      return;
+    }
+
+    const startTime = ref.startTime;
+    const endTime = startTime + duration;
+
+    // Fade in : 0 -> 1
+    if (ref.fadeInDuration > 0) {
+      ref.fadeGain.gain.setValueAtTime(0, startTime);
+      ref.fadeGain.gain.linearRampToValueAtTime(1, startTime + ref.fadeInDuration);
+    } else {
+      ref.fadeGain.gain.setValueAtTime(1, startTime);
+    }
+
+    // Fade out : 1 -> 0
+    if (ref.fadeOutDuration > 0) {
+      const fadeOutStart = endTime - ref.fadeOutDuration;
+      // S'assurer que le fade out commence après le fade in
+      if (fadeOutStart > startTime + ref.fadeInDuration) {
+        ref.fadeGain.gain.setValueAtTime(1, fadeOutStart);
+        ref.fadeGain.gain.linearRampToValueAtTime(0, endTime);
+      }
+    }
   }
 
   /**
@@ -337,6 +387,7 @@ export class ToneEngine {
       try {
         ref.player.unsync();
         ref.player.dispose();
+        ref.fadeGain.dispose();
         ref.volume.dispose();
       } catch (error) {
         console.warn(`[ToneEngine] Error disposing clip ${clipId}:`, error);
