@@ -90,7 +90,7 @@ export class ToneEngine {
 
     // Creer la chaine audio : Player -> Fade Gain -> Volume -> Destination
     const fadeGain = new Tone.Gain(1); // Gain pour les fades (commence à 1 = pas de fade)
-    const volumeNode = new Tone.Volume(gainToDb(volume)).toDestination();
+    const volumeNode = new Tone.Volume(gainToDb(volume)); // ✅ NE PAS connecter à destination ici
 
     // Creer le Player Tone.js et attendre qu'il soit charge
     const player = new Tone.Player({
@@ -138,6 +138,7 @@ export class ToneEngine {
 
     // Connecter : Player -> Fade Gain -> Volume -> Destination
     player.chain(fadeGain, volumeNode);
+    volumeNode.toDestination(); // ✅ Connecter à destination APRÈS le chain
 
     // Stocker la reference (isReady = false jusqu'au onload)
     this.clips.set(clipId, {
