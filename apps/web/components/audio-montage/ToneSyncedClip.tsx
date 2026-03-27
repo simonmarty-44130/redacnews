@@ -109,6 +109,13 @@ const ToneSyncedClip = memo(
           if (isMountedRef.current) {
             isRegisteredRef.current = true; // ✅ Marquer comme enregistré
             console.log(`[ToneSyncedClip ${clipId}] Registered in ToneEngine`);
+
+            // ✅ Appliquer les fades immédiatement après registration
+            engine.updateClip(clipId, {
+              fadeInDuration,
+              fadeOutDuration,
+            });
+
             onReady?.(clipId);
           }
         })
@@ -131,7 +138,8 @@ const ToneSyncedClip = memo(
       inPoint,
       outPoint,
       volume,
-      // fadeInDuration et fadeOutDuration retirés - gérés par updateClip
+      // fadeInDuration et fadeOutDuration retirés des deps pour éviter re-register
+      // Ils sont appliqués dans le .then() et gérés par le 2ème useEffect
       onReady,
       onError,
     ]);
