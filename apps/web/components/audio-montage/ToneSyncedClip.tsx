@@ -83,6 +83,7 @@ const ToneSyncedClip = memo(
     // Flag pour eviter les operations apres unmount
     const isMountedRef = useRef(true);
     const instanceIdRef = useRef(0);
+    const isRegisteredRef = useRef(false); // ✅ Track si le clip est enregistré
 
     // Duree visible du clip
     const clipDuration = outPoint - inPoint;
@@ -106,6 +107,7 @@ const ToneSyncedClip = memo(
         )
         .then(() => {
           if (isMountedRef.current) {
+            isRegisteredRef.current = true; // ✅ Marquer comme enregistré
             console.log(`[ToneSyncedClip ${clipId}] Registered in ToneEngine`);
             onReady?.(clipId);
           }
@@ -119,6 +121,7 @@ const ToneSyncedClip = memo(
         });
 
       return () => {
+        isRegisteredRef.current = false; // ✅ Marquer comme désenregistré
         engine.unregister(clipId);
       };
     }, [
@@ -135,6 +138,11 @@ const ToneSyncedClip = memo(
 
     // Mettre a jour les proprietes si elles changent
     useEffect(() => {
+      // ✅ Ne mettre à jour que si le clip est enregistré
+      if (!isRegisteredRef.current) {
+        return;
+      }
+
       const engine = getToneEngine();
       engine.updateClip(clipId, {
         startTime,
