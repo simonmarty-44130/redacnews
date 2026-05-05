@@ -10,10 +10,11 @@ import {
 } from '@redacnews/audio-editor';
 import { trpc } from '@/lib/trpc/client';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Plus, Keyboard, Loader2 } from 'lucide-react';
+import { ArrowLeft, Plus, Keyboard, Loader2, Mic, Square } from 'lucide-react';
 import { MediaPickerDialog } from './MediaPickerDialog';
 import { ExportSuccessDialog } from './ExportSuccessDialog';
 import { AudioEditorSkeleton } from './AudioEditorSkeleton';
+import { useRecording } from '@redacnews/audio-editor';
 
 interface SourceContext {
   type: 'media' | 'story' | 'new';
@@ -45,6 +46,27 @@ export function AudioEditorPage() {
   } | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [tracksInEditor, setTracksInEditor] = useState<string[]>([]);
+
+  // Recording
+  const { isRecording, duration, audioLevel, startRecording, stopRecording, error: recordingError } = useRecording();
+
+  const handleToggleRecording = useCallback(async () => {
+    if (isRecording) {
+      const blob = await stopRecording();
+      if (!blob) return;
+
+      const date = new Date().toLocaleDateString('fr-FR', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+      }).replace(/\//g, '-');
+      const name = `Enregistrement_${date}_${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }).replace(':', 'h')}`;
+
+      const url = URL.createObjectURL(blob);
+      editorRef.current?.addTrack({ src: url, name });
+      setHasUnsavedChanges(true);
+    } else {
+      await startRecording();
+    }
+  }, [isRecording, startRecording, stopRecording]);
 
   // tRPC
   const utils = trpc.useUtils();
@@ -342,6 +364,26 @@ export function AudioEditorPage() {
           >
             <Plus className="h-4 w-4 mr-2" />
             Ajouter piste
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleToggleRecording}
+            title={recordingError ?? (isRecording ? 'Arrêter l\'enregistrement' : 'Enregistrer depuis le micro')}
+            className={isRecording
+              ? 'border-red-500 bg-red-600 text-white hover:bg-red-500 animate-pulse'
+              : 'border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white'
+            }
+          >
+            {isRecording ? (
+              <>
+                <Square className="h-4 w-4 mr-2 fill-current" />
+                {Math.floor(duration / 60).toString().padStart(2, '0')}:{Math.floor(duration % 60).toString().padStart(2, '0')}
+              </>
+            ) : (
+              <Mic className="h-4 w-4" />
+            )}
           </Button>
 
           <Button
