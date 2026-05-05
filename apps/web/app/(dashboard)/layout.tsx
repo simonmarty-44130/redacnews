@@ -31,7 +31,7 @@ const navigation = [
   { name: 'Conducteur', href: '/conducteur', icon: LayoutDashboard },
   { name: 'Sujets', href: '/sujets', icon: FileText },
   { name: 'Mediatheque', href: '/mediatheque', icon: FolderOpen },
-  { name: 'Montage', href: '/audio-montage', icon: Layers },
+  { name: 'Montage', href: '/audio-editor', icon: Layers },
   { name: 'Prompteur', href: '/prompteur', icon: Presentation },
   { name: 'Assistant IA', href: '/assistant', icon: Bot },
 ];
