@@ -7,20 +7,155 @@ import {
   type Track,
   type ExportMetadata,
   type MultitrackEditorRef,
+  useRecording,
+  normalizeAudioBuffer,
 } from '@redacnews/audio-editor';
 import { trpc } from '@/lib/trpc/client';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Plus, Keyboard, Loader2, Mic, Square } from 'lucide-react';
+import { ArrowLeft, Plus, Keyboard, Loader2, Mic, Square, Wand2, SkipForward } from 'lucide-react';
 import { MediaPickerDialog } from './MediaPickerDialog';
 import { ExportSuccessDialog } from './ExportSuccessDialog';
 import { AudioEditorSkeleton } from './AudioEditorSkeleton';
-import { useRecording } from '@redacnews/audio-editor';
 
 interface SourceContext {
   type: 'media' | 'story' | 'new';
   ids?: string[];
   storyId?: string;
 }
+
+// ─── VU-mètre ────────────────────────────────────────────────────────────────
+
+function VuMeter({ level, duration }: { level: number; duration: number }) {
+  // level : 0-1 (RMS normalisé)
+  // Zones : vert < 0.6 | orange 0.6-0.85 | rouge > 0.85
+  const bars = 20;
+  const greenLimit  = Math.floor(bars * 0.60);  // 12 barres
+  const orangeLimit = Math.floor(bars * 0.85);  // 17 barres
+  const filled = Math.round(level * bars);
+
+  const mm = Math.floor(duration / 60).toString().padStart(2, '0');
+  const ss = Math.floor(duration % 60).toString().padStart(2, '0');
+
+  return (
+    <div className="flex flex-col items-center gap-2 p-4 bg-slate-900 rounded-lg border border-slate-700 min-w-[220px]">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+        <span className="text-red-400 text-xs font-semibold tracking-widest uppercase">Enregistrement</span>
+      </div>
+
+      {/* Barres VU */}
+      <div className="flex gap-[2px] items-end h-8">
+        {Array.from({ length: bars }).map((_, i) => {
+          const active = i < filled;
+          let color = 'bg-slate-700';
+          if (active) {
+            if (i < greenLimit)       color = 'bg-emerald-500';
+            else if (i < orangeLimit) color = 'bg-amber-400';
+            else                      color = 'bg-red-500';
+          }
+          return (
+            <div
+              key={i}
+              className={`w-2.5 rounded-sm transition-all duration-75 ${color}`}
+              style={{ height: `${60 + (i / bars) * 40}%` }}
+            />
+          );
+        })}
+      </div>
+
+      {/* Labels zones */}
+      <div className="flex w-full justify-between text-[10px] px-0.5">
+        <span className="text-emerald-500">-∞</span>
+        <span className="text-emerald-500">-18</span>
+        <span className="text-amber-400">-6</span>
+        <span className="text-red-500">0 dB</span>
+      </div>
+
+      {/* Chrono */}
+      <div className="text-white font-mono text-xl tracking-widest mt-1">
+        {mm}:{ss}
+      </div>
+
+      {level > 0.85 && (
+        <p className="text-red-400 text-[10px] text-center">
+          Niveau trop élevé — éloignez le micro
+        </p>
+      )}
+      {level > 0 && level < 0.15 && (
+        <p className="text-amber-400 text-[10px] text-center">
+          Niveau faible — rapprochez le micro
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Dialog de normalisation ──────────────────────────────────────────────────
+
+function NormalizeDialog({
+  onNormalize,
+  onSkip,
+}: {
+  onNormalize: () => void;
+  onSkip: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-6 w-[360px] flex flex-col gap-4">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-white font-semibold text-base">Normaliser l'enregistrement ?</h2>
+          <p className="text-slate-400 text-sm leading-relaxed">
+            La normalisation ajuste le volume pour atteindre{' '}
+            <span className="text-white font-medium">−16 LUFS</span>, le niveau
+            recommandé pour une diffusion radio. Idéal pour homogénéiser les niveaux
+            entre vos différentes prises.
+          </p>
+        </div>
+
+        {/* Indicateur visuel */}
+        <div className="bg-slate-900 rounded-lg p-3 flex items-center gap-3 text-sm">
+          <div className="flex flex-col gap-1 flex-1">
+            <div className="flex justify-between text-slate-500 text-xs mb-1">
+              <span>Avant</span>
+              <span>Après</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-2 rounded bg-amber-500/60" />
+              <span className="text-slate-400 text-xs">→</span>
+              <div className="flex-1 h-2 rounded bg-emerald-500" />
+            </div>
+            <div className="flex justify-between text-[10px] text-slate-500 mt-0.5">
+              <span>Niveau variable</span>
+              <span>−16 LUFS</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-2 mt-1">
+          <Button
+            onClick={onNormalize}
+            className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white border-0"
+            size="sm"
+          >
+            <Wand2 className="h-4 w-4 mr-2" />
+            Normaliser
+          </Button>
+          <Button
+            onClick={onSkip}
+            variant="outline"
+            size="sm"
+            className="flex-1 border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white"
+          >
+            <SkipForward className="h-4 w-4 mr-2" />
+            Ignorer
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Page principale ──────────────────────────────────────────────────────────
 
 export function AudioEditorPage() {
   const searchParams = useSearchParams();
@@ -31,7 +166,7 @@ export function AudioEditorPage() {
   const mediaParam = searchParams.get('media');
   const storyParam = searchParams.get('story');
 
-  // State - initialTracks uses simplified type for loading
+  // State
   const [initialTracks, setInitialTracks] = useState<Array<{ id?: string; src: string; name: string }>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState(0);
@@ -47,9 +182,46 @@ export function AudioEditorPage() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [tracksInEditor, setTracksInEditor] = useState<string[]>([]);
 
-  // Recording
-  const { isRecording, duration, audioLevel, startRecording, stopRecording, error: recordingError } = useRecording();
+  // Recording state
+  const pendingBlobRef = useRef<{ blob: Blob; name: string } | null>(null);
+  const [showNormalizeDialog, setShowNormalizeDialog] = useState(false);
 
+  const {
+    isRecording,
+    duration: recordingDuration,
+    audioLevel,
+    startRecording,
+    stopRecording,
+    error: recordingError,
+  } = useRecording();
+
+  // Ajoute la piste (avec ou sans normalisation)
+  const addRecordedTrack = useCallback(async (blob: Blob, name: string, normalize: boolean) => {
+    let finalBlob = blob;
+
+    if (normalize) {
+      try {
+        const audioCtx = new AudioContext();
+        const arrayBuffer = await blob.arrayBuffer();
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        const normalizedBuffer = normalizeAudioBuffer(audioCtx, audioBuffer, 0.95);
+
+        // Reconvertir en WAV (normalizeAudioBuffer retourne un AudioBuffer)
+        const { audioBufferToWav } = await import('@redacnews/audio-editor');
+        finalBlob = audioBufferToWav(normalizedBuffer);
+        await audioCtx.close();
+      } catch (e) {
+        console.error('Normalisation échouée, ajout sans normalisation:', e);
+      }
+    }
+
+    const url = URL.createObjectURL(finalBlob);
+    editorRef.current?.addTrack({ src: url, name });
+    setHasUnsavedChanges(true);
+    pendingBlobRef.current = null;
+  }, []);
+
+  // Stop → mémorise le blob, affiche le dialog
   const handleToggleRecording = useCallback(async () => {
     if (isRecording) {
       const blob = await stopRecording();
@@ -58,20 +230,34 @@ export function AudioEditorPage() {
       const date = new Date().toLocaleDateString('fr-FR', {
         day: '2-digit', month: '2-digit', year: 'numeric',
       }).replace(/\//g, '-');
-      const name = `Enregistrement_${date}_${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }).replace(':', 'h')}`;
+      const name = `Enregistrement_${date}_${new Date().toLocaleTimeString('fr-FR', {
+        hour: '2-digit', minute: '2-digit',
+      }).replace(':', 'h')}`;
 
-      const url = URL.createObjectURL(blob);
-      editorRef.current?.addTrack({ src: url, name });
-      setHasUnsavedChanges(true);
+      pendingBlobRef.current = { blob, name };
+      setShowNormalizeDialog(true);
     } else {
       await startRecording();
     }
   }, [isRecording, startRecording, stopRecording]);
 
+  const handleNormalize = useCallback(() => {
+    setShowNormalizeDialog(false);
+    if (pendingBlobRef.current) {
+      addRecordedTrack(pendingBlobRef.current.blob, pendingBlobRef.current.name, true);
+    }
+  }, [addRecordedTrack]);
+
+  const handleSkipNormalize = useCallback(() => {
+    setShowNormalizeDialog(false);
+    if (pendingBlobRef.current) {
+      addRecordedTrack(pendingBlobRef.current.blob, pendingBlobRef.current.name, false);
+    }
+  }, [addRecordedTrack]);
+
   // tRPC
   const utils = trpc.useUtils();
 
-  // Query to get multiple media items with presigned URLs
   const mediaIds = mediaParam ? mediaParam.split(',').filter(Boolean) : [];
 
   const { data: mediaItems, isLoading: isLoadingMedia } = trpc.media.getMany.useQuery(
@@ -79,23 +265,17 @@ export function AudioEditorPage() {
     { enabled: mediaIds.length > 0 }
   );
 
-  // Query to get story with media
   const { data: story, isLoading: isLoadingStory } = trpc.story.get.useQuery(
     { id: storyParam! },
     { enabled: !!storyParam }
   );
 
-  // Mutation to create new media item
   const createMediaMutation = trpc.media.create.useMutation({
-    onSuccess: () => {
-      utils.media.list.invalidate();
-    },
+    onSuccess: () => { utils.media.list.invalidate(); },
   });
 
-  // Mutation to get presigned URL for upload
   const getUploadUrlMutation = trpc.media.getUploadUrl.useMutation();
 
-  // Mutation to attach media to story
   const linkToStoryMutation = trpc.storyMedia.link.useMutation({
     onSuccess: () => {
       if (sourceContext.storyId) {
@@ -105,7 +285,6 @@ export function AudioEditorPage() {
     },
   });
 
-  // Query for story media
   const { data: storyMedia, isLoading: isLoadingStoryMedia } = trpc.storyMedia.listByStory.useQuery(
     { storyId: storyParam! },
     { enabled: !!storyParam }
@@ -115,66 +294,43 @@ export function AudioEditorPage() {
   useEffect(() => {
     async function loadTracksFromMedia() {
       if (!mediaItems || mediaIds.length === 0) return;
-
       setIsLoading(true);
       const tracks: Array<{ id?: string; src: string; name: string }> = [];
-
-      // mediaItems from getMany already has presignedUrl
       for (let i = 0; i < mediaItems.length; i++) {
         const media = mediaItems[i];
         if (media.type === 'AUDIO') {
-          tracks.push({
-            id: media.id,
-            src: media.presignedUrl, // Use presigned URL instead of s3Url
-            name: media.title,
-          });
+          tracks.push({ id: media.id, src: media.presignedUrl, name: media.title });
         }
         setLoadingProgress(((i + 1) / mediaItems.length) * 100);
       }
-
       setInitialTracks(tracks);
       setTracksInEditor(tracks.map(t => t.id!));
       setSourceContext({ type: 'media', ids: mediaIds });
       setIsLoading(false);
     }
-
-    if (mediaIds.length > 0 && mediaItems) {
-      loadTracksFromMedia();
-    }
+    if (mediaIds.length > 0 && mediaItems) loadTracksFromMedia();
   }, [mediaItems, mediaParam]);
 
   // Load tracks from story
   useEffect(() => {
     async function loadTracksFromStory() {
       if (!storyMedia) return;
-
       setIsLoading(true);
       const tracks: Array<{ id?: string; src: string; name: string }> = [];
-
       const audioMedia = storyMedia.filter(m => m.mediaItem.type === 'AUDIO');
-
       for (let i = 0; i < audioMedia.length; i++) {
         const sm = audioMedia[i];
-        tracks.push({
-          id: sm.mediaItem.id,
-          src: sm.mediaItem.presignedUrl, // Use presigned URL instead of s3Url
-          name: sm.mediaItem.title,
-        });
+        tracks.push({ id: sm.mediaItem.id, src: sm.mediaItem.presignedUrl, name: sm.mediaItem.title });
         setLoadingProgress(((i + 1) / audioMedia.length) * 100);
       }
-
       setInitialTracks(tracks);
       setTracksInEditor(tracks.map(t => t.id!));
       setSourceContext({ type: 'story', storyId: storyParam! });
       setIsLoading(false);
     }
-
-    if (storyParam && storyMedia) {
-      loadTracksFromStory();
-    }
+    if (storyParam && storyMedia) loadTracksFromStory();
   }, [storyMedia, storyParam]);
 
-  // Set new context if no params
   useEffect(() => {
     if (!mediaParam && !storyParam) {
       setSourceContext({ type: 'new' });
@@ -182,48 +338,29 @@ export function AudioEditorPage() {
     }
   }, [mediaParam, storyParam]);
 
-  // Handle beforeunload for unsaved changes
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (hasUnsavedChanges) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
+      if (hasUnsavedChanges) { e.preventDefault(); e.returnValue = ''; }
     };
-
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges]);
 
-  // Handle save/export
   const handleSave = useCallback(async (blob: Blob, metadata: ExportMetadata) => {
     try {
       const date = new Date().toLocaleDateString('fr-FR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
+        day: '2-digit', month: '2-digit', year: 'numeric',
       }).replace(/\//g, '-');
-
       const filename = generateExportName(sourceContext, initialTracks, date);
       const fullFilename = `${filename}.${metadata.format === 'mp3' ? 'mp3' : 'wav'}`;
       const contentType = metadata.format === 'mp3' ? 'audio/mpeg' : 'audio/wav';
 
-      // Get presigned URL for upload
       const { uploadUrl, key, publicUrl } = await getUploadUrlMutation.mutateAsync({
-        filename: fullFilename,
-        contentType,
+        filename: fullFilename, contentType,
       });
 
-      // Upload to S3
-      await fetch(uploadUrl, {
-        method: 'PUT',
-        body: blob,
-        headers: {
-          'Content-Type': contentType,
-        },
-      });
+      await fetch(uploadUrl, { method: 'PUT', body: blob, headers: { 'Content-Type': contentType } });
 
-      // Create media item in database
       const newMedia = await createMediaMutation.mutateAsync({
         title: metadata.title || filename,
         type: 'AUDIO',
@@ -235,61 +372,41 @@ export function AudioEditorPage() {
         tags: ['montage'],
       });
 
-      setExportedMedia({
-        id: newMedia.id,
-        title: newMedia.title,
-        duration: metadata.duration,
-        fileSize: blob.size,
-      });
+      setExportedMedia({ id: newMedia.id, title: newMedia.title, duration: metadata.duration, fileSize: blob.size });
       setHasUnsavedChanges(false);
       setShowExportSuccess(true);
-
     } catch (error) {
       console.error('Failed to save audio:', error);
       alert('Erreur lors de la sauvegarde. Veuillez reessayer.');
     }
   }, [sourceContext, initialTracks, getUploadUrlMutation, createMediaMutation]);
 
-  // Handle close
   const handleClose = useCallback(() => {
     if (hasUnsavedChanges) {
-      const confirmed = window.confirm(
-        'Vous avez des modifications non sauvegardees. Voulez-vous vraiment quitter ?'
-      );
+      const confirmed = window.confirm('Vous avez des modifications non sauvegardees. Voulez-vous vraiment quitter ?');
       if (!confirmed) return;
     }
     router.back();
   }, [hasUnsavedChanges, router]);
 
-  // Handle add track from picker
   const handleAddTracks = useCallback((mediaItems: Array<{
-    id: string;
-    title: string;
-    s3Url: string;
-    duration?: number | null;
+    id: string; title: string; s3Url: string; duration?: number | null;
   }>) => {
     for (const media of mediaItems) {
-      editorRef.current?.addTrack({
-        src: media.s3Url,
-        name: media.title,
-      });
+      editorRef.current?.addTrack({ src: media.s3Url, name: media.title });
       setTracksInEditor(prev => [...prev, media.id]);
     }
-
     setHasUnsavedChanges(true);
     setShowMediaPicker(false);
   }, []);
 
-  // Handle tracks change
   const handleTracksChange = useCallback((tracks: Track[]) => {
     setHasUnsavedChanges(true);
     setTracksInEditor(tracks.map(t => t.id));
   }, []);
 
-  // Handle attach to story
   const handleAttachToStory = useCallback(async () => {
     if (!exportedMedia || !sourceContext.storyId) return;
-
     try {
       await linkToStoryMutation.mutateAsync({
         storyId: sourceContext.storyId,
@@ -304,7 +421,6 @@ export function AudioEditorPage() {
     }
   }, [exportedMedia, sourceContext.storyId, linkToStoryMutation, router]);
 
-  // Show loading state - only check relevant loading states based on params
   const shouldShowLoading = isLoading ||
     (mediaIds.length > 0 && isLoadingMedia) ||
     (!!storyParam && isLoadingStoryMedia);
@@ -312,7 +428,6 @@ export function AudioEditorPage() {
   if (shouldShowLoading) {
     return (
       <div className="flex flex-col h-full bg-slate-900">
-        {/* Header */}
         <header className="h-12 bg-slate-800 border-b border-slate-700 flex items-center justify-between px-4">
           <div className="flex items-center gap-4">
             <Loader2 className="h-5 w-5 text-slate-400 animate-spin" />
@@ -331,7 +446,7 @@ export function AudioEditorPage() {
     <div className="flex flex-col h-full">
       {/* Header */}
       <header className="h-12 bg-slate-800 border-b border-slate-700 flex items-center justify-between px-4">
-        {/* Left: Navigation */}
+        {/* Left */}
         <div className="flex items-center gap-4">
           <button
             onClick={handleClose}
@@ -340,21 +455,18 @@ export function AudioEditorPage() {
             <ArrowLeft className="h-4 w-4" />
             Retour
           </button>
-
           <div className="h-4 w-px bg-slate-700" />
-
           <h1 className="text-white font-medium">
             {sourceContext.type === 'story' && 'Montage pour sujet'}
             {sourceContext.type === 'media' && 'Edition audio'}
             {sourceContext.type === 'new' && 'Nouveau montage'}
           </h1>
-
           {hasUnsavedChanges && (
             <span className="text-amber-400 text-sm">(modifications non sauvegardees)</span>
           )}
         </div>
 
-        {/* Right: Actions */}
+        {/* Right */}
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -372,14 +484,14 @@ export function AudioEditorPage() {
             onClick={handleToggleRecording}
             title={recordingError ?? (isRecording ? 'Arrêter l\'enregistrement' : 'Enregistrer depuis le micro')}
             className={isRecording
-              ? 'border-red-500 bg-red-600 text-white hover:bg-red-500 animate-pulse'
+              ? 'border-red-500 bg-red-600 text-white hover:bg-red-500'
               : 'border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white'
             }
           >
             {isRecording ? (
               <>
                 <Square className="h-4 w-4 mr-2 fill-current" />
-                {Math.floor(duration / 60).toString().padStart(2, '0')}:{Math.floor(duration % 60).toString().padStart(2, '0')}
+                {Math.floor(recordingDuration / 60).toString().padStart(2, '0')}:{Math.floor(recordingDuration % 60).toString().padStart(2, '0')}
               </>
             ) : (
               <Mic className="h-4 w-4" />
@@ -397,6 +509,13 @@ export function AudioEditorPage() {
         </div>
       </header>
 
+      {/* VU-mètre overlay pendant l'enregistrement */}
+      {isRecording && (
+        <div className="absolute top-14 right-4 z-40">
+          <VuMeter level={audioLevel} duration={recordingDuration} />
+        </div>
+      )}
+
       {/* Editor */}
       <div className="flex-1 overflow-hidden">
         <MultitrackEditor
@@ -410,7 +529,15 @@ export function AudioEditorPage() {
         />
       </div>
 
-      {/* Media Picker Dialog */}
+      {/* Dialog normalisation */}
+      {showNormalizeDialog && (
+        <NormalizeDialog
+          onNormalize={handleNormalize}
+          onSkip={handleSkipNormalize}
+        />
+      )}
+
+      {/* Media Picker */}
       <MediaPickerDialog
         open={showMediaPicker}
         onClose={() => setShowMediaPicker(false)}
@@ -418,7 +545,7 @@ export function AudioEditorPage() {
         excludeIds={tracksInEditor}
       />
 
-      {/* Export Success Dialog */}
+      {/* Export Success */}
       {exportedMedia && (
         <ExportSuccessDialog
           open={showExportSuccess}
@@ -429,9 +556,7 @@ export function AudioEditorPage() {
           fileSize={exportedMedia.fileSize}
           sourceContext={sourceContext}
           onAttachToStory={sourceContext.type === 'story' ? handleAttachToStory : undefined}
-          onGoToMedia={() => {
-            router.push(`/mediatheque?highlight=${exportedMedia.id}`);
-          }}
+          onGoToMedia={() => router.push(`/mediatheque?highlight=${exportedMedia.id}`)}
           onContinueEditing={() => setShowExportSuccess(false)}
         />
       )}
@@ -444,15 +569,10 @@ function generateExportName(
   tracks: Array<{ id?: string; src: string; name: string }>,
   date: string
 ): string {
-  if (sourceContext.type === 'story') {
-    return `Montage_Sujet_${date}`;
-  }
-
+  if (sourceContext.type === 'story') return `Montage_Sujet_${date}`;
   if (tracks.length === 1) {
-    // If single track, use its name
-    const baseName = tracks[0].name.replace(/\.[^/.]+$/, ''); // Remove extension
+    const baseName = tracks[0].name.replace(/\.[^/.]+$/, '');
     return `${baseName}_edit_${date}`;
   }
-
   return `Montage_${date}`;
 }
