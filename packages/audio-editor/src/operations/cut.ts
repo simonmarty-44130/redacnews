@@ -132,30 +132,54 @@ export function cloneAudioBuffer(
 }
 
 /**
- * Normalise un AudioBuffer (peak normalization)
+ * Normalise un AudioBuffer selon le niveau RMS (approximation EBU R128 / -16 LUFS)
+ *
+ * La cible RMS est fixée à 0.1259 (≈ -18 dBFS RMS), ce qui correspond
+ * à environ -16 LUFS pour de la parole — le niveau recommandé pour
+ * la diffusion radio.
+ *
+ * La normalisation est appliquée dans les deux sens (amplification ET
+ * atténuation), et les échantillons sont limités à [-1.0, 1.0] pour
+ * éviter tout écrêtage.
+ *
+ * @param audioContext - AudioContext actif
+ * @param sourceBuffer - Buffer source à normaliser
+ * @param targetPeak   - Conservé pour la compatibilité API ; ignoré en interne
  */
 export function normalizeAudioBuffer(
   audioContext: AudioContext,
   sourceBuffer: AudioBuffer,
-  targetPeak: number = 0.95
+  targetPeak: number = 0.95  // eslint-disable-line @typescript-eslint/no-unused-vars
 ): AudioBuffer {
-  // Trouver le pic max
-  let maxPeak = 0;
+  // Cible RMS fixe : 0.1259 ≈ -18 dBFS RMS ≈ -16 LUFS pour la parole
+  const rmsTarget = 0.1259;
+
+  // Calculer le RMS global (tous canaux confondus)
+  let sumSquares = 0;
+  let totalSamples = 0;
   for (let channel = 0; channel < sourceBuffer.numberOfChannels; channel++) {
     const data = sourceBuffer.getChannelData(channel);
     for (let i = 0; i < data.length; i++) {
-      const abs = Math.abs(data[i]);
-      if (abs > maxPeak) maxPeak = abs;
+      sumSquares += data[i] * data[i];
     }
+    totalSamples += data.length;
   }
 
-  if (maxPeak === 0 || maxPeak >= targetPeak) {
-    // Pas besoin de normaliser - retourner une copie
+  if (totalSamples === 0) {
     return cloneAudioBuffer(audioContext, sourceBuffer);
   }
 
-  // Appliquer le gain
-  const gain = targetPeak / maxPeak;
+  const rms = Math.sqrt(sumSquares / totalSamples);
+
+  // Buffer silencieux : rien à faire
+  if (rms === 0) {
+    return cloneAudioBuffer(audioContext, sourceBuffer);
+  }
+
+  // Gain pour atteindre la cible RMS (amplification ou atténuation)
+  const gain = rmsTarget / rms;
+
+  // Appliquer le gain et limiter à [-1, 1] pour éviter l'écrêtage
   const newBuffer = audioContext.createBuffer(
     sourceBuffer.numberOfChannels,
     sourceBuffer.length,
@@ -166,7 +190,7 @@ export function normalizeAudioBuffer(
     const sourceData = sourceBuffer.getChannelData(channel);
     const destData = newBuffer.getChannelData(channel);
     for (let i = 0; i < sourceData.length; i++) {
-      destData[i] = sourceData[i] * gain;
+      destData[i] = Math.max(-1.0, Math.min(1.0, sourceData[i] * gain));
     }
   }
 

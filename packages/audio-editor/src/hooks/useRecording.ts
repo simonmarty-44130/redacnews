@@ -46,6 +46,7 @@ export function useRecording(options: UseRecordingOptions = {}): UseRecordingRet
   const pausedDurationRef = useRef<number>(0);
   const animationFrameRef = useRef<number | null>(null);
   const durationIntervalRef = useRef<number | null>(null);
+  const isRecordingRef = useRef<boolean>(false);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -92,7 +93,7 @@ export function useRecording(options: UseRecordingOptions = {}): UseRecordingRet
 
   // Update audio level meter
   const updateAudioLevel = useCallback(() => {
-    if (!analyserRef.current || !isRecording) return;
+    if (!analyserRef.current || !isRecordingRef.current) return;
 
     const analyser = analyserRef.current;
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -109,7 +110,7 @@ export function useRecording(options: UseRecordingOptions = {}): UseRecordingRet
     setAudioLevel(level);
 
     animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
-  }, [isRecording]);
+  }, []);
 
   // Start recording
   const startRecording = useCallback(async (): Promise<void> => {
@@ -177,7 +178,9 @@ export function useRecording(options: UseRecordingOptions = {}): UseRecordingRet
         setDuration(elapsed);
       }, 100);
 
-      // Start level metering
+      // Start level metering (set ref synchronously before calling so the
+      // guard in updateAudioLevel sees true immediately)
+      isRecordingRef.current = true;
       updateAudioLevel();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start recording');
@@ -222,6 +225,7 @@ export function useRecording(options: UseRecordingOptions = {}): UseRecordingRet
         // Create final blob
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
 
+        isRecordingRef.current = false;
         setIsRecording(false);
         setIsPaused(false);
         setAudioLevel(0);
