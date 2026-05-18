@@ -237,6 +237,9 @@ export interface MultitrackEditorRef {
   setOutPoint: () => void;
   cutSelection: () => void;
   splitAtCursor: () => void;
+
+  // Normalisation RMS de la piste active (≈ -16 LUFS pour radio)
+  normalize: () => void;
 }
 
 // ============================================

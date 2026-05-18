@@ -94,6 +94,7 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
     const setInPoint = useEditorStore((state) => state.setInPoint);
     const setOutPoint = useEditorStore((state) => state.setOutPoint);
     const cutSelection = useEditorStore((state) => state.cutSelection);
+    const normalizeTrack = useEditorStore((state) => state.normalize);
     const trimToSelection = useEditorStore((state) => state.trimToSelection);
     const clearSelection = useEditorStore((state) => state.clearSelection);
     const initAudioContext = useEditorStore((state) => state.initAudioContext);
@@ -703,8 +704,9 @@ export const MultitrackEditor = forwardRef<MultitrackEditorRef, MultitrackEditor
         setOutPoint,
         cutSelection,
         splitAtCursor: () => console.log('Split not implemented'),
+        normalize: normalizeTrack,
       }),
-      [handlePlay, handlePause, handleStop, handleSeek, loadTrack, handleRemoveTrack, undo, redo, setInPoint, setOutPoint, cutSelection, activeTrack]
+      [handlePlay, handlePause, handleStop, handleSeek, loadTrack, handleRemoveTrack, undo, redo, setInPoint, setOutPoint, cutSelection, normalizeTrack, activeTrack]
     );
 
     // ============ RENDER ============

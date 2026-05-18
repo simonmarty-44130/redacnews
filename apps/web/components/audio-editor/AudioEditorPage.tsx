@@ -8,11 +8,10 @@ import {
   type ExportMetadata,
   type MultitrackEditorRef,
   useRecording,
-  normalizeAudioBuffer,
 } from '@redacnews/audio-editor';
 import { trpc } from '@/lib/trpc/client';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Plus, Keyboard, Loader2, Mic, Square, Wand2, SkipForward } from 'lucide-react';
+import { ArrowLeft, Plus, Keyboard, Loader2, Mic, Square, Wand2 } from 'lucide-react';
 import { MediaPickerDialog } from './MediaPickerDialog';
 import { ExportSuccessDialog } from './ExportSuccessDialog';
 import { AudioEditorSkeleton } from './AudioEditorSkeleton';
@@ -90,71 +89,6 @@ function VuMeter({ level, duration }: { level: number; duration: number }) {
   );
 }
 
-// ─── Dialog de normalisation ──────────────────────────────────────────────────
-
-function NormalizeDialog({
-  onNormalize,
-  onSkip,
-}: {
-  onNormalize: () => void;
-  onSkip: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-6 w-[360px] flex flex-col gap-4">
-        <div className="flex flex-col gap-1">
-          <h2 className="text-white font-semibold text-base">Normaliser l'enregistrement ?</h2>
-          <p className="text-slate-400 text-sm leading-relaxed">
-            La normalisation ajuste le volume pour atteindre{' '}
-            <span className="text-white font-medium">−16 LUFS</span>, le niveau
-            recommandé pour une diffusion radio. Idéal pour homogénéiser les niveaux
-            entre vos différentes prises.
-          </p>
-        </div>
-
-        {/* Indicateur visuel */}
-        <div className="bg-slate-900 rounded-lg p-3 flex items-center gap-3 text-sm">
-          <div className="flex flex-col gap-1 flex-1">
-            <div className="flex justify-between text-slate-500 text-xs mb-1">
-              <span>Avant</span>
-              <span>Après</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="flex-1 h-2 rounded bg-amber-500/60" />
-              <span className="text-slate-400 text-xs">→</span>
-              <div className="flex-1 h-2 rounded bg-emerald-500" />
-            </div>
-            <div className="flex justify-between text-[10px] text-slate-500 mt-0.5">
-              <span>Niveau variable</span>
-              <span>−16 LUFS</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex gap-2 mt-1">
-          <Button
-            onClick={onNormalize}
-            className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white border-0"
-            size="sm"
-          >
-            <Wand2 className="h-4 w-4 mr-2" />
-            Normaliser
-          </Button>
-          <Button
-            onClick={onSkip}
-            variant="outline"
-            size="sm"
-            className="flex-1 border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white"
-          >
-            <SkipForward className="h-4 w-4 mr-2" />
-            Ignorer
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Page principale ──────────────────────────────────────────────────────────
 
 export function AudioEditorPage() {
@@ -182,10 +116,6 @@ export function AudioEditorPage() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [tracksInEditor, setTracksInEditor] = useState<string[]>([]);
 
-  // Recording state
-  const pendingBlobRef = useRef<{ blob: Blob; name: string } | null>(null);
-  const [showNormalizeDialog, setShowNormalizeDialog] = useState(false);
-
   const {
     isRecording,
     duration: recordingDuration,
@@ -195,33 +125,14 @@ export function AudioEditorPage() {
     error: recordingError,
   } = useRecording();
 
-  // Ajoute la piste (avec ou sans normalisation)
-  const addRecordedTrack = useCallback(async (blob: Blob, name: string, normalize: boolean) => {
-    let finalBlob = blob;
-
-    if (normalize) {
-      try {
-        const audioCtx = new AudioContext();
-        const arrayBuffer = await blob.arrayBuffer();
-        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-        const normalizedBuffer = normalizeAudioBuffer(audioCtx, audioBuffer, 0.95);
-
-        // Reconvertir en WAV (normalizeAudioBuffer retourne un AudioBuffer)
-        const { audioBufferToWav } = await import('@redacnews/audio-editor');
-        finalBlob = audioBufferToWav(normalizedBuffer);
-        await audioCtx.close();
-      } catch (e) {
-        console.error('Normalisation échouée, ajout sans normalisation:', e);
-      }
-    }
-
-    const url = URL.createObjectURL(finalBlob);
+  // Ajoute la piste enregistrée directement (sans normalisation automatique)
+  const addRecordedTrack = useCallback((blob: Blob, name: string) => {
+    const url = URL.createObjectURL(blob);
     editorRef.current?.addTrack({ src: url, name });
     setHasUnsavedChanges(true);
-    pendingBlobRef.current = null;
   }, []);
 
-  // Stop → mémorise le blob, affiche le dialog
+  // Stop → insère la piste brute immédiatement
   const handleToggleRecording = useCallback(async () => {
     if (isRecording) {
       const blob = await stopRecording();
@@ -234,26 +145,16 @@ export function AudioEditorPage() {
         hour: '2-digit', minute: '2-digit',
       }).replace(':', 'h')}`;
 
-      pendingBlobRef.current = { blob, name };
-      setShowNormalizeDialog(true);
+      addRecordedTrack(blob, name);
     } else {
       await startRecording();
     }
-  }, [isRecording, startRecording, stopRecording]);
+  }, [isRecording, startRecording, stopRecording, addRecordedTrack]);
 
+  // Normalise la piste active via le store de l'éditeur
   const handleNormalize = useCallback(() => {
-    setShowNormalizeDialog(false);
-    if (pendingBlobRef.current) {
-      addRecordedTrack(pendingBlobRef.current.blob, pendingBlobRef.current.name, true);
-    }
-  }, [addRecordedTrack]);
-
-  const handleSkipNormalize = useCallback(() => {
-    setShowNormalizeDialog(false);
-    if (pendingBlobRef.current) {
-      addRecordedTrack(pendingBlobRef.current.blob, pendingBlobRef.current.name, false);
-    }
-  }, [addRecordedTrack]);
+    editorRef.current?.normalize();
+  }, []);
 
   // tRPC
   const utils = trpc.useUtils();
@@ -498,6 +399,19 @@ export function AudioEditorPage() {
             )}
           </Button>
 
+          {!isRecording && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleNormalize}
+              title="Normaliser la piste active (−16 LUFS)"
+              className="border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white"
+            >
+              <Wand2 className="h-4 w-4 mr-2" />
+              Normaliser
+            </Button>
+          )}
+
           <Button
             variant="outline"
             size="sm"
@@ -528,14 +442,6 @@ export function AudioEditorPage() {
           className="h-full"
         />
       </div>
-
-      {/* Dialog normalisation */}
-      {showNormalizeDialog && (
-        <NormalizeDialog
-          onNormalize={handleNormalize}
-          onSkip={handleSkipNormalize}
-        />
-      )}
 
       {/* Media Picker */}
       <MediaPickerDialog
