@@ -252,6 +252,79 @@ export const mediaRouter = router({
       });
     }),
 
+  // Sauvegarde d'un audio monté depuis le nouvel éditeur audio (port Tanguy).
+  // mode 'new'     → crée un nouveau MediaItem (l'original est conservé).
+  // mode 'replace' → écrase l'audio d'un MediaItem existant (re-montage).
+  // Les repères de montage sont persistés dans waveformData.markers.
+  // (distinct de l'ancienne saveEditedAudio base64 de l'éditeur AudioMass.)
+  saveMontage: protectedProcedure
+    .input(
+      z.object({
+        mode: z.enum(['new', 'replace']),
+        mediaId: z.string().optional(),
+        title: z.string(),
+        s3Key: z.string(),
+        s3Url: z.string(),
+        fileSize: z.number(),
+        duration: z.number(),
+        mimeType: z.string().default('audio/mpeg'),
+        markers: z.array(z.number()).optional(),
+        tags: z.array(z.string()).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const newWaveform =
+        input.markers && input.markers.length > 0 ? { markers: input.markers } : undefined;
+
+      if (input.mode === 'replace') {
+        if (!input.mediaId) {
+          throw new Error('mediaId requis pour remplacer un média existant');
+        }
+        // Contrôle d'appartenance à l'organisation avant tout écrasement.
+        const existing = await ctx.db.mediaItem.findFirst({
+          where: { id: input.mediaId, organizationId: ctx.organizationId! },
+        });
+        if (!existing) {
+          throw new Error('Média introuvable');
+        }
+        // Conserve les repères existants si aucun nouveau n'est fourni.
+        const existingWaveform = existing.waveformData as { markers?: number[] } | null;
+        const mergedWaveform =
+          newWaveform ??
+          (existingWaveform?.markers ? { markers: existingWaveform.markers } : undefined);
+        return ctx.db.mediaItem.update({
+          where: { id: input.mediaId },
+          data: {
+            title: input.title,
+            type: 'AUDIO',
+            mimeType: input.mimeType,
+            fileSize: input.fileSize,
+            duration: Math.round(input.duration),
+            s3Key: input.s3Key,
+            s3Url: input.s3Url,
+            ...(mergedWaveform ? { waveformData: mergedWaveform } : {}),
+          },
+        });
+      }
+
+      // mode 'new'
+      return ctx.db.mediaItem.create({
+        data: {
+          title: input.title,
+          type: 'AUDIO',
+          mimeType: input.mimeType,
+          fileSize: input.fileSize,
+          duration: Math.round(input.duration),
+          s3Key: input.s3Key,
+          s3Url: input.s3Url,
+          tags: input.tags ?? ['montage'],
+          uploadedById: ctx.userId!,
+          organizationId: ctx.organizationId!,
+          ...(newWaveform ? { waveformData: newWaveform } : {}),
+        },
+      });
+    }),
+
   // Update media item
   update: protectedProcedure
     .input(

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { formatDistanceToNow } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import {
@@ -87,6 +88,7 @@ const TRANSCRIBABLE_MIME_TYPES = [
 
 export function MediaDetails({ mediaId, onClose, onDelete }: MediaDetailsProps) {
   const { data: media, isLoading, refetch } = trpc.media.get.useQuery({ id: mediaId });
+  const router = useRouter();
   const utils = trpc.useUtils();
 
   const [title, setTitle] = useState('');
@@ -317,7 +319,7 @@ export function MediaDetails({ mediaId, onClose, onDelete }: MediaDetailsProps) 
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setIsEditorOpen(true)}
+                onClick={() => router.push(`/audio-editor?media=${mediaId}`)}
                 className="w-full"
               >
                 <Wand2 className="h-4 w-4 mr-2" />
