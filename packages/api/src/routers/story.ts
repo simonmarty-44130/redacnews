@@ -23,11 +23,13 @@ export const storyRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      // Si un statut spécifique est demandé, on filtre dessus
-      // Sinon, on exclut les archivés par défaut
+      // Statut explicite → on filtre dessus. Sinon : recherche → on inclut les
+      // archivés (retrouvables via recherche/IA) ; liste normale → on les exclut.
       const statusFilter = input.status
         ? { status: input.status }
-        : { status: { not: 'ARCHIVED' as const } };
+        : input.search
+          ? {}
+          : { status: { not: 'ARCHIVED' as const } };
 
       return ctx.db.story.findMany({
         where: {

@@ -91,6 +91,9 @@ export const mediaRouter = router({
       const mediaItems = await ctx.db.mediaItem.findMany({
         where: {
           organizationId: ctx.organizationId!,
+          // Les médias archivés sont cachés des listes par défaut ; on les
+          // inclut uniquement lors d'une recherche (et via l'IA). cf. archivage.
+          ...(input.search ? {} : { archived: false }),
           ...(input.type && { type: input.type }),
           ...(input.collectionId && {
             collections: {
@@ -321,6 +324,26 @@ export const mediaRouter = router({
           uploadedById: ctx.userId!,
           organizationId: ctx.organizationId!,
           ...(newWaveform ? { waveformData: newWaveform } : {}),
+        },
+      });
+    }),
+
+  // Archiver / désarchiver un média.
+  // Les archivés disparaissent des listes par défaut mais restent trouvables
+  // via la recherche et l'assistant IA.
+  setArchived: protectedProcedure
+    .input(z.object({ id: z.string(), archived: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.db.mediaItem.findFirst({
+        where: { id: input.id, organizationId: ctx.organizationId! },
+        select: { id: true },
+      });
+      if (!existing) throw new Error('Média introuvable');
+      return ctx.db.mediaItem.update({
+        where: { id: input.id },
+        data: {
+          archived: input.archived,
+          archivedAt: input.archived ? new Date() : null,
         },
       });
     }),
