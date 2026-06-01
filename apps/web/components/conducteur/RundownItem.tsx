@@ -41,6 +41,7 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { LinkRundownDialog } from './LinkRundownDialog';
+import { DirectItemEditor } from './DirectItemEditor';
 import { trpc } from '@/lib/trpc/client';
 import { toast } from 'sonner';
 
@@ -269,15 +270,15 @@ export function RundownItem({
     }
   };
 
+  // Éditeur direct in-app (iframe Google Doc + chrono de lecture live)
+  const [showDirectEditor, setShowDirectEditor] = useState(false);
+
   // Mutation pour creer un Google Doc pour l'item
   const createItemDoc = trpc.rundown.createItemDoc.useMutation({
-    onSuccess: (data) => {
-      // Ouvrir le Google Doc cree dans un nouvel onglet
-      if (data.googleDocUrl) {
-        window.open(data.googleDocUrl, '_blank');
-      }
-      // Rafraichir les donnees
+    onSuccess: () => {
+      // Rafraichir les donnees puis ouvrir l'éditeur in-app (l'item a maintenant son googleDocId)
       utils.rundown.get.invalidate();
+      setShowDirectEditor(true);
     },
     onError: () => {
       toast.error('Erreur lors de la creation du document');
@@ -300,11 +301,11 @@ export function RundownItem({
 
   // Handler pour ouvrir ou creer le script
   const handleOpenScript = () => {
-    if (item.googleDocUrl) {
-      // Google Doc existe → l'ouvrir directement
-      window.open(item.googleDocUrl, '_blank');
+    if (item.googleDocId) {
+      // Google Doc existe → éditeur in-app (iframe + chrono de lecture live)
+      setShowDirectEditor(true);
     } else {
-      // Pas de Google Doc → le creer puis l'ouvrir
+      // Pas de Google Doc → le creer puis ouvrir l'éditeur
       createItemDoc.mutate({
         itemId: item.id,
         initialContent: item.script || item.story?.content || '',
@@ -605,6 +606,21 @@ export function RundownItem({
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
+      )}
+
+      {/* Éditeur direct in-app (iframe Google Doc + chrono de lecture live) */}
+      {showDirectEditor && item.googleDocId && (
+        <DirectItemEditor
+          itemId={item.id}
+          title={item.title}
+          docId={item.googleDocId}
+          docUrl={item.googleDocUrl}
+          initialDuration={item.duration}
+          onClose={() => {
+            setShowDirectEditor(false);
+            utils.rundown.get.invalidate();
+          }}
+        />
       )}
 
       {/* Link rundown button */}
