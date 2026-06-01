@@ -550,6 +550,7 @@ export const rundownRouter = router({
                   title: true,
                   content: true,
                   estimatedDuration: true,
+                  googleDocId: true,
                 },
               },
               media: {
@@ -576,6 +577,7 @@ export const rundownRouter = router({
                       story: {
                         select: {
                           content: true,
+                          googleDocId: true,
                         },
                       },
                       media: {
@@ -622,6 +624,51 @@ export const rundownRouter = router({
       // 3. Generer le nouveau script
       try {
         const { createRundownScript } = await import('../lib/google/rundown-script');
+        const { getDocContentWithFormatting, getDocContent, removeMarkers } = await import(
+          '../lib/google/docs'
+        );
+
+        // Calcule le texte que le PRÉSENTATEUR doit lire, injecté dans item.script
+        // (prioritaire sur story.content côté builder) :
+        //  - Sujet (Google Doc story) → SEUL le texte en gras (lancement/pied).
+        //    Le reportage (voix du journaliste, déjà dans le report) est exclu.
+        //    Fallback : si aucun gras, on reprend tout le texte (sécurité).
+        //  - Élément direct (Google Doc d'item, sans sujet) → TOUT le texte est lu,
+        //    hors marqueurs techniques entre crochets [JINGLE], [SON]…
+        const computePresenterText = async (it: {
+          id: string;
+          googleDocId?: string | null;
+          story?: { googleDocId?: string | null } | null;
+        }): Promise<string | null> => {
+          try {
+            if (it.story?.googleDocId) {
+              const { fullText, boldText, hasBoldText } = await getDocContentWithFormatting(
+                it.story.googleDocId
+              );
+              const t = (hasBoldText ? boldText : fullText).trim();
+              return t || null;
+            }
+            if (it.googleDocId) {
+              const full = await getDocContent(it.googleDocId);
+              const t = removeMarkers(full).trim();
+              return t || null;
+            }
+          } catch (err) {
+            console.error('[generateScript] presenterText KO pour item', it.id, err);
+          }
+          return null;
+        };
+
+        for (const it of rundown.items) {
+          const pt = await computePresenterText(it);
+          if (pt) (it as { script: string | null }).script = pt;
+          if (it.linkedRundown?.items) {
+            for (const li of it.linkedRundown.items) {
+              const lpt = await computePresenterText(li);
+              if (lpt) (li as { script: string | null }).script = lpt;
+            }
+          }
+        }
 
         const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
         const doc = await createRundownScript(rundown, folderId);
@@ -1483,42 +1530,53 @@ export const rundownRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN' });
       }
 
-      if (!item.story?.googleDocId) {
-        throw new TRPCError({
-          code: 'BAD_REQUEST',
-          message: "Cet element n'a pas de Google Doc lie",
+      // Cas 1 : item lié à un SUJET → mode selon la catégorie du Show
+      // (news = gras seul lancement/pied ; animation = tout hors marqueurs).
+      if (item.story?.googleDocId) {
+        const durationMode = getDurationModeFromCategory(item.rundown.show.category);
+        const { duration, wordCount, usedBoldOnly, mode } = await estimateDocReadingDurationByMode(
+          item.story.googleDocId,
+          durationMode
+        );
+        await ctx.db.story.update({
+          where: { id: item.story.id },
+          data: { estimatedDuration: duration },
         });
+        const updatedItem = await ctx.db.rundownItem.update({
+          where: { id: item.id },
+          data: { duration },
+          include: { story: true },
+        });
+        return { item: updatedItem, duration, wordCount, usedBoldOnly, durationMode: mode };
       }
 
-      // Determiner le mode de calcul en fonction de la categorie du Show
-      const durationMode = getDurationModeFromCategory(item.rundown.show.category);
+      // Cas 2 : ÉLÉMENT DIRECT (Google Doc propre à l'item, sans sujet) →
+      // tout est lu par le présentateur (mode animation : tout le texte hors
+      // marqueurs techniques entre crochets).
+      if (item.googleDocId) {
+        const { getDocContent, removeMarkers } = await import('../lib/google/docs');
+        const { duration, wordCount, mode } = await estimateDocReadingDurationByMode(
+          item.googleDocId,
+          'animation'
+        );
+        // Backup du texte (prompteur + conduite) sans les marqueurs.
+        let script: string | null = null;
+        try {
+          script = removeMarkers(await getDocContent(item.googleDocId)).trim() || null;
+        } catch {
+          // backup non bloquant
+        }
+        const updatedItem = await ctx.db.rundownItem.update({
+          where: { id: item.id },
+          data: { duration, ...(script ? { script } : {}) },
+          include: { story: true },
+        });
+        return { item: updatedItem, duration, wordCount, usedBoldOnly: false, durationMode: mode };
+      }
 
-      const { duration, wordCount, usedBoldOnly, mode } = await estimateDocReadingDurationByMode(
-        item.story.googleDocId,
-        durationMode
-      );
-
-      // Mettre a jour la duree estimee du sujet
-      await ctx.db.story.update({
-        where: { id: item.story.id },
-        data: { estimatedDuration: duration },
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: "Cet element n'a pas de Google Doc lie",
       });
-
-      // Mettre a jour la duree de l'item
-      const updatedItem = await ctx.db.rundownItem.update({
-        where: { id: item.id },
-        data: { duration },
-        include: {
-          story: true,
-        },
-      });
-
-      return {
-        item: updatedItem,
-        duration,
-        wordCount,
-        usedBoldOnly,
-        durationMode: mode,
-      };
     }),
 });

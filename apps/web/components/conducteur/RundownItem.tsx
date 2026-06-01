@@ -23,6 +23,7 @@ import {
   Loader2,
   Check,
   X,
+  Timer,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -281,6 +282,20 @@ export function RundownItem({
     onError: () => {
       toast.error('Erreur lors de la creation du document');
     },
+  });
+
+  // Estime la durée de lecture depuis le Google Doc de l'élément direct
+  // (tout le texte est lu, hors marqueurs entre crochets).
+  const syncItemDoc = trpc.rundown.syncItemFromGoogleDoc.useMutation({
+    onSuccess: (data) => {
+      const mins = Math.floor(data.duration / 60);
+      const secs = data.duration % 60;
+      toast.success(
+        `Durée de lecture estimée : ${mins}:${secs.toString().padStart(2, '0')} (${data.wordCount} mots)`
+      );
+      utils.rundown.get.invalidate();
+    },
+    onError: (e) => toast.error(e.message || 'Estimation impossible'),
   });
 
   // Handler pour ouvrir ou creer le script
@@ -565,6 +580,32 @@ export function RundownItem({
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
+
+      {/* Estimer la durée de lecture (élément direct avec Google Doc) */}
+      {item.googleDocId && !item.storyId && (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => syncItemDoc.mutate({ itemId: item.id })}
+                disabled={syncItemDoc.isPending}
+                className="h-8 w-8 text-amber-600"
+              >
+                {syncItemDoc.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Timer className="h-4 w-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Estimer la durée de lecture depuis le texte</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
 
       {/* Link rundown button */}
       <LinkRundownDialog
