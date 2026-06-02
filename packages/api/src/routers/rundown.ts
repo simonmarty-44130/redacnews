@@ -551,6 +551,21 @@ export const rundownRouter = router({
                   content: true,
                   estimatedDuration: true,
                   googleDocId: true,
+                  // Sons attachés au SUJET → encart SON entre lancement et pied
+                  media: {
+                    include: {
+                      mediaItem: {
+                        select: {
+                          id: true,
+                          title: true,
+                          type: true,
+                          duration: true,
+                          transcription: true,
+                        },
+                      },
+                    },
+                    orderBy: { position: 'asc' },
+                  },
                 },
               },
               media: {

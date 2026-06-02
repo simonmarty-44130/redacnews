@@ -59,6 +59,15 @@ export interface RundownWithItems {
       title: string;
       content: string | null;
       estimatedDuration: number | null;
+      media?: Array<{
+        mediaItem: {
+          id: string;
+          title: string;
+          type: string;
+          duration: number | null;
+          transcription: string | null;
+        };
+      }>;
     } | null;
     media: Array<{
       mediaItem: {
@@ -377,9 +386,14 @@ function buildScriptContent(rundown: RundownWithItems): docs_v1.Schema$Request[]
         }
 
         // Encart SON coloré ENTRE lancement et pied (le reportage qui passe à l'antenne).
-        if (item.media.length > 0) {
-          for (const media of item.media) {
-            const mediaText = buildMediaBoxText(media.mediaItem);
+        // Source : sons attachés au SUJET (story.media) en priorité, sinon média de l'item.
+        const sons =
+          item.story?.media && item.story.media.length > 0
+            ? item.story.media.map((m) => m.mediaItem)
+            : item.media.map((m) => m.mediaItem);
+        if (sons.length > 0) {
+          for (const son of sons) {
+            const mediaText = buildMediaBoxText(son);
             const ms = fullText.length + 1;
             fullText += mediaText;
             formatRanges.push({ start: ms, end: ms + mediaText.length - 1, type: 'mediaBox' });
