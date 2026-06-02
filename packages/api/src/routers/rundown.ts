@@ -624,49 +624,54 @@ export const rundownRouter = router({
       // 3. Generer le nouveau script
       try {
         const { createRundownScript } = await import('../lib/google/rundown-script');
-        const { getDocContentWithFormatting, getDocContent, removeMarkers } = await import(
-          '../lib/google/docs'
-        );
+        const { getDocContentWithFormatting, getDocContent, removeMarkers, getDocBoldSegments } =
+          await import('../lib/google/docs');
 
-        // Calcule le texte que le PRÉSENTATEUR doit lire, injecté dans item.script
-        // (prioritaire sur story.content côté builder) :
-        //  - Sujet (Google Doc story) → SEUL le texte en gras (lancement/pied).
-        //    Le reportage (voix du journaliste, déjà dans le report) est exclu.
-        //    Fallback : si aucun gras, on reprend tout le texte (sécurité).
-        //  - Élément direct (Google Doc d'item, sans sujet) → TOUT le texte est lu,
-        //    hors marqueurs techniques entre crochets [JINGLE], [SON]…
-        const computePresenterText = async (it: {
+        // Prépare le texte que le PRÉSENTATEUR doit lire, injecté dans l'item :
+        //  - Sujet (Google Doc story) → SEGMENTS en gras. ≥2 segments → lancement =
+        //    1er bloc, pied = reste ; le builder insérera l'encart SON (couleur) ENTRE
+        //    les deux. 1 seul segment → script = ce gras. Aucun gras → texte complet.
+        //    (Le reportage non gras = voix du journaliste, déjà dans le report → exclu.)
+        //  - Élément direct (Google Doc d'item, sans sujet) → TOUT le texte, hors
+        //    marqueurs techniques entre crochets [JINGLE], [SON]…
+        const fillPresenter = async (it: {
           id: string;
           googleDocId?: string | null;
           story?: { googleDocId?: string | null } | null;
-        }): Promise<string | null> => {
+          script?: string | null;
+          lancement?: string | null;
+          pied?: string | null;
+        }): Promise<void> => {
           try {
             if (it.story?.googleDocId) {
-              const { fullText, boldText, hasBoldText } = await getDocContentWithFormatting(
-                it.story.googleDocId
-              );
-              const t = (hasBoldText ? boldText : fullText).trim();
-              return t || null;
+              const segments = await getDocBoldSegments(it.story.googleDocId);
+              if (segments.length >= 2) {
+                it.lancement = segments[0];
+                it.pied = segments.slice(1).join('\n\n');
+                // Fallback (conducteurs liés qui n'exploitent pas lancement/pied + sécurité)
+                it.script = segments.join('\n\n');
+              } else if (segments.length === 1) {
+                it.script = segments[0];
+              } else {
+                const { fullText } = await getDocContentWithFormatting(it.story.googleDocId);
+                if (fullText.trim()) it.script = fullText.trim();
+              }
+              return;
             }
             if (it.googleDocId) {
               const full = await getDocContent(it.googleDocId);
               const t = removeMarkers(full).trim();
-              return t || null;
+              if (t) it.script = t;
             }
           } catch (err) {
-            console.error('[generateScript] presenterText KO pour item', it.id, err);
+            console.error('[generateScript] presenter KO pour item', it.id, err);
           }
-          return null;
         };
 
         for (const it of rundown.items) {
-          const pt = await computePresenterText(it);
-          if (pt) (it as { script: string | null }).script = pt;
+          await fillPresenter(it);
           if (it.linkedRundown?.items) {
-            for (const li of it.linkedRundown.items) {
-              const lpt = await computePresenterText(li);
-              if (lpt) (li as { script: string | null }).script = lpt;
-            }
+            for (const li of it.linkedRundown.items) await fillPresenter(li);
           }
         }
 

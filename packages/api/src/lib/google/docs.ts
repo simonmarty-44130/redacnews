@@ -158,6 +158,41 @@ export async function getDocContentWithFormatting(docId: string): Promise<{
 }
 
 /**
+ * Récupère les SEGMENTS de texte en gras d'un Google Doc, dans l'ordre.
+ * Un segment = un bloc de gras contigu, séparé des autres par du texte NON gras
+ * significatif (non vide). Sur un sujet radio : typiquement [lancement, pied],
+ * le reportage (voix du journaliste, non gras) entre les deux servant de césure.
+ * Les retours à la ligne / espaces non gras ne coupent PAS un segment.
+ */
+export async function getDocBoldSegments(docId: string): Promise<string[]> {
+  const docs = getDocs();
+  const doc = await docs.documents.get({ documentId: docId });
+
+  const segments: string[] = [];
+  let current = '';
+
+  doc.data.body?.content?.forEach((element) => {
+    if (element.paragraph?.elements) {
+      element.paragraph.elements.forEach((e) => {
+        const content = e.textRun?.content;
+        if (!content) return;
+        if (e.textRun?.textStyle?.bold) {
+          current += content;
+        } else if (content.trim().length > 0) {
+          // Texte non gras significatif → fin du segment gras courant.
+          if (current.trim().length > 0) segments.push(current.trim());
+          current = '';
+        }
+        // Non gras mais vide (saut de ligne entre 2 runs gras) → on n'interrompt pas.
+      });
+    }
+  });
+  if (current.trim().length > 0) segments.push(current.trim());
+
+  return segments;
+}
+
+/**
  * Estimates reading duration based on Google Doc content
  * If bold text exists (lancement/pied), only count that for the presenter
  * Otherwise count all text

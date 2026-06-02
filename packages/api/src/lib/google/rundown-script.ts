@@ -51,6 +51,10 @@ export interface RundownWithItems {
     position: number;
     notes: string | null;
     script: string | null; // Texte a lire (prioritaire sur story.content)
+    // Sujet radio : lancement (lu avant le son) et pied (lu après). Si renseignés,
+    // le builder insère l'encart SON coloré ENTRE les deux.
+    lancement?: string | null;
+    pied?: string | null;
     story: {
       title: string;
       content: string | null;
@@ -345,8 +349,57 @@ function buildScriptContent(rundown: RundownWithItems): docs_v1.Schema$Request[]
       // === ELEMENT STANDARD ===
       // Priorite: script > story.content
       const textContent = item.script || item.story?.content;
+      const hasSplit =
+        Boolean(item.lancement && item.lancement.trim()) ||
+        Boolean(item.pied && item.pied.trim());
 
-      if (textContent) {
+      if (hasSplit) {
+        // === SUJET AVEC LANCEMENT / PIED SÉPARÉS ===
+        // Sécurité antenne : on intercale l'encart SON entre le lancement et le
+        // pied pour que le présentateur ne lise pas le pied en croyant lancer.
+        const sepS = `${'_'.repeat(60)}\n`;
+        fullText += sepS;
+        const headerTextS = `${timeStr} | ${item.title.toUpperCase()}    [${durationStr}]\n\n`;
+        const headerStartS = fullText.length + 1;
+        fullText += headerTextS;
+        formatRanges.push({
+          start: headerStartS,
+          end: headerStartS + headerTextS.length,
+          type: 'itemHeader',
+        });
+
+        // Lancement (lu par le présentateur)
+        if (item.lancement && item.lancement.trim()) {
+          const lanc = cleanContent(item.lancement) + '\n\n';
+          const ls = fullText.length + 1;
+          fullText += lanc;
+          formatRanges.push({ start: ls, end: ls + lanc.length, type: 'body' });
+        }
+
+        // Encart SON coloré ENTRE lancement et pied (le reportage qui passe à l'antenne).
+        if (item.media.length > 0) {
+          for (const media of item.media) {
+            const mediaText = buildMediaBoxText(media.mediaItem);
+            const ms = fullText.length + 1;
+            fullText += mediaText;
+            formatRanges.push({ start: ms, end: ms + mediaText.length - 1, type: 'mediaBox' });
+          }
+        } else {
+          // Aucun son attaché → césure générique pour ne pas coller lancement/pied.
+          const repText = `\n>>> REPORTAGE <<<\n\n`;
+          const rs = fullText.length + 1;
+          fullText += repText;
+          formatRanges.push({ start: rs, end: rs + repText.length - 1, type: 'mediaBox' });
+        }
+
+        // Pied (lu par le présentateur, APRÈS le son)
+        if (item.pied && item.pied.trim()) {
+          const pd = cleanContent(item.pied) + '\n\n';
+          const ps = fullText.length + 1;
+          fullText += pd;
+          formatRanges.push({ start: ps, end: ps + pd.length, type: 'body' });
+        }
+      } else if (textContent) {
         // === ELEMENT AVEC TEXTE A LIRE ===
 
         // Ligne separatrice
