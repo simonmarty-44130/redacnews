@@ -46,6 +46,17 @@ export function useSelectionSync(peaks: PeaksInstance | null): void {
       view.setSegmentDragMode('no-overlap')
     }
 
+    // Redessine la sélection mémorisée après une ré-init de peaks (ex. après un
+    // gain sur sélection qui conserve la zone) pour qu'elle reste visible.
+    const { selectionIn, selectionOut } = useAudioEditorStore.getState()
+    if (
+      selectionIn != null &&
+      selectionOut != null &&
+      Math.abs(selectionOut - selectionIn) > 0.005
+    ) {
+      applySelectionSegment(peaks, selectionIn, selectionOut)
+    }
+
     const onInsert = (e: { segment: Segment }) => {
       const seg = e.segment
       peaks.segments.getSegments().forEach((s) => {

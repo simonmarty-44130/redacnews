@@ -11,7 +11,7 @@ import { cutAudioBuffer } from '../audio/cut'
 import { normalizeRMS } from '../audio/normalize'
 import { compressAudioBuffer } from '../audio/compress'
 import { limiterMaximize } from '../audio/limiter'
-import { applyGainDb } from '../audio/gain'
+import { applyGainDb, applyGainDbRegion } from '../audio/gain'
 import { applyFadeIn, applyFadeOut } from '../audio/fades'
 import { audioBufferToWav } from '../audio/wav'
 import { exportAudio, downloadBlob } from '../audio/export'
@@ -104,8 +104,20 @@ export function useAudioEditing(): AudioEditingApi {
   const gain = useCallback((db: number) => {
     const state = useAudioEditorStore.getState()
     if (!state.audioBuffer || db === 0) return
-    const next = applyGainDb(state.audioBuffer, db)
+    // Si une sélection est en place → on n'applique le gain qu'à la sélection,
+    // sinon à tout le buffer.
+    const { selectionIn, selectionOut } = state
+    const hasSelection =
+      selectionIn != null && selectionOut != null && Math.abs(selectionOut - selectionIn) > 0.005
+    const next = hasSelection
+      ? applyGainDbRegion(state.audioBuffer, db, selectionIn!, selectionOut!)
+      : applyGainDb(state.audioBuffer, db)
     state.applyEdit(next, makeUrl(next))
+    // Le gain ne change pas la longueur → on conserve la sélection pour pouvoir
+    // empiler +1/+1 sur la même zone (applyEdit l'avait remise à zéro).
+    if (hasSelection) {
+      useAudioEditorStore.getState().setSelection(selectionIn!, selectionOut!)
+    }
   }, [makeUrl])
 
   const limiter = useCallback(async () => {
