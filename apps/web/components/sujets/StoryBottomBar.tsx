@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Music, Tag, Layers, Vote, Calendar } from 'lucide-react';
+import { Music, Tag, Layers, Vote, Calendar, Trash2 } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -82,6 +82,18 @@ export function StoryBottomBar({
   const audioCount = storyMedia?.filter(
     (m) => m.mediaItem.type === 'AUDIO'
   ).length || 0;
+
+  // Retrait d'un son attaché au sujet
+  const utils = trpc.useUtils();
+  const unlinkMedia = trpc.storyMedia.unlink.useMutation({
+    onSuccess: () => {
+      utils.storyMedia.listByStory.invalidate({ storyId });
+      utils.story.get.invalidate({ id: storyId });
+    },
+  });
+
+  const fmtDuration = (s: number) =>
+    `${Math.floor(s / 60)}:${Math.round(s % 60).toString().padStart(2, '0')}`;
 
   const handleMontage = () => {
     router.push(`/audio-editor?story=${storyId}`);
@@ -181,12 +193,55 @@ export function StoryBottomBar({
 
       {/* Right: Media & Pluralism */}
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 text-sm text-gray-600">
-          <Music className="h-4 w-4" />
-          <span>
-            {mediaCount} media{mediaCount !== 1 ? 's' : ''}
-          </span>
-        </div>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="sm" className="h-8 gap-2 text-gray-600">
+              <Music className="h-4 w-4" />
+              <span>
+                {mediaCount} media{mediaCount !== 1 ? 's' : ''}
+              </span>
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80 p-2" align="end">
+            <div className="px-2 py-1.5 text-xs font-medium text-gray-500">
+              Sons attaches au sujet
+            </div>
+            {!storyMedia || storyMedia.length === 0 ? (
+              <div className="px-2 py-3 text-sm text-gray-400">Aucun son attache</div>
+            ) : (
+              <ul className="max-h-72 space-y-1 overflow-auto">
+                {storyMedia.map((m) => (
+                  <li
+                    key={m.id}
+                    className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-gray-50"
+                  >
+                    <Music className="h-4 w-4 shrink-0 text-gray-400" />
+                    <span className="flex-1 truncate text-sm" title={m.mediaItem.title}>
+                      {m.mediaItem.title}
+                    </span>
+                    {m.mediaItem.duration != null && (
+                      <span className="shrink-0 text-xs tabular-nums text-gray-400">
+                        {fmtDuration(m.mediaItem.duration)}
+                      </span>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0 text-red-500 hover:bg-red-50 hover:text-red-700"
+                      onClick={() =>
+                        unlinkMedia.mutate({ storyId, mediaItemId: m.mediaItemId })
+                      }
+                      disabled={unlinkMedia.isPending}
+                      title="Retirer ce son du sujet"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </PopoverContent>
+        </Popover>
 
         {/* Mount audio button */}
         {audioCount > 0 && (
