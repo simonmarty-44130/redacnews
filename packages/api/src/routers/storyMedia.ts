@@ -3,6 +3,10 @@ import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { router, protectedProcedure } from '../trpc';
 import { awsConfig, s3Config } from '../lib/aws-config';
+import {
+  assertStoryInOrg,
+  assertMediaItemInOrg,
+} from '../lib/tenant-guard';
 
 const s3Client = new S3Client({
   region: awsConfig.region,
@@ -28,6 +32,8 @@ export const storyMediaRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { storyId, mediaItemId, ...data } = input;
+      await assertStoryInOrg(ctx.db, storyId, ctx.organizationId);
+      await assertMediaItemInOrg(ctx.db, mediaItemId, ctx.organizationId);
 
       // Recuperer la derniere position
       const lastItem = await ctx.db.storyMedia.findFirst({
@@ -64,6 +70,7 @@ export const storyMediaRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertStoryInOrg(ctx.db, input.storyId, ctx.organizationId);
       await ctx.db.storyMedia.delete({
         where: {
           storyId_mediaItemId: {
@@ -100,6 +107,7 @@ export const storyMediaRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { storyId, mediaItemId, ...data } = input;
+      await assertStoryInOrg(ctx.db, storyId, ctx.organizationId);
 
       return ctx.db.storyMedia.update({
         where: {
@@ -119,6 +127,7 @@ export const storyMediaRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertStoryInOrg(ctx.db, input.storyId, ctx.organizationId);
       const updates = input.mediaItemIds.map((mediaItemId, index) =>
         ctx.db.storyMedia.update({
           where: {
@@ -139,6 +148,7 @@ export const storyMediaRouter = router({
   listByStory: protectedProcedure
     .input(z.object({ storyId: z.string() }))
     .query(async ({ ctx, input }) => {
+      await assertStoryInOrg(ctx.db, input.storyId, ctx.organizationId);
       const storyMediaItems = await ctx.db.storyMedia.findMany({
         where: { storyId: input.storyId },
         include: {
@@ -177,6 +187,7 @@ export const storyMediaRouter = router({
   listByMedia: protectedProcedure
     .input(z.object({ mediaItemId: z.string() }))
     .query(async ({ ctx, input }) => {
+      await assertMediaItemInOrg(ctx.db, input.mediaItemId, ctx.organizationId);
       const [storyUsages, rundownUsages] = await Promise.all([
         // Utilisations dans les sujets
         ctx.db.storyMedia.findMany({

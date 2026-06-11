@@ -2,6 +2,7 @@ import { initTRPC, TRPCError } from '@trpc/server';
 import superjson from 'superjson';
 import { ZodError } from 'zod';
 import { prisma } from '@redacnews/db';
+import { getAuthContext } from './auth';
 
 export interface Context {
   db: typeof prisma;
@@ -13,29 +14,17 @@ export interface Context {
 export const createTRPCContext = async (opts: {
   headers: Headers;
 }): Promise<Context> => {
-  // Extract cognitoId from headers (set by auth middleware on frontend)
-  const cognitoId = opts.headers.get('x-cognito-id');
-
-  let userId: string | null = null;
-  let organizationId: string | null = null;
-
-  // Lookup user in database by cognitoId
-  if (cognitoId) {
-    const user = await prisma.user.findUnique({
-      where: { cognitoId },
-      select: { id: true, organizationId: true },
-    });
-    if (user) {
-      userId = user.id;
-      organizationId = user.organizationId;
-    }
-  }
+  // SECURITE : l'identite est derivee d'un token Cognito VERIFIE cote serveur
+  // (en-tete `Authorization: Bearer <accessToken>`, repli cookie). On ne fait
+  // plus confiance a un en-tete `x-cognito-id` pose par le client, qui
+  // permettait d'usurper n'importe quel utilisateur / organisation.
+  const auth = await getAuthContext(opts.headers);
 
   return {
     db: prisma,
-    userId,
-    organizationId,
-    cognitoId,
+    userId: auth?.userId ?? null,
+    organizationId: auth?.organizationId ?? null,
+    cognitoId: auth?.cognitoId ?? null,
   };
 };
 

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
+import { assertStoryInOrg } from '../lib/tenant-guard';
 
 // Google Docs integration types
 interface GoogleDocResult {
@@ -56,6 +57,7 @@ export const storyRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
+      await assertStoryInOrg(ctx.db, input.id, ctx.organizationId);
       return ctx.db.story.findUniqueOrThrow({
         where: { id: input.id },
         include: {
@@ -121,6 +123,7 @@ export const storyRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertStoryInOrg(ctx.db, input.id, ctx.organizationId);
       const { id, ...data } = input;
       return ctx.db.story.update({
         where: { id },
@@ -233,6 +236,7 @@ export const storyRouter = router({
   syncGoogleDoc: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      await assertStoryInOrg(ctx.db, input.id, ctx.organizationId);
       const story = await ctx.db.story.findUniqueOrThrow({
         where: { id: input.id },
       });
@@ -279,6 +283,7 @@ export const storyRouter = router({
   addGoogleDoc: protectedProcedure
     .input(z.object({ storyId: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      await assertStoryInOrg(ctx.db, input.storyId, ctx.organizationId);
       // Get the story first
       const story = await ctx.db.story.findUniqueOrThrow({
         where: { id: input.storyId },
@@ -317,6 +322,7 @@ export const storyRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertStoryInOrg(ctx.db, input.storyId, ctx.organizationId);
       const url = input.googleDocUrl ||
         `https://docs.google.com/document/d/${input.googleDocId}/edit`;
 

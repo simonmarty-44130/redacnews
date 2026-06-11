@@ -503,6 +503,30 @@ export const montageRouter = router({
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
       }
 
+      // Verifier que les pistes et clips appartiennent bien a ce projet
+      // (sinon un attaquant pourrait muter les pistes/clips d'une autre org
+      // en fournissant son propre projectId valide + des ids etrangers)
+      const trackIds = input.tracks.map((t) => t.id);
+      const clipIds = input.clips.map((c) => c.id);
+      if (trackIds.length) {
+        const ownedTracks = await ctx.db.montageTrack.findMany({
+          where: { id: { in: trackIds }, projectId: input.projectId },
+          select: { id: true },
+        });
+        if (ownedTracks.length !== trackIds.length) {
+          throw new TRPCError({ code: 'NOT_FOUND' });
+        }
+      }
+      if (clipIds.length) {
+        const ownedClips = await ctx.db.montageClip.findMany({
+          where: { id: { in: clipIds }, track: { projectId: input.projectId } },
+          select: { id: true },
+        });
+        if (ownedClips.length !== clipIds.length) {
+          throw new TRPCError({ code: 'NOT_FOUND' });
+        }
+      }
+
       // Transaction pour tout mettre a jour
       const operations = [
         // Mettre a jour la duree du projet

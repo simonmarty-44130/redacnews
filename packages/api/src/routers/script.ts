@@ -3,6 +3,7 @@ import { router, protectedProcedure } from '../trpc';
 import { format, addSeconds } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { getRundownEndCues } from '../lib/script-utils';
+import { assertRundownInOrg } from '../lib/tenant-guard';
 
 // Types for the assembled script
 interface LinkedRundownItem {
@@ -22,7 +23,7 @@ interface LinkedRundownInfo {
   items: LinkedRundownItem[]; // Tous les items du conducteur imbrique
 }
 
-interface PrompterSection {
+export interface PrompterSection {
   id: string;
   time: string;
   title: string;
@@ -54,6 +55,7 @@ export const scriptRouter = router({
   getAssembled: protectedProcedure
     .input(z.object({ rundownId: z.string() }))
     .query(async ({ ctx, input }) => {
+      await assertRundownInOrg(ctx.db, input.rundownId, ctx.organizationId);
       const rundown = await ctx.db.rundown.findUniqueOrThrow({
         where: { id: input.rundownId },
         include: {
@@ -192,6 +194,7 @@ export const scriptRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertRundownInOrg(ctx.db, input.rundownId, ctx.organizationId);
       await ctx.db.rundown.update({
         where: { id: input.rundownId },
         data: { currentItemId: input.itemId },
@@ -203,6 +206,7 @@ export const scriptRouter = router({
   getPlainText: protectedProcedure
     .input(z.object({ rundownId: z.string() }))
     .query(async ({ ctx, input }) => {
+      await assertRundownInOrg(ctx.db, input.rundownId, ctx.organizationId);
       const rundown = await ctx.db.rundown.findUniqueOrThrow({
         where: { id: input.rundownId },
         include: {

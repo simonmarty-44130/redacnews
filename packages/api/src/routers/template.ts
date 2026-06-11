@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure } from '../trpc';
 import {
   replaceVariables,
@@ -6,6 +7,13 @@ import {
   validateVariables,
   type TemplateVariable,
 } from '../lib/template-utils';
+import {
+  assertTemplateInOrg,
+  assertTemplateItemInOrg,
+  assertShowInOrg,
+  assertRundownInOrg,
+  assertStoryInOrg,
+} from '../lib/tenant-guard';
 
 // Schema pour les variables de template
 const templateVariableSchema = z.object({
@@ -49,6 +57,8 @@ export const templateRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
+      await assertTemplateInOrg(ctx.db, input.id, ctx.organizationId);
+
       const template = await ctx.db.rundownTemplate.findUniqueOrThrow({
         where: { id: input.id },
         include: {
@@ -83,6 +93,8 @@ export const templateRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertShowInOrg(ctx.db, input.showId, ctx.organizationId);
+
       // Si ce template est défini comme default, retirer le flag des autres templates de cette émission
       if (input.isDefault) {
         await ctx.db.rundownTemplate.updateMany({
@@ -122,6 +134,8 @@ export const templateRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertTemplateInOrg(ctx.db, input.id, ctx.organizationId);
+
       const { id, ...data } = input;
 
       // Récupérer le template pour vérifier l'appartenance
@@ -176,6 +190,8 @@ export const templateRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertTemplateInOrg(ctx.db, input.templateId, ctx.organizationId);
+
       const { templateId, position, ...data } = input;
 
       // Si pas de position, ajouter à la fin
@@ -217,6 +233,8 @@ export const templateRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertTemplateItemInOrg(ctx.db, input.id, ctx.organizationId);
+
       const { id, ...data } = input;
       return ctx.db.rundownTemplateItem.update({
         where: { id },
@@ -228,6 +246,8 @@ export const templateRouter = router({
   deleteItem: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      await assertTemplateItemInOrg(ctx.db, input.id, ctx.organizationId);
+
       return ctx.db.rundownTemplateItem.delete({
         where: { id: input.id },
       });
@@ -242,6 +262,14 @@ export const templateRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertTemplateInOrg(ctx.db, input.templateId, ctx.organizationId);
+
+      const owned = await ctx.db.rundownTemplateItem.findMany({
+        where: { id: { in: input.itemIds }, templateId: input.templateId },
+        select: { id: true },
+      });
+      if (owned.length !== input.itemIds.length) throw new TRPCError({ code: 'NOT_FOUND' });
+
       const updates = input.itemIds.map((id, index) =>
         ctx.db.rundownTemplateItem.update({
           where: { id },
@@ -265,6 +293,8 @@ export const templateRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertTemplateInOrg(ctx.db, input.templateId, ctx.organizationId);
+
       // 1. Récupérer le template avec ses items et l'emission associée
       const template = await ctx.db.rundownTemplate.findUniqueOrThrow({
         where: { id: input.templateId },
@@ -335,6 +365,8 @@ export const templateRouter = router({
           const existingStoryId = existingStories[templateItem.id];
 
           if (existingStoryId) {
+            await assertStoryInOrg(ctx.db, existingStoryId, ctx.organizationId);
+
             // Utiliser le sujet existant
             const existingStory = await ctx.db.story.findUnique({
               where: { id: existingStoryId },
@@ -457,6 +489,8 @@ export const templateRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertRundownInOrg(ctx.db, input.rundownId, ctx.organizationId);
+
       // 1. Récupérer le conducteur avec ses items
       const rundown = await ctx.db.rundown.findUniqueOrThrow({
         where: { id: input.rundownId },
@@ -511,6 +545,8 @@ export const templateRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      await assertTemplateInOrg(ctx.db, input.id, ctx.organizationId);
+
       // Les items seront supprimés en cascade grâce à onDelete: Cascade
       return ctx.db.rundownTemplate.delete({
         where: { id: input.id },

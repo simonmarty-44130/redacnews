@@ -210,10 +210,14 @@ RédacNews - Le NRCS nouvelle génération pour les radios`;
         });
       }
 
-      await ctx.db.invitation.update({
-        where: { id: input.id },
+      const res = await ctx.db.invitation.updateMany({
+        where: { id: input.id, organizationId: ctx.organizationId! },
         data: { status: 'CANCELLED' },
       });
+
+      if (res.count === 0) {
+        throw new TRPCError({ code: 'NOT_FOUND' });
+      }
 
       return { success: true };
     }),
@@ -233,8 +237,8 @@ RédacNews - Le NRCS nouvelle génération pour les radios`;
         });
       }
 
-      const invitation = await ctx.db.invitation.findUnique({
-        where: { id: input.id },
+      const invitation = await ctx.db.invitation.findFirst({
+        where: { id: input.id, organizationId: ctx.organizationId! },
         include: { organization: true },
       });
 
@@ -313,6 +317,21 @@ RédacNews - Le NRCS nouvelle génération pour les radios`;
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message: 'Vous ne pouvez pas modifier votre propre rôle',
+        });
+      }
+
+      // Vérifier que le membre cible appartient bien à l'organisation
+      const target = await ctx.db.user.findFirst({
+        where: {
+          id: input.userId,
+          organizationId: ctx.organizationId!,
+        },
+      });
+
+      if (!target) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: 'Membre non trouvé',
         });
       }
 

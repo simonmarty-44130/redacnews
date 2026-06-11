@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { httpBatchLink } from '@trpc/client';
 import { useState } from 'react';
 import superjson from 'superjson';
-import { getCurrentUser } from 'aws-amplify/auth';
+import { fetchAuthSession } from 'aws-amplify/auth';
 import { trpc } from './client';
 
 // Ensure Amplify is configured before any auth calls
@@ -16,14 +16,15 @@ function getBaseUrl() {
   return `http://localhost:3000`;
 }
 
-// Get cognitoId (userId) from Amplify auth
-async function getCognitoId(): Promise<string | null> {
+// Recupere le token d'acces Cognito (JWT) a envoyer au serveur, qui le
+// verifiera cryptographiquement. On n'envoie plus le `sub` en clair : il etait
+// pose par le client et donc usurpable.
+async function getAccessToken(): Promise<string | null> {
   try {
-    const user = await getCurrentUser();
-    console.log('[tRPC] Got user from Amplify:', user.userId);
-    return user.userId; // This is the Cognito sub
+    const session = await fetchAuthSession();
+    return session.tokens?.accessToken?.toString() ?? null;
   } catch (error) {
-    console.log('[tRPC] Failed to get user from Amplify:', error);
+    console.log('[tRPC] Failed to get auth session from Amplify:', error);
     return null;
   }
 }
@@ -48,9 +49,9 @@ export function TRPCProvider({ children }: { children: React.ReactNode }) {
         httpBatchLink({
           url: `${getBaseUrl()}/api/trpc`,
           async headers() {
-            const cognitoId = await getCognitoId();
+            const accessToken = await getAccessToken();
             return {
-              ...(cognitoId && { 'x-cognito-id': cognitoId }),
+              ...(accessToken && { Authorization: `Bearer ${accessToken}` }),
             };
           },
         }),
