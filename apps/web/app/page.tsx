@@ -29,6 +29,10 @@ import {
   SujetsPreview,
   ScreenshotFrame,
 } from '@/components/marketing/AppPreviews';
+// Import statique → les images sont bundlées dans .next/static (servi par Amplify),
+// contrairement à public/ qui n'est pas exposé avec output: 'standalone'.
+import editeurAudioImg from '@/public/screenshots/editeur-audio.png';
+import prompteurImg from '@/public/screenshots/prompteur.png';
 
 export const metadata: Metadata = {
   title: 'RedacNews — La suite tout-en-un pour les rédactions radio',
@@ -218,7 +222,7 @@ export default function Home() {
             {/* Éditeur audio (pleine largeur) — vraie capture */}
             <div>
               <ScreenshotFrame
-                src="/screenshots/editeur-audio.png"
+                src={editeurAudioImg.src}
                 url="redacnews.link/audio-editor"
                 alt="Éditeur audio de RedacNews — montage, optimisation et export"
                 dark
@@ -247,7 +251,7 @@ export default function Home() {
             {/* Prompteur — vraie capture */}
             <div>
               <ScreenshotFrame
-                src="/screenshots/prompteur.png"
+                src={prompteurImg.src}
                 url="redacnews.link/prompteur"
                 alt="Prompteur de RedacNews — lecture à l'antenne"
                 dark
