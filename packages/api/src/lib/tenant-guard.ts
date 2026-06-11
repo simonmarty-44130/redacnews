@@ -58,3 +58,73 @@ export async function assertMediaItemInOrg(
   });
   if (!media || media.organizationId !== organizationId) denyNotFound();
 }
+
+/** Verifie qu'une emission (show) appartient a l'organisation. */
+export async function assertShowInOrg(
+  db: Db,
+  showId: string,
+  organizationId: string | null
+): Promise<void> {
+  if (!organizationId) denyNotFound();
+  const show = await db.show.findUnique({
+    where: { id: showId },
+    select: { organizationId: true },
+  });
+  if (!show || show.organizationId !== organizationId) denyNotFound();
+}
+
+/** Verifie qu'un item de conducteur appartient a l'organisation (via rundown->show). */
+export async function assertRundownItemInOrg(
+  db: Db,
+  rundownItemId: string,
+  organizationId: string | null
+): Promise<void> {
+  if (!organizationId) denyNotFound();
+  const item = await db.rundownItem.findUnique({
+    where: { id: rundownItemId },
+    select: { rundown: { select: { show: { select: { organizationId: true } } } } },
+  });
+  if (!item || item.rundown.show.organizationId !== organizationId) denyNotFound();
+}
+
+/** Verifie qu'un modele de conducteur (template) appartient a l'organisation. */
+export async function assertTemplateInOrg(
+  db: Db,
+  templateId: string,
+  organizationId: string | null
+): Promise<void> {
+  if (!organizationId) denyNotFound();
+  const template = await db.rundownTemplate.findUnique({
+    where: { id: templateId },
+    select: { organizationId: true },
+  });
+  if (!template || template.organizationId !== organizationId) denyNotFound();
+}
+
+/** Verifie qu'un item de template appartient a l'organisation (via template). */
+export async function assertTemplateItemInOrg(
+  db: Db,
+  templateItemId: string,
+  organizationId: string | null
+): Promise<void> {
+  if (!organizationId) denyNotFound();
+  const item = await db.rundownTemplateItem.findUnique({
+    where: { id: templateItemId },
+    select: { template: { select: { organizationId: true } } },
+  });
+  if (!item || item.template.organizationId !== organizationId) denyNotFound();
+}
+
+/** Verifie qu'une collection appartient a l'organisation. */
+export async function assertCollectionInOrg(
+  db: Db,
+  collectionId: string,
+  organizationId: string | null
+): Promise<void> {
+  if (!organizationId) denyNotFound();
+  const collection = await db.collection.findUnique({
+    where: { id: collectionId },
+    select: { organizationId: true },
+  });
+  if (!collection || collection.organizationId !== organizationId) denyNotFound();
+}

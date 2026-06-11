@@ -9,6 +9,7 @@ import {
 } from '@aws-sdk/client-transcribe';
 import { router, protectedProcedure } from '../trpc';
 import { awsConfig, s3Config, cloudfrontConfig } from '../lib/aws-config';
+import { assertMediaItemInOrg, assertCollectionInOrg } from '../lib/tenant-guard';
 
 // Transcription job name storage (in production, store in DB)
 const transcriptionJobs = new Map<string, string>(); // mediaItemId -> jobName
@@ -181,6 +182,7 @@ export const mediaRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
+      await assertMediaItemInOrg(ctx.db, input.id, ctx.organizationId);
       const mediaItem = await ctx.db.mediaItem.findUniqueOrThrow({
         where: { id: input.id },
         include: {
@@ -212,6 +214,7 @@ export const mediaRouter = router({
   getPresignedUrl: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
+      await assertMediaItemInOrg(ctx.db, input.id, ctx.organizationId);
       const mediaItem = await ctx.db.mediaItem.findUniqueOrThrow({
         where: { id: input.id },
       });
@@ -365,6 +368,7 @@ export const mediaRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertMediaItemInOrg(ctx.db, input.id, ctx.organizationId);
       const { id, ...data } = input;
       return ctx.db.mediaItem.update({
         where: { id },
@@ -376,6 +380,7 @@ export const mediaRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      await assertMediaItemInOrg(ctx.db, input.id, ctx.organizationId);
       return ctx.db.mediaItem.delete({
         where: { id: input.id },
       });
@@ -422,6 +427,8 @@ export const mediaRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertCollectionInOrg(ctx.db, input.collectionId, ctx.organizationId);
+      await assertMediaItemInOrg(ctx.db, input.mediaItemId, ctx.organizationId);
       // Get the highest position in the collection
       const lastItem = await ctx.db.collectionItem.findFirst({
         where: { collectionId: input.collectionId },
@@ -446,6 +453,7 @@ export const mediaRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertCollectionInOrg(ctx.db, input.collectionId, ctx.organizationId);
       return ctx.db.collectionItem.delete({
         where: {
           collectionId_mediaItemId: {
@@ -465,6 +473,7 @@ export const mediaRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertMediaItemInOrg(ctx.db, input.mediaItemId, ctx.organizationId);
       const mediaItem = await ctx.db.mediaItem.findUniqueOrThrow({
         where: { id: input.mediaItemId },
       });
@@ -511,6 +520,7 @@ export const mediaRouter = router({
   getTranscriptionStatus: protectedProcedure
     .input(z.object({ mediaItemId: z.string() }))
     .query(async ({ ctx, input }) => {
+      await assertMediaItemInOrg(ctx.db, input.mediaItemId, ctx.organizationId);
       const mediaItem = await ctx.db.mediaItem.findUniqueOrThrow({
         where: { id: input.mediaItemId },
       });
@@ -641,6 +651,7 @@ export const mediaRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertMediaItemInOrg(ctx.db, input.mediaItemId, ctx.organizationId);
       const mediaItem = await ctx.db.mediaItem.findUniqueOrThrow({
         where: { id: input.mediaItemId },
       });

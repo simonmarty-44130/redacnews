@@ -4,6 +4,12 @@ import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { router, protectedProcedure } from '../trpc';
 import { awsConfig, s3Config } from '../lib/aws-config';
+import {
+  assertRundownInOrg,
+  assertRundownItemInOrg,
+  assertShowInOrg,
+  assertTemplateInOrg,
+} from '../lib/tenant-guard';
 
 const s3Client = new S3Client({
   region: awsConfig.region,
@@ -43,6 +49,7 @@ export const rundownRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
+      await assertRundownInOrg(ctx.db, input.id, ctx.organizationId);
       const rundown = await ctx.db.rundown.findUniqueOrThrow({
         where: { id: input.id },
         include: {
@@ -219,6 +226,7 @@ export const rundownRouter = router({
   getItem: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
+      await assertRundownItemInOrg(ctx.db, input.id, ctx.organizationId);
       return ctx.db.rundownItem.findUniqueOrThrow({
         where: { id: input.id },
         include: {
@@ -257,6 +265,7 @@ export const rundownRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertShowInOrg(ctx.db, input.showId, ctx.organizationId);
       return ctx.db.rundown.create({
         data: input,
       });
@@ -272,6 +281,7 @@ export const rundownRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertRundownInOrg(ctx.db, input.id, ctx.organizationId);
       const { id, ...data } = input;
       return ctx.db.rundown.update({
         where: { id },
@@ -294,6 +304,7 @@ export const rundownRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertRundownInOrg(ctx.db, input.id, ctx.organizationId);
       const { id, ...data } = input;
       return ctx.db.rundown.update({
         where: { id },
@@ -323,6 +334,7 @@ export const rundownRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertRundownInOrg(ctx.db, input.rundownId, ctx.organizationId);
       const { rundownId, ...memberData } = input;
 
       // Get the highest position
@@ -371,6 +383,12 @@ export const rundownRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertRundownInOrg(ctx.db, input.rundownId, ctx.organizationId);
+      const owned = await ctx.db.rundownItem.findMany({
+        where: { id: { in: input.itemIds }, rundownId: input.rundownId },
+        select: { id: true },
+      });
+      if (owned.length !== input.itemIds.length) throw new TRPCError({ code: 'NOT_FOUND' });
       const updates = input.itemIds.map((id, index) =>
         ctx.db.rundownItem.update({
           where: { id },
@@ -402,6 +420,7 @@ export const rundownRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertRundownInOrg(ctx.db, input.rundownId, ctx.organizationId);
       const { rundownId, position, ...data } = input;
 
       // If no position, add at the end
@@ -451,6 +470,7 @@ export const rundownRouter = router({
   deleteItem: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      await assertRundownItemInOrg(ctx.db, input.id, ctx.organizationId);
       return ctx.db.rundownItem.delete({
         where: { id: input.id },
       });
@@ -470,6 +490,7 @@ export const rundownRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertRundownItemInOrg(ctx.db, input.id, ctx.organizationId);
       const { id, ...data } = input;
       return ctx.db.rundownItem.update({
         where: { id },
@@ -520,6 +541,7 @@ export const rundownRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertShowInOrg(ctx.db, input.id, ctx.organizationId);
       const { id, ...data } = input;
       return ctx.db.show.update({
         where: { id },
@@ -536,6 +558,7 @@ export const rundownRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertRundownInOrg(ctx.db, input.rundownId, ctx.organizationId);
       // 1. Recuperer le conducteur complet avec tous les details
       const rundown = await ctx.db.rundown.findUniqueOrThrow({
         where: { id: input.rundownId },
@@ -720,6 +743,7 @@ export const rundownRouter = router({
   getScript: protectedProcedure
     .input(z.object({ rundownId: z.string() }))
     .query(async ({ ctx, input }) => {
+      await assertRundownInOrg(ctx.db, input.rundownId, ctx.organizationId);
       const rundown = await ctx.db.rundown.findUniqueOrThrow({
         where: { id: input.rundownId },
         select: {
@@ -763,7 +787,23 @@ export const rundownRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertRundownInOrg(ctx.db, input.rundownId, ctx.organizationId);
       const { rundownId, items, status, notes } = input;
+
+      // Verifier que les items existants (non temporaires) cibles appartiennent
+      // bien a ce conducteur. Un id non-temporaire deja present en base mais
+      // rattache a un AUTRE conducteur (ou organisation) est rejete ; les
+      // nouveaux ids inexistants restent autorises (upsert -> create).
+      const targetItemIds = items.filter((i) => !i.id.startsWith('temp-')).map((i) => i.id);
+      if (targetItemIds.length > 0) {
+        const existingItems = await ctx.db.rundownItem.findMany({
+          where: { id: { in: targetItemIds } },
+          select: { id: true, rundownId: true },
+        });
+        if (existingItems.some((i) => i.rundownId !== rundownId)) {
+          throw new TRPCError({ code: 'NOT_FOUND' });
+        }
+      }
 
       // Update rundown metadata
       if (status || notes !== undefined) {
@@ -824,6 +864,7 @@ export const rundownRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertRundownItemInOrg(ctx.db, input.itemId, ctx.organizationId);
       const item = await ctx.db.rundownItem.findUniqueOrThrow({
         where: { id: input.itemId },
         include: { rundown: { include: { show: true } } },
@@ -871,6 +912,7 @@ export const rundownRouter = router({
   syncItemDoc: protectedProcedure
     .input(z.object({ itemId: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      await assertRundownItemInOrg(ctx.db, input.itemId, ctx.organizationId);
       const item = await ctx.db.rundownItem.findUniqueOrThrow({
         where: { id: input.itemId },
       });
@@ -908,6 +950,9 @@ export const rundownRouter = router({
           },
         },
       });
+
+      // Verifier que l'item parent appartient a l'organisation de l'appelant
+      await assertRundownItemInOrg(ctx.db, input.itemId, ctx.organizationId);
 
       // Si on lie un conducteur, verifier qu'il existe et appartient a la meme organisation
       if (input.linkedRundownId) {
@@ -1012,6 +1057,9 @@ export const rundownRouter = router({
       let childRundown;
 
       if (input.templateId) {
+        // Le template doit appartenir a l'organisation de l'appelant.
+        await assertTemplateInOrg(ctx.db, input.templateId, ctx.organizationId);
+
         // Importer les utils de template
         const { applyTemplate } = await import('../lib/template-utils');
 
@@ -1051,6 +1099,9 @@ export const rundownRouter = router({
           },
         },
       });
+
+      // Verifier que l'item parent appartient a l'organisation de l'appelant
+      await assertRundownItemInOrg(ctx.db, input.parentItemId, ctx.organizationId);
 
       // Lier au parent
       await ctx.db.rundownItem.update({
@@ -1143,6 +1194,7 @@ export const rundownRouter = router({
   getRundownMedia: protectedProcedure
     .input(z.object({ rundownId: z.string() }))
     .query(async ({ ctx, input }) => {
+      await assertRundownInOrg(ctx.db, input.rundownId, ctx.organizationId);
       const rundown = await ctx.db.rundown.findUniqueOrThrow({
         where: { id: input.rundownId },
         include: {
@@ -1379,6 +1431,7 @@ export const rundownRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      await assertShowInOrg(ctx.db, input.showId, ctx.organizationId);
       const { team, items, ...rundownData } = input;
 
       // Create the rundown

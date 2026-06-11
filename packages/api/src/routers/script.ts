@@ -23,7 +23,7 @@ interface LinkedRundownInfo {
   items: LinkedRundownItem[]; // Tous les items du conducteur imbrique
 }
 
-interface PrompterSection {
+export interface PrompterSection {
   id: string;
   time: string;
   title: string;
