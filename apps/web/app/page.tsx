@@ -131,7 +131,7 @@ const PRICING = [
     period: '30 jours',
     cta: 'Démarrer l’essai',
     href: '/register',
-    features: ['Toutes les fonctionnalités', 'Démo IA / transcription', 'Aucune carte requise'],
+    features: ['Toutes les fonctionnalités', 'Démo IA / transcription', 'Carte requise · sans engagement'],
   },
   {
     name: 'Asso',
@@ -224,7 +224,7 @@ export default function Home() {
             </Link>
           </div>
           <p className="mt-4 text-sm text-slate-400">
-            30 jours d’essai gratuit · sans carte bancaire · sans installation
+            30 jours d’essai gratuit · carte requise · sans installation
           </p>
         </div>
       </section>

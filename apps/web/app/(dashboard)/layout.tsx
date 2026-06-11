@@ -26,6 +26,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { AssistantPanel, AssistantToggle } from '@/components/assistant';
+import { trpc } from '@/lib/trpc/client';
 
 const navigation = [
   { name: 'Conducteur', href: '/conducteur', icon: LayoutDashboard },
@@ -44,6 +45,12 @@ export default function DashboardLayout({
   const { user, loading, isAuthenticated } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+
+  const { data: billing, isLoading: billingLoading } =
+    trpc.billing.status.useQuery(undefined, {
+      enabled: isAuthenticated,
+      retry: false,
+    });
 
   const handleLogout = async () => {
     await logout();
@@ -66,10 +73,38 @@ export default function DashboardLayout({
     return null;
   }
 
+  if (billingLoading && billing === undefined) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="flex items-center gap-2">
+          <Radio className="h-6 w-6 text-blue-600 animate-pulse" />
+          <span className="text-lg">Chargement...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (billing && !billing.isActive) {
+    router.replace('/billing');
+    return null;
+  }
+
   const initials = user?.email?.substring(0, 2).toUpperCase() || 'U';
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Trial banner */}
+      {billing?.isTrialing && (
+        <div className="flex items-center justify-center gap-2 bg-blue-50 text-blue-700 text-sm py-1.5 px-4">
+          <span>
+            Essai gratuit — {billing.trialDaysLeft} jour(s) restant(s)
+          </span>
+          <Link href="/billing" className="font-medium underline">
+            Gerer
+          </Link>
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
         <div className="flex h-14 items-center justify-between px-4">

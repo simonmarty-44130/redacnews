@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, protectedProcedure } from '../trpc';
+import { router, activeProcedure } from '../trpc';
 import { assertStoryInOrg } from '../lib/tenant-guard';
 
 // Google Docs integration types
@@ -12,7 +12,7 @@ interface GoogleDocResult {
 export const storyRouter = router({
   // List stories
   // Par défaut, exclut les sujets archivés sauf si on demande explicitement le statut ARCHIVED
-  list: protectedProcedure
+  list: activeProcedure
     .input(
       z.object({
         status: z
@@ -54,7 +54,7 @@ export const storyRouter = router({
     }),
 
   // Get single story
-  get: protectedProcedure
+  get: activeProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       await assertStoryInOrg(ctx.db, input.id, ctx.organizationId);
@@ -76,7 +76,7 @@ export const storyRouter = router({
     }),
 
   // Create story
-  create: protectedProcedure
+  create: activeProcedure
     .input(
       z.object({
         title: z.string(),
@@ -102,7 +102,7 @@ export const storyRouter = router({
     }),
 
   // Update story
-  update: protectedProcedure
+  update: activeProcedure
     .input(
       z.object({
         id: z.string(),
@@ -132,7 +132,7 @@ export const storyRouter = router({
     }),
 
   // Delete story
-  delete: protectedProcedure
+  delete: activeProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       // Vérifier si le story existe d'abord
@@ -177,7 +177,7 @@ export const storyRouter = router({
     }),
 
   // Create story with Google Doc
-  createWithGoogleDoc: protectedProcedure
+  createWithGoogleDoc: activeProcedure
     .input(
       z.object({
         title: z.string(),
@@ -233,7 +233,7 @@ export const storyRouter = router({
   // Sync content from Google Doc
   // Retourne le contenu et la duree estimee pour le timer de lecture
   // Si du texte est en gras (lancement/pied), seul ce texte est comptabilisé pour la durée
-  syncGoogleDoc: protectedProcedure
+  syncGoogleDoc: activeProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await assertStoryInOrg(ctx.db, input.id, ctx.organizationId);
@@ -280,7 +280,7 @@ export const storyRouter = router({
     }),
 
   // Create and attach a new Google Doc to an existing story
-  addGoogleDoc: protectedProcedure
+  addGoogleDoc: activeProcedure
     .input(z.object({ storyId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await assertStoryInOrg(ctx.db, input.storyId, ctx.organizationId);
@@ -313,7 +313,7 @@ export const storyRouter = router({
     }),
 
   // Link existing Google Doc to story
-  linkGoogleDoc: protectedProcedure
+  linkGoogleDoc: activeProcedure
     .input(
       z.object({
         storyId: z.string(),
@@ -336,7 +336,7 @@ export const storyRouter = router({
     }),
 
   // List stories for rundown selection (APPROVED/PUBLISHED only)
-  listForRundown: protectedProcedure
+  listForRundown: activeProcedure
     .input(
       z.object({
         search: z.string().optional(),

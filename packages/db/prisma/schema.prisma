@@ -14,6 +14,15 @@ model Organization {
   logo             String?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
+
+  // Facturation Stripe (essai 30 j avec carte -> abonnement)
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
+  subscriptionStatus   String?   // statut Stripe brut: trialing|active|past_due|canceled|incomplete|unpaid
+  plan                 String?   // ASSO | RADIO | RESEAU
+  trialEndsAt          DateTime?
+  currentPeriodEnd     DateTime?
+
   collections      Collection[]
   constituencies   Constituency[]
   invitations      Invitation[]

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { router, protectedProcedure } from '../trpc';
+import { router, activeProcedure } from '../trpc';
 import { awsConfig, s3Config } from '../lib/aws-config';
 import {
   assertRundownInOrg,
@@ -18,7 +18,7 @@ const s3Client = new S3Client({
 
 export const rundownRouter = router({
   // List rundowns
-  list: protectedProcedure
+  list: activeProcedure
     .input(
       z.object({
         showId: z.string().optional(),
@@ -46,7 +46,7 @@ export const rundownRouter = router({
     }),
 
   // Get single rundown
-  get: protectedProcedure
+  get: activeProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       await assertRundownInOrg(ctx.db, input.id, ctx.organizationId);
@@ -223,7 +223,7 @@ export const rundownRouter = router({
     }),
 
   // Get single rundown item with script
-  getItem: protectedProcedure
+  getItem: activeProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       await assertRundownItemInOrg(ctx.db, input.id, ctx.organizationId);
@@ -256,7 +256,7 @@ export const rundownRouter = router({
     }),
 
   // Create rundown
-  create: protectedProcedure
+  create: activeProcedure
     .input(
       z.object({
         showId: z.string(),
@@ -272,7 +272,7 @@ export const rundownRouter = router({
     }),
 
   // Update rundown
-  update: protectedProcedure
+  update: activeProcedure
     .input(
       z.object({
         id: z.string(),
@@ -290,7 +290,7 @@ export const rundownRouter = router({
     }),
 
   // Update rundown info (extended fields)
-  updateInfo: protectedProcedure
+  updateInfo: activeProcedure
     .input(
       z.object({
         id: z.string(),
@@ -313,7 +313,7 @@ export const rundownRouter = router({
     }),
 
   // Add team member to rundown
-  addTeamMember: protectedProcedure
+  addTeamMember: activeProcedure
     .input(
       z.object({
         rundownId: z.string(),
@@ -353,7 +353,7 @@ export const rundownRouter = router({
     }),
 
   // Delete rundown
-  delete: protectedProcedure
+  delete: activeProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       // Vérifier que le conducteur appartient à l'organisation
@@ -375,7 +375,7 @@ export const rundownRouter = router({
     }),
 
   // Reorder items
-  reorderItems: protectedProcedure
+  reorderItems: activeProcedure
     .input(
       z.object({
         rundownId: z.string(),
@@ -400,7 +400,7 @@ export const rundownRouter = router({
     }),
 
   // Add item
-  addItem: protectedProcedure
+  addItem: activeProcedure
     .input(
       z.object({
         rundownId: z.string(),
@@ -467,7 +467,7 @@ export const rundownRouter = router({
     }),
 
   // Delete item
-  deleteItem: protectedProcedure
+  deleteItem: activeProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await assertRundownItemInOrg(ctx.db, input.id, ctx.organizationId);
@@ -477,7 +477,7 @@ export const rundownRouter = router({
     }),
 
   // Update item
-  updateItem: protectedProcedure
+  updateItem: activeProcedure
     .input(
       z.object({
         id: z.string(),
@@ -499,7 +499,7 @@ export const rundownRouter = router({
     }),
 
   // List shows
-  listShows: protectedProcedure.query(async ({ ctx }) => {
+  listShows: activeProcedure.query(async ({ ctx }) => {
     return ctx.db.show.findMany({
       where: { organizationId: ctx.organizationId! },
       orderBy: { name: 'asc' },
@@ -507,7 +507,7 @@ export const rundownRouter = router({
   }),
 
   // Create show
-  createShow: protectedProcedure
+  createShow: activeProcedure
     .input(
       z.object({
         name: z.string(),
@@ -528,7 +528,7 @@ export const rundownRouter = router({
     }),
 
   // Update show
-  updateShow: protectedProcedure
+  updateShow: activeProcedure
     .input(
       z.object({
         id: z.string(),
@@ -550,7 +550,7 @@ export const rundownRouter = router({
     }),
 
   // Generate script Google Doc
-  generateScript: protectedProcedure
+  generateScript: activeProcedure
     .input(
       z.object({
         rundownId: z.string(),
@@ -740,7 +740,7 @@ export const rundownRouter = router({
     }),
 
   // Get script info for a rundown
-  getScript: protectedProcedure
+  getScript: activeProcedure
     .input(z.object({ rundownId: z.string() }))
     .query(async ({ ctx, input }) => {
       await assertRundownInOrg(ctx.db, input.rundownId, ctx.organizationId);
@@ -757,7 +757,7 @@ export const rundownRouter = router({
     }),
 
   // Batch update for collaborative editing
-  batchUpdate: protectedProcedure
+  batchUpdate: activeProcedure
     .input(
       z.object({
         rundownId: z.string(),
@@ -856,7 +856,7 @@ export const rundownRouter = router({
     }),
 
   // Create/link a Google Doc for a rundown item script
-  createItemDoc: protectedProcedure
+  createItemDoc: activeProcedure
     .input(
       z.object({
         itemId: z.string(),
@@ -909,7 +909,7 @@ export const rundownRouter = router({
     }),
 
   // Sync Google Doc content to script field (for backup/prompter)
-  syncItemDoc: protectedProcedure
+  syncItemDoc: activeProcedure
     .input(z.object({ itemId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await assertRundownItemInOrg(ctx.db, input.itemId, ctx.organizationId);
@@ -933,7 +933,7 @@ export const rundownRouter = router({
   // === CONDUCTEURS IMBRIQUES ===
 
   // Lier un conducteur existant a un element
-  linkRundownToItem: protectedProcedure
+  linkRundownToItem: activeProcedure
     .input(
       z.object({
         itemId: z.string(),
@@ -1034,7 +1034,7 @@ export const rundownRouter = router({
     }),
 
   // Creer un conducteur enfant et le lier automatiquement a un element
-  createLinkedRundown: protectedProcedure
+  createLinkedRundown: activeProcedure
     .input(
       z.object({
         parentItemId: z.string(), // L'element parent qui contiendra le lien
@@ -1160,7 +1160,7 @@ export const rundownRouter = router({
     }),
 
   // Liste des conducteurs disponibles pour liaison (meme date +/- 1 jour)
-  listAvailableForLinking: protectedProcedure
+  listAvailableForLinking: activeProcedure
     .input(
       z.object({
         currentRundownId: z.string(), // Pour exclure le conducteur actuel
@@ -1191,7 +1191,7 @@ export const rundownRouter = router({
     }),
 
   // Get all media files from a rundown (for download)
-  getRundownMedia: protectedProcedure
+  getRundownMedia: activeProcedure
     .input(z.object({ rundownId: z.string() }))
     .query(async ({ ctx, input }) => {
       await assertRundownInOrg(ctx.db, input.rundownId, ctx.organizationId);
@@ -1378,7 +1378,7 @@ export const rundownRouter = router({
     }),
 
   // Create complete rundown with team and items
-  createComplete: protectedProcedure
+  createComplete: activeProcedure
     .input(
       z.object({
         showId: z.string(),
@@ -1498,7 +1498,7 @@ export const rundownRouter = router({
   // Met a jour les durees des items en fonction du contenu des Google Docs
   // - Pour les FLASH/JOURNAL: seul le texte en gras compte (lancement/pied)
   // - Pour les MAGAZINE/CHRONIQUE/AUTRE: tout le texte compte sauf marqueurs techniques [...]
-  syncFromGoogleDocs: protectedProcedure
+  syncFromGoogleDocs: activeProcedure
     .input(z.object({ rundownId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const { estimateDocReadingDurationByMode, getDurationModeFromCategory } = await import('../lib/google/docs');
@@ -1577,7 +1577,7 @@ export const rundownRouter = router({
 
   // Synchroniser un seul item depuis son Google Doc
   // Utilise le mode de calcul en fonction de la categorie du Show parent
-  syncItemFromGoogleDoc: protectedProcedure
+  syncItemFromGoogleDoc: activeProcedure
     .input(z.object({ itemId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const { estimateDocReadingDurationByMode, getDurationModeFromCategory } = await import('../lib/google/docs');

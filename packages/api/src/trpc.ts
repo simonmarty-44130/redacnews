@@ -9,6 +9,7 @@ export interface Context {
   userId: string | null;
   organizationId: string | null;
   cognitoId: string | null;
+  subscriptionActive: boolean;
 }
 
 export const createTRPCContext = async (opts: {
@@ -25,6 +26,7 @@ export const createTRPCContext = async (opts: {
     userId: auth?.userId ?? null,
     organizationId: auth?.organizationId ?? null,
     cognitoId: auth?.cognitoId ?? null,
+    subscriptionActive: auth?.subscriptionActive ?? false,
   };
 };
 
@@ -58,3 +60,26 @@ const enforceUserIsAuthed = t.middleware(({ ctx, next }) => {
 });
 
 export const protectedProcedure = t.procedure.use(enforceUserIsAuthed);
+
+// Procédure exigeant un abonnement actif (essai ou payant). Les fonctionnalités
+// produit l'utilisent ; billing/settings restent en protectedProcedure pour que
+// l'utilisateur puisse toujours gérer/payer son abonnement.
+const enforceActiveSubscription = t.middleware(({ ctx, next }) => {
+  if (!ctx.userId) {
+    throw new TRPCError({ code: 'UNAUTHORIZED' });
+  }
+  if (!ctx.subscriptionActive) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'SUBSCRIPTION_INACTIVE',
+    });
+  }
+  return next({
+    ctx: {
+      userId: ctx.userId,
+      organizationId: ctx.organizationId,
+    },
+  });
+});
+
+export const activeProcedure = t.procedure.use(enforceActiveSubscription);

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { router, protectedProcedure } from '../trpc';
+import { router, activeProcedure } from '../trpc';
 import {
   replaceVariables,
   prepareVariableValues,
@@ -25,7 +25,7 @@ const templateVariableSchema = z.object({
 
 export const templateRouter = router({
   // Lister les templates de l'organisation
-  list: protectedProcedure
+  list: activeProcedure
     .input(
       z.object({
         showId: z.string().optional(),
@@ -54,7 +54,7 @@ export const templateRouter = router({
     }),
 
   // Récupérer un template avec ses items
-  get: protectedProcedure
+  get: activeProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       await assertTemplateInOrg(ctx.db, input.id, ctx.organizationId);
@@ -82,7 +82,7 @@ export const templateRouter = router({
     }),
 
   // Créer un template
-  create: protectedProcedure
+  create: activeProcedure
     .input(
       z.object({
         name: z.string().min(1, 'Le nom est requis'),
@@ -123,7 +123,7 @@ export const templateRouter = router({
     }),
 
   // Mettre à jour un template
-  update: protectedProcedure
+  update: activeProcedure
     .input(
       z.object({
         id: z.string(),
@@ -169,7 +169,7 @@ export const templateRouter = router({
     }),
 
   // Ajouter un item au template
-  addItem: protectedProcedure
+  addItem: activeProcedure
     .input(
       z.object({
         templateId: z.string(),
@@ -210,7 +210,7 @@ export const templateRouter = router({
     }),
 
   // Mettre à jour un item du template
-  updateItem: protectedProcedure
+  updateItem: activeProcedure
     .input(
       z.object({
         id: z.string(),
@@ -243,7 +243,7 @@ export const templateRouter = router({
     }),
 
   // Supprimer un item du template
-  deleteItem: protectedProcedure
+  deleteItem: activeProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await assertTemplateItemInOrg(ctx.db, input.id, ctx.organizationId);
@@ -254,7 +254,7 @@ export const templateRouter = router({
     }),
 
   // Réordonner les items du template
-  reorderItems: protectedProcedure
+  reorderItems: activeProcedure
     .input(
       z.object({
         templateId: z.string(),
@@ -281,7 +281,7 @@ export const templateRouter = router({
     }),
 
   // Créer un conducteur depuis un template
-  createRundownFromTemplate: protectedProcedure
+  createRundownFromTemplate: activeProcedure
     .input(
       z.object({
         templateId: z.string(),
@@ -479,7 +479,7 @@ export const templateRouter = router({
     }),
 
   // Créer un template depuis un conducteur existant
-  createFromRundown: protectedProcedure
+  createFromRundown: activeProcedure
     .input(
       z.object({
         rundownId: z.string(),
@@ -542,7 +542,7 @@ export const templateRouter = router({
     }),
 
   // Supprimer un template
-  delete: protectedProcedure
+  delete: activeProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await assertTemplateInOrg(ctx.db, input.id, ctx.organizationId);
