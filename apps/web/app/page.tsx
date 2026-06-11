@@ -25,10 +25,9 @@ import {
 import { Button } from '@/components/ui/button';
 import {
   ConducteurPreview,
-  AudioEditorPreview,
   MediathequePreview,
   SujetsPreview,
-  PrompteurPreview,
+  ScreenshotFrame,
 } from '@/components/marketing/AppPreviews';
 
 export const metadata: Metadata = {
@@ -216,9 +215,14 @@ export default function Home() {
           </div>
 
           <div className="mt-12 space-y-8">
-            {/* Éditeur audio (pleine largeur) */}
+            {/* Éditeur audio (pleine largeur) — vraie capture */}
             <div>
-              <AudioEditorPreview />
+              <ScreenshotFrame
+                src="/screenshots/editeur-audio.png"
+                url="redacnews.link/audio-editor"
+                alt="Éditeur audio de RedacNews — montage, optimisation et export"
+                dark
+              />
               <p className="mt-3 text-center text-sm text-slate-500">
                 Éditeur audio intégré — enregistrement, montage, optimisation et export, dans le navigateur.
               </p>
@@ -240,9 +244,14 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Prompteur */}
+            {/* Prompteur — vraie capture */}
             <div>
-              <PrompteurPreview />
+              <ScreenshotFrame
+                src="/screenshots/prompteur.png"
+                url="redacnews.link/prompteur"
+                alt="Prompteur de RedacNews — lecture à l'antenne"
+                dark
+              />
               <p className="mt-3 text-center text-sm text-slate-500">
                 Prompteur plein écran, synchronisé au conducteur pour l’antenne.
               </p>

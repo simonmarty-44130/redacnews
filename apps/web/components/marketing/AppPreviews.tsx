@@ -54,6 +54,26 @@ function BrowserFrame({
   );
 }
 
+/* ---------- Vraie capture dans un cadre navigateur ---------- */
+export function ScreenshotFrame({
+  src,
+  url,
+  alt,
+  dark,
+}: {
+  src: string;
+  url: string;
+  alt: string;
+  dark?: boolean;
+}) {
+  return (
+    <BrowserFrame url={url} dark={dark}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt={alt} className="block w-full" loading="lazy" />
+    </BrowserFrame>
+  );
+}
+
 /* ---------- Barre de nav de l'app ---------- */
 function AppNav({ active }: { active: string }) {
   const items = [
