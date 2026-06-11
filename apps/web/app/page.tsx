@@ -123,6 +123,48 @@ const TANGUY = [
   },
 ];
 
+const PRICING = [
+  {
+    name: 'Essai',
+    target: 'Pour découvrir, sans engagement',
+    price: 'Gratuit',
+    period: '30 jours',
+    cta: 'Démarrer l’essai',
+    href: '/register',
+    features: ['Toutes les fonctionnalités', 'Démo IA / transcription', 'Aucune carte requise'],
+  },
+  {
+    name: 'Asso',
+    tag: 'Tarif solidaire',
+    target: 'Radios associatives (cat. A, loi 1901, éducatif)',
+    price: '49 €',
+    period: '/ mois',
+    cta: 'Choisir Asso',
+    href: '/register',
+    features: ["Jusqu'à 20 sièges", '10 h IA / transcription / mois', 'Support email + communauté'],
+  },
+  {
+    name: 'Radio',
+    tag: 'Standard',
+    target: 'Radio locale, rédaction active',
+    price: '149 €',
+    period: '/ mois',
+    popular: true,
+    cta: 'Choisir Radio',
+    href: '/register',
+    features: ["Jusqu'à 40 sièges", '30 h IA / transcription / mois', 'Support prioritaire'],
+  },
+  {
+    name: 'Réseau',
+    target: 'Groupes multi-antennes',
+    price: 'Sur devis',
+    period: '~99 €/antenne (dégressif)',
+    cta: 'Nous contacter',
+    href: 'mailto:contact@redacnews.link',
+    features: ['Sièges illimités', 'Volume IA négocié', 'Support dédié'],
+  },
+];
+
 export default function Home() {
   return (
     <div className="min-h-screen bg-white text-slate-900">
@@ -134,13 +176,19 @@ export default function Home() {
             <span className="text-lg font-bold">RedacNews</span>
           </div>
           <nav className="flex items-center gap-2">
+            <a
+              href="#tarifs"
+              className="hidden rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 hover:text-slate-900 sm:inline-block"
+            >
+              Tarifs
+            </a>
             <Link href="/login">
               <Button variant="ghost" size="sm">
                 Se connecter
               </Button>
             </Link>
             <Link href="/register">
-              <Button size="sm">Créer un compte</Button>
+              <Button size="sm">Essai gratuit</Button>
             </Link>
           </nav>
         </div>
@@ -175,7 +223,9 @@ export default function Home() {
               </Button>
             </Link>
           </div>
-          <p className="mt-4 text-sm text-slate-400">Sans installation · accessible partout</p>
+          <p className="mt-4 text-sm text-slate-400">
+            30 jours d’essai gratuit · sans carte bancaire · sans installation
+          </p>
         </div>
       </section>
 
@@ -341,6 +391,65 @@ export default function Home() {
           <p className="mx-auto mt-10 max-w-2xl text-center text-sm text-slate-400">
             Ensemble, RedacNews et Tanguy couvrent toute la chaîne — de l’idée du sujet
             jusqu’à la diffusion sur l’antenne, le réseau et le podcast.
+          </p>
+        </div>
+      </section>
+
+      {/* Tarifs */}
+      <section id="tarifs" className="border-t border-slate-100 bg-slate-50">
+        <div className="mx-auto max-w-6xl px-4 py-20">
+          <div className="mx-auto max-w-2xl text-center">
+            <h2 className="text-3xl font-bold tracking-tight">Des tarifs adaptés à chaque radio</h2>
+            <p className="mt-3 text-slate-600">
+              Commencez par 30 jours d’essai gratuit. Changez d’offre ou résiliez à tout moment.
+            </p>
+          </div>
+          <div className="mt-12 grid items-start gap-6 md:grid-cols-2 lg:grid-cols-4">
+            {PRICING.map((p) => (
+              <div
+                key={p.name}
+                className={`relative flex h-full flex-col rounded-2xl border bg-white p-6 ${
+                  p.popular
+                    ? 'border-blue-500 shadow-xl ring-1 ring-blue-500/20 lg:-mt-2'
+                    : 'border-slate-200'
+                }`}
+              >
+                {p.popular && (
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white">
+                    Le plus choisi
+                  </span>
+                )}
+                <div className="flex items-baseline gap-2">
+                  <h3 className="text-lg font-bold">{p.name}</h3>
+                  {p.tag && (
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
+                      {p.tag}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 min-h-[2.5rem] text-xs text-slate-500">{p.target}</p>
+                <div className="mt-4">
+                  <span className="text-3xl font-bold tracking-tight">{p.price}</span>
+                  <span className="ml-1 text-sm text-slate-500">{p.period}</span>
+                </div>
+                <ul className="mt-5 flex-1 space-y-2.5">
+                  {p.features.map((f) => (
+                    <li key={f} className="flex items-start gap-2 text-sm text-slate-600">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" /> {f}
+                    </li>
+                  ))}
+                </ul>
+                <a href={p.href} className="mt-6 block">
+                  <Button className="w-full" variant={p.popular ? 'default' : 'outline'}>
+                    {p.cta}
+                  </Button>
+                </a>
+              </div>
+            ))}
+          </div>
+          <p className="mt-8 text-center text-xs text-slate-400">
+            Tarifs hors taxes. L’offre Asso est réservée aux radios associatives à but non lucratif
+            (catégorie A, loi 1901, éducatif), sous conditions.
           </p>
         </div>
       </section>
