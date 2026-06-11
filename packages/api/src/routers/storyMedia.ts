@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { router, protectedProcedure } from '../trpc';
+import { router, activeProcedure } from '../trpc';
 import { awsConfig, s3Config } from '../lib/aws-config';
 import {
   assertStoryInOrg,
@@ -15,7 +15,7 @@ const s3Client = new S3Client({
 
 export const storyMediaRouter = router({
   // Lier un media a un sujet
-  link: protectedProcedure
+  link: activeProcedure
     .input(
       z.object({
         storyId: z.string(),
@@ -62,7 +62,7 @@ export const storyMediaRouter = router({
     }),
 
   // Delier un media d'un sujet
-  unlink: protectedProcedure
+  unlink: activeProcedure
     .input(
       z.object({
         storyId: z.string(),
@@ -90,7 +90,7 @@ export const storyMediaRouter = router({
     }),
 
   // Mettre a jour les metadonnees d'une liaison
-  update: protectedProcedure
+  update: activeProcedure
     .input(
       z.object({
         storyId: z.string(),
@@ -119,7 +119,7 @@ export const storyMediaRouter = router({
     }),
 
   // Reordonner les medias d'un sujet
-  reorder: protectedProcedure
+  reorder: activeProcedure
     .input(
       z.object({
         storyId: z.string(),
@@ -145,7 +145,7 @@ export const storyMediaRouter = router({
     }),
 
   // Lister les medias d'un sujet (avec URLs presignees)
-  listByStory: protectedProcedure
+  listByStory: activeProcedure
     .input(z.object({ storyId: z.string() }))
     .query(async ({ ctx, input }) => {
       await assertStoryInOrg(ctx.db, input.storyId, ctx.organizationId);
@@ -184,7 +184,7 @@ export const storyMediaRouter = router({
     }),
 
   // Lister les utilisations d'un media (vue "Utilisations")
-  listByMedia: protectedProcedure
+  listByMedia: activeProcedure
     .input(z.object({ mediaItemId: z.string() }))
     .query(async ({ ctx, input }) => {
       await assertMediaItemInOrg(ctx.db, input.mediaItemId, ctx.organizationId);

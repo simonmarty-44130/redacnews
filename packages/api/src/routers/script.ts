@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, protectedProcedure } from '../trpc';
+import { router, activeProcedure } from '../trpc';
 import { format, addSeconds } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { getRundownEndCues } from '../lib/script-utils';
@@ -52,7 +52,7 @@ function formatDurationScript(seconds: number): string {
 
 export const scriptRouter = router({
   // Get assembled script for the prompter
-  getAssembled: protectedProcedure
+  getAssembled: activeProcedure
     .input(z.object({ rundownId: z.string() }))
     .query(async ({ ctx, input }) => {
       await assertRundownInOrg(ctx.db, input.rundownId, ctx.organizationId);
@@ -186,7 +186,7 @@ export const scriptRouter = router({
     }),
 
   // Set current item for prompter sync
-  setCurrentItem: protectedProcedure
+  setCurrentItem: activeProcedure
     .input(
       z.object({
         rundownId: z.string(),
@@ -203,7 +203,7 @@ export const scriptRouter = router({
     }),
 
   // Get plain text script content (for copy/export)
-  getPlainText: protectedProcedure
+  getPlainText: activeProcedure
     .input(z.object({ rundownId: z.string() }))
     .query(async ({ ctx, input }) => {
       await assertRundownInOrg(ctx.db, input.rundownId, ctx.organizationId);

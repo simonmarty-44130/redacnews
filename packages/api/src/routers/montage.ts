@@ -3,7 +3,7 @@
 import { z } from 'zod';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { router, protectedProcedure } from '../trpc';
+import { router, activeProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
 import { awsConfig, s3Config } from '../lib/aws-config';
 
@@ -62,7 +62,7 @@ async function getPresignedUrlFromS3Url(s3Url: string): Promise<string> {
 
 export const montageRouter = router({
   // Liste des projets
-  list: protectedProcedure.query(async ({ ctx }) => {
+  list: activeProcedure.query(async ({ ctx }) => {
     if (!ctx.organizationId) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No organization' });
     }
@@ -78,7 +78,7 @@ export const montageRouter = router({
   }),
 
   // Obtenir un projet
-  get: protectedProcedure
+  get: activeProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const project = await ctx.db.montageProject.findUnique({
@@ -125,7 +125,7 @@ export const montageRouter = router({
     }),
 
   // Creer un projet
-  create: protectedProcedure
+  create: activeProcedure
     .input(
       z.object({
         name: z.string().min(1),
@@ -147,7 +147,7 @@ export const montageRouter = router({
     }),
 
   // Mettre a jour un projet
-  update: protectedProcedure
+  update: activeProcedure
     .input(
       z.object({
         id: z.string(),
@@ -176,7 +176,7 @@ export const montageRouter = router({
     }),
 
   // Supprimer un projet
-  delete: protectedProcedure
+  delete: activeProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       // Verifier l'acces
@@ -196,7 +196,7 @@ export const montageRouter = router({
 
   // === TRACKS ===
 
-  addTrack: protectedProcedure
+  addTrack: activeProcedure
     .input(
       z.object({
         projectId: z.string(),
@@ -231,7 +231,7 @@ export const montageRouter = router({
       });
     }),
 
-  updateTrack: protectedProcedure
+  updateTrack: activeProcedure
     .input(
       z.object({
         id: z.string(),
@@ -262,7 +262,7 @@ export const montageRouter = router({
       });
     }),
 
-  deleteTrack: protectedProcedure
+  deleteTrack: activeProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       // Verifier l'acces via le projet
@@ -280,7 +280,7 @@ export const montageRouter = router({
       });
     }),
 
-  reorderTracks: protectedProcedure
+  reorderTracks: activeProcedure
     .input(
       z.object({
         projectId: z.string(),
@@ -310,7 +310,7 @@ export const montageRouter = router({
 
   // === CLIPS ===
 
-  addClip: protectedProcedure
+  addClip: activeProcedure
     .input(
       z.object({
         trackId: z.string(),
@@ -359,7 +359,7 @@ export const montageRouter = router({
       };
     }),
 
-  updateClip: protectedProcedure
+  updateClip: activeProcedure
     .input(
       z.object({
         id: z.string(),
@@ -395,7 +395,7 @@ export const montageRouter = router({
       });
     }),
 
-  moveClip: protectedProcedure
+  moveClip: activeProcedure
     .input(
       z.object({
         id: z.string(),
@@ -440,7 +440,7 @@ export const montageRouter = router({
       });
     }),
 
-  deleteClip: protectedProcedure
+  deleteClip: activeProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       // Verifier l'acces via le projet
@@ -465,7 +465,7 @@ export const montageRouter = router({
   // === BATCH OPERATIONS ===
 
   // Sauvegarder l'etat complet d'un projet (pour auto-save)
-  saveProjectState: protectedProcedure
+  saveProjectState: activeProcedure
     .input(
       z.object({
         projectId: z.string(),

@@ -12,6 +12,7 @@ export interface AuthContext {
   userId: string;
   organizationId: string;
   cognitoId: string;
+  subscriptionActive: boolean;
 }
 
 // Verificateur JWT cree de maniere paresseuse (singleton).
@@ -89,14 +90,22 @@ export async function getAuthContext(
 
     const user = await prisma.user.findUnique({
       where: { cognitoId },
-      select: { id: true, organizationId: true },
+      select: {
+        id: true,
+        organizationId: true,
+        organization: { select: { subscriptionStatus: true } },
+      },
     });
     if (!user) return null;
+
+    const status = user.organization?.subscriptionStatus;
+    const subscriptionActive = status === 'trialing' || status === 'active';
 
     return {
       userId: user.id,
       organizationId: user.organizationId,
       cognitoId,
+      subscriptionActive,
     };
   } catch (error) {
     // Token expire / signature invalide / pool inconnu, etc.

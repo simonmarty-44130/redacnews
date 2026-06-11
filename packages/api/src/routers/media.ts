@@ -7,7 +7,7 @@ import {
   GetTranscriptionJobCommand,
   LanguageCode,
 } from '@aws-sdk/client-transcribe';
-import { router, protectedProcedure } from '../trpc';
+import { router, activeProcedure } from '../trpc';
 import { awsConfig, s3Config, cloudfrontConfig } from '../lib/aws-config';
 import { assertMediaItemInOrg, assertCollectionInOrg } from '../lib/tenant-guard';
 
@@ -41,7 +41,7 @@ const TRANSCRIBABLE_MIME_TYPES = [
 
 export const mediaRouter = router({
   // Get presigned URL for upload
-  getUploadUrl: protectedProcedure
+  getUploadUrl: activeProcedure
     .input(
       z.object({
         filename: z.string(),
@@ -80,7 +80,7 @@ export const mediaRouter = router({
       };
     }),
   // List media items
-  list: protectedProcedure
+  list: activeProcedure
     .input(
       z.object({
         type: z.enum(['AUDIO', 'VIDEO', 'IMAGE', 'DOCUMENT']).optional(),
@@ -143,7 +143,7 @@ export const mediaRouter = router({
     }),
 
   // Get multiple media items by IDs
-  getMany: protectedProcedure
+  getMany: activeProcedure
     .input(z.object({ ids: z.array(z.string()) }))
     .query(async ({ ctx, input }) => {
       const mediaItems = await ctx.db.mediaItem.findMany({
@@ -179,7 +179,7 @@ export const mediaRouter = router({
     }),
 
   // Get single media item
-  get: protectedProcedure
+  get: activeProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       await assertMediaItemInOrg(ctx.db, input.id, ctx.organizationId);
@@ -211,7 +211,7 @@ export const mediaRouter = router({
     }),
 
   // Get presigned URL for a media item (useful for refresh)
-  getPresignedUrl: protectedProcedure
+  getPresignedUrl: activeProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       await assertMediaItemInOrg(ctx.db, input.id, ctx.organizationId);
@@ -232,7 +232,7 @@ export const mediaRouter = router({
     }),
 
   // Create media item
-  create: protectedProcedure
+  create: activeProcedure
     .input(
       z.object({
         title: z.string(),
@@ -263,7 +263,7 @@ export const mediaRouter = router({
   // mode 'replace' → écrase l'audio d'un MediaItem existant (re-montage).
   // Les repères de montage sont persistés dans waveformData.markers.
   // (distinct de l'ancienne saveEditedAudio base64 de l'éditeur AudioMass.)
-  saveMontage: protectedProcedure
+  saveMontage: activeProcedure
     .input(
       z.object({
         mode: z.enum(['new', 'replace']),
@@ -334,7 +334,7 @@ export const mediaRouter = router({
   // Archiver / désarchiver un média.
   // Les archivés disparaissent des listes par défaut mais restent trouvables
   // via la recherche et l'assistant IA.
-  setArchived: protectedProcedure
+  setArchived: activeProcedure
     .input(z.object({ id: z.string(), archived: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.db.mediaItem.findFirst({
@@ -352,7 +352,7 @@ export const mediaRouter = router({
     }),
 
   // Update media item
-  update: protectedProcedure
+  update: activeProcedure
     .input(
       z.object({
         id: z.string(),
@@ -377,7 +377,7 @@ export const mediaRouter = router({
     }),
 
   // Delete media item
-  delete: protectedProcedure
+  delete: activeProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await assertMediaItemInOrg(ctx.db, input.id, ctx.organizationId);
@@ -387,7 +387,7 @@ export const mediaRouter = router({
     }),
 
   // List collections
-  listCollections: protectedProcedure.query(async ({ ctx }) => {
+  listCollections: activeProcedure.query(async ({ ctx }) => {
     return ctx.db.collection.findMany({
       where: { organizationId: ctx.organizationId! },
       include: {
@@ -400,7 +400,7 @@ export const mediaRouter = router({
   }),
 
   // Create collection
-  createCollection: protectedProcedure
+  createCollection: activeProcedure
     .input(
       z.object({
         name: z.string(),
@@ -419,7 +419,7 @@ export const mediaRouter = router({
     }),
 
   // Add media to collection
-  addToCollection: protectedProcedure
+  addToCollection: activeProcedure
     .input(
       z.object({
         mediaItemId: z.string(),
@@ -445,7 +445,7 @@ export const mediaRouter = router({
     }),
 
   // Remove media from collection
-  removeFromCollection: protectedProcedure
+  removeFromCollection: activeProcedure
     .input(
       z.object({
         mediaItemId: z.string(),
@@ -465,7 +465,7 @@ export const mediaRouter = router({
     }),
 
   // Start transcription for a media item
-  startTranscription: protectedProcedure
+  startTranscription: activeProcedure
     .input(
       z.object({
         mediaItemId: z.string(),
@@ -517,7 +517,7 @@ export const mediaRouter = router({
     }),
 
   // Get transcription status and result
-  getTranscriptionStatus: protectedProcedure
+  getTranscriptionStatus: activeProcedure
     .input(z.object({ mediaItemId: z.string() }))
     .query(async ({ ctx, input }) => {
       await assertMediaItemInOrg(ctx.db, input.mediaItemId, ctx.organizationId);
@@ -631,7 +631,7 @@ export const mediaRouter = router({
     }),
 
   // Check if a file is transcribable
-  isTranscribable: protectedProcedure
+  isTranscribable: activeProcedure
     .input(z.object({ mimeType: z.string() }))
     .query(({ input }) => {
       return {
@@ -642,7 +642,7 @@ export const mediaRouter = router({
     }),
 
   // Save edited audio file
-  saveEditedAudio: protectedProcedure
+  saveEditedAudio: activeProcedure
     .input(
       z.object({
         mediaItemId: z.string(),

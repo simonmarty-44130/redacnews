@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, protectedProcedure } from '../trpc';
+import { router, activeProcedure } from '../trpc';
 import { TRPCError } from '@trpc/server';
 
 // Enums Zod pour validation
@@ -37,7 +37,7 @@ export const politicsRouter = router({
   // ============ GESTION DES TAGS POLITIQUES ============
 
   // Créer un nouveau tag politique
-  createTag: protectedProcedure
+  createTag: activeProcedure
     .input(
       z.object({
         family: PoliticalFamilyEnum,
@@ -62,7 +62,7 @@ export const politicsRouter = router({
     }),
 
   // Lister les tags politiques de l'organisation
-  listTags: protectedProcedure
+  listTags: activeProcedure
     .input(
       z.object({
         electionType: ElectionTypeEnum.optional(),
@@ -97,7 +97,7 @@ export const politicsRouter = router({
     }),
 
   // Obtenir un tag politique par ID
-  getTag: protectedProcedure
+  getTag: activeProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       const tag = await ctx.db.politicalTag.findUnique({
@@ -126,7 +126,7 @@ export const politicsRouter = router({
     }),
 
   // Mettre à jour un tag politique
-  updateTag: protectedProcedure
+  updateTag: activeProcedure
     .input(
       z.object({
         id: z.string(),
@@ -156,7 +156,7 @@ export const politicsRouter = router({
     }),
 
   // Supprimer un tag politique
-  deleteTag: protectedProcedure
+  deleteTag: activeProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const tag = await ctx.db.politicalTag.findUnique({
@@ -180,7 +180,7 @@ export const politicsRouter = router({
   // ============ ASSOCIATION SUJETS <-> TAGS ============
 
   // Taguer un sujet avec une étiquette politique
-  tagStory: protectedProcedure
+  tagStory: activeProcedure
     .input(
       z.object({
         storyId: z.string(),
@@ -232,7 +232,7 @@ export const politicsRouter = router({
     }),
 
   // Retirer un tag d'un sujet
-  untagStory: protectedProcedure
+  untagStory: activeProcedure
     .input(
       z.object({
         storyId: z.string(),
@@ -260,7 +260,7 @@ export const politicsRouter = router({
     }),
 
   // Obtenir les tags politiques d'un sujet
-  getStoryTags: protectedProcedure
+  getStoryTags: activeProcedure
     .input(z.object({ storyId: z.string() }))
     .query(async ({ ctx, input }) => {
       const story = await ctx.db.story.findUnique({
@@ -283,7 +283,7 @@ export const politicsRouter = router({
     }),
 
   // Mettre à jour le type d'élection d'un sujet
-  setStoryElectionType: protectedProcedure
+  setStoryElectionType: activeProcedure
     .input(
       z.object({
         storyId: z.string(),
@@ -308,7 +308,7 @@ export const politicsRouter = router({
   // ============ STATISTIQUES D'ÉQUILIBRE ============
 
   // Obtenir les statistiques de répartition politique
-  getBalance: protectedProcedure
+  getBalance: activeProcedure
     .input(
       z.object({
         startDate: z.date(),
@@ -492,7 +492,7 @@ export const politicsRouter = router({
     }),
 
   // Obtenir les sujets par famille politique pour une période
-  getStoriesByFamily: protectedProcedure
+  getStoriesByFamily: activeProcedure
     .input(
       z.object({
         family: PoliticalFamilyEnum,
@@ -576,7 +576,7 @@ export const politicsRouter = router({
     }),
 
   // Widget : Résumé rapide du pluralisme (pour sidebar)
-  getQuickSummary: protectedProcedure
+  getQuickSummary: activeProcedure
     .input(
       z.object({
         days: z.number().int().min(1).max(365).default(30),
@@ -659,7 +659,7 @@ export const politicsRouter = router({
     }),
 
   // Export des données pour rapport ARCOM (CSV/JSON)
-  exportReport: protectedProcedure
+  exportReport: activeProcedure
     .input(
       z.object({
         startDate: z.date(),
@@ -777,7 +777,7 @@ export const politicsRouter = router({
   // ============ GESTION DES CIRCONSCRIPTIONS (VILLES) ============
 
   // Lister les circonscriptions de l'organisation
-  listConstituencies: protectedProcedure
+  listConstituencies: activeProcedure
     .input(
       z.object({
         activeOnly: z.boolean().default(true),
@@ -798,7 +798,7 @@ export const politicsRouter = router({
     }),
 
   // Créer une nouvelle circonscription
-  createConstituency: protectedProcedure
+  createConstituency: activeProcedure
     .input(
       z.object({
         name: z.string().min(1).max(100),
@@ -837,7 +837,7 @@ export const politicsRouter = router({
     }),
 
   // Mettre à jour une circonscription
-  updateConstituency: protectedProcedure
+  updateConstituency: activeProcedure
     .input(
       z.object({
         id: z.string(),
@@ -864,7 +864,7 @@ export const politicsRouter = router({
     }),
 
   // Supprimer une circonscription (soft delete = isActive = false)
-  deleteConstituency: protectedProcedure
+  deleteConstituency: activeProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const constituency = await ctx.db.constituency.findUnique({
@@ -883,7 +883,7 @@ export const politicsRouter = router({
     }),
 
   // Obtenir les statistiques d'équilibre par ville
-  getBalanceByConstituency: protectedProcedure
+  getBalanceByConstituency: activeProcedure
     .input(
       z.object({
         startDate: z.date(),
@@ -1049,7 +1049,7 @@ export const politicsRouter = router({
   // ============ LISTING DÉTAILLÉ POUR JUSTIFICATION ARCOM ============
 
   // Obtenir tous les sujets d'une famille avec le script complet pour justification
-  getDetailedStoriesByFamily: protectedProcedure
+  getDetailedStoriesByFamily: activeProcedure
     .input(
       z.object({
         family: PoliticalFamilyEnum,
@@ -1177,7 +1177,7 @@ export const politicsRouter = router({
     }),
 
   // Export détaillé avec scripts pour rapport ARCOM (format texte lisible)
-  exportDetailedReport: protectedProcedure
+  exportDetailedReport: activeProcedure
     .input(
       z.object({
         family: PoliticalFamilyEnum.optional(),
