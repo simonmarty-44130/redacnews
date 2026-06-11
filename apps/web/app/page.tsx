@@ -23,6 +23,13 @@ import {
   Podcast,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  ConducteurPreview,
+  AudioEditorPreview,
+  MediathequePreview,
+  SujetsPreview,
+  PrompteurPreview,
+} from '@/components/marketing/AppPreviews';
 
 export const metadata: Metadata = {
   title: 'RedacNews — La suite tout-en-un pour les rédactions radio',
@@ -169,6 +176,11 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Aperçu principal — le Conducteur */}
+      <div className="relative z-10 mx-auto -mt-8 max-w-5xl px-4 sm:-mt-14">
+        <ConducteurPreview />
+      </div>
+
       {/* Modules */}
       <section className="mx-auto max-w-6xl px-4 py-20">
         <div className="mx-auto max-w-2xl text-center">
@@ -190,6 +202,52 @@ export default function Home() {
               <p className="mt-2 text-sm leading-relaxed text-slate-600">{m.desc}</p>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* Aperçu de l'outil */}
+      <section className="border-t border-slate-100 bg-white">
+        <div className="mx-auto max-w-6xl px-4 py-20">
+          <div className="mx-auto max-w-2xl text-center">
+            <h2 className="text-3xl font-bold tracking-tight">Un aperçu de l’outil</h2>
+            <p className="mt-3 text-slate-600">
+              Une interface claire, pensée pour aller vite en rédaction comme en régie.
+            </p>
+          </div>
+
+          <div className="mt-12 space-y-8">
+            {/* Éditeur audio (pleine largeur) */}
+            <div>
+              <AudioEditorPreview />
+              <p className="mt-3 text-center text-sm text-slate-500">
+                Éditeur audio intégré — enregistrement, montage, optimisation et export, dans le navigateur.
+              </p>
+            </div>
+
+            {/* Médiathèque + Sujets */}
+            <div className="grid gap-8 lg:grid-cols-2">
+              <div>
+                <MediathequePreview />
+                <p className="mt-3 text-center text-sm text-slate-500">
+                  Médiathèque partagée, recherche et transcription automatique.
+                </p>
+              </div>
+              <div>
+                <SujetsPreview />
+                <p className="mt-3 text-center text-sm text-slate-500">
+                  Sujets avec statuts, durées de lecture et workflow de validation.
+                </p>
+              </div>
+            </div>
+
+            {/* Prompteur */}
+            <div>
+              <PrompteurPreview />
+              <p className="mt-3 text-center text-sm text-slate-500">
+                Prompteur plein écran, synchronisé au conducteur pour l’antenne.
+              </p>
+            </div>
+          </div>
         </div>
       </section>
 
