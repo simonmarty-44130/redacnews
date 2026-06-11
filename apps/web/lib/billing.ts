@@ -30,6 +30,14 @@ function tsToDate(ts: number | null | undefined): Date | null {
   return ts ? new Date(ts * 1000) : null;
 }
 
+// `current_period_end` a migré au niveau des items dans l'API Stripe récente ;
+// on lit l'item puis on retombe sur le champ historique si présent.
+function periodEndOf(sub: Stripe.Subscription): Date | null {
+  const item = sub.items?.data?.[0] as unknown as { current_period_end?: number } | undefined;
+  const top = (sub as unknown as { current_period_end?: number }).current_period_end;
+  return tsToDate(item?.current_period_end ?? top);
+}
+
 /**
  * Provisionne (idempotent) l'organisation + son 1er utilisateur ADMIN à partir
  * d'une Checkout Session complétée. Appelé sur `checkout.session.completed`.
@@ -77,7 +85,7 @@ export async function provisionFromCheckout(
     const sub = await getStripe().subscriptions.retrieve(subscriptionId);
     status = sub.status;
     trialEnd = tsToDate(sub.trial_end);
-    periodEnd = tsToDate((sub as unknown as { current_period_end: number }).current_period_end);
+    periodEnd = periodEndOf(sub);
   }
 
   await prisma.organization.create({
@@ -119,9 +127,7 @@ export async function syncSubscription(sub: Stripe.Subscription): Promise<void> 
     data: {
       subscriptionStatus: sub.status,
       trialEndsAt: tsToDate(sub.trial_end),
-      currentPeriodEnd: tsToDate(
-        (sub as unknown as { current_period_end: number }).current_period_end
-      ),
+      currentPeriodEnd: periodEndOf(sub),
     },
   });
 }
