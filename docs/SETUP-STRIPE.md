@@ -4,6 +4,13 @@ Statut : **code backend prêt** (modèle, `/api/stripe/checkout|webhook|portal`,
 router tRPC `billing`). Il manque : le **compte Stripe + les clés/price IDs**, la **migration DB**,
 et le **câblage UI** (onboarding / welcome / paywall / landing). Ce doc liste ce qu'il faut faire.
 
+## 0. Déjà fait (mode TEST, compte acct_1SMnjtChVSS4gicK « Première Pierre média »)
+
+- Produits + prix créés : **Asso** `price_1Th9d5ChVSS4gicK5DipJSJR` (49 €/mois) · **Radio** `price_1Th9d6ChVSS4gicKBaOyeQuD` (149 €/mois).
+- Clé test + price IDs rangés dans le secret AWS `redacnews/stripe-keys-test`.
+- UI : `/onboarding`, `/welcome`, `/api/onboarding/status`, redirection register, landing (« carte requise »).
+- Reste : webhook (whsec), env vars Amplify, migration `db push`, test parcours, paywall expiration, go-live.
+
 ## 1. Ce dont j'ai besoin de toi (Stripe)
 
 1. **Compte Stripe** (mode test d'abord). 

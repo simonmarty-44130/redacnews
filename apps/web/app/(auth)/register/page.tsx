@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Radio } from 'lucide-react';
-import { register, confirmRegistration } from '@/lib/aws/auth';
+import { register, confirmRegistration, login } from '@/lib/aws/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -45,7 +45,12 @@ export default function RegisterPage() {
 
     try {
       await confirmRegistration(email, confirmCode);
-      router.push('/login');
+      try {
+        await login(email, password);
+        router.push('/onboarding');
+      } catch {
+        router.push('/login');
+      }
     } catch (err: any) {
       setError(err.message || 'Code de confirmation invalide');
     } finally {
